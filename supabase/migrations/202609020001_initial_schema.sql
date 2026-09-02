@@ -9,9 +9,9 @@ alter table public.orders add column if not exists payment_method text;
 alter table public.quotes add column if not exists legacy_key text;
 alter table public.quote_items add column if not exists legacy_key text;
 
-create unique index if not exists prescriptions_order_unique on public.prescriptions(order_id) where order_id is not null;
-create unique index if not exists quotes_org_legacy_unique on public.quotes(organization_id, legacy_key) where legacy_key is not null;
-create unique index if not exists quote_items_quote_legacy_unique on public.quote_items(quote_id, legacy_key) where legacy_key is not null;
+create unique index if not exists prescriptions_order_unique on public.prescriptions(order_id);
+create unique index if not exists quotes_org_legacy_unique on public.quotes(organization_id, legacy_key);
+create unique index if not exists quote_items_quote_legacy_unique on public.quote_items(quote_id, legacy_key);
 
 create table if not exists public.units (
   id uuid primary key default gen_random_uuid(),
