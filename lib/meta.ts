@@ -19,7 +19,9 @@ export async function sendWhatsAppText(to: string, body: string) {
   if (!response.ok) throw new Error(`Meta API respondeu ${response.status}`);
 }
 
-export function firstIncomingPhone(payload: unknown): string | null {
-  const data = payload as { entry?: Array<{ changes?: Array<{ value?: { messages?: Array<{ from?: string }> } }> }> };
-  return data.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from?.replace(/\D/g, '') || null;
+export function firstIncomingMessage(payload: unknown): { phone: string; messageId: string } | null {
+  const data = payload as { entry?: Array<{ changes?: Array<{ value?: { messages?: Array<{ from?: string; id?: string }> } }> }> };
+  const message = data.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+  const phone = message?.from?.replace(/\D/g, '');
+  return phone && message?.id ? { phone, messageId: message.id } : null;
 }

@@ -24,14 +24,13 @@ Use Node.js 20.9 ou superior. Nunca grave chaves secretas no Git. A chave public
 
 ## Banco e Storage
 
-A migração `supabase/migrations/202609020001_initial_schema.sql` cria:
+A migração `supabase/migrations/202609020001_initial_schema.sql` estende, sem apagar, o esquema já existente no projeto `optotica-dev`:
 
-- empresas, unidades, profissionais e permissões;
-- clientes e consentimentos;
-- pedidos, prescrições, orçamentos, lentes e armações;
-- documentos e histórico de auditoria;
-- políticas RLS multiempresa;
-- bucket privado `patient-documents`.
+- preserva `organizations`, membros, perfis e os buckets existentes;
+- acrescenta unidades, lentes, armações e escolhas de armação;
+- completa as políticas de orçamentos, sequências e solicitações do WhatsApp;
+- protege os buckets privados `client-documents` e `try-on-photos`;
+- reforça o isolamento entre organizações nas gravações relacionadas.
 
 Antes de aplicar no projeto remoto, execute a migração em uma branch ou projeto de teste e valide as políticas com usuários de cada perfil.
 
@@ -55,7 +54,7 @@ Valide a carga sem enviar dados:
 node scripts/import-valid-orders.mjs migration-output/valid-orders.json
 ```
 
-Depois de aplicar o esquema e configurar `OPTOTICA_COMPANY_ID`, execute conscientemente com `--apply`. A secret key do Supabase deve existir apenas no ambiente local seguro durante a migração.
+Depois de aplicar a extensão do esquema e configurar `OPTOTICA_ORGANIZATION_ID`, execute conscientemente com `--apply`. A secret key do Supabase deve existir apenas no ambiente local seguro durante a migração.
 
 ## Publicação
 

@@ -1,6 +1,7 @@
+import crypto from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { createAdminSupabaseClient } from '@/lib/supabase/server';
-import { firstIncomingPhone, sendWhatsAppText, validMetaSignature } from '@/lib/meta';
+import { firstIncomingMessage, sendWhatsAppText, validMetaSignature } from '@/lib/meta';
 import { publicEnv, serverEnv } from '@/lib/env';
 
 export async function GET(request: Request) {
@@ -21,15 +22,23 @@ export async function POST(request: Request) {
   }
 
   const payload = JSON.parse(rawBody) as unknown;
-  const phone = firstIncomingPhone(payload);
-  if (!phone) return NextResponse.json({ received: true });
+  const message = firstIncomingMessage(payload);
+  if (!message) return NextResponse.json({ received: true });
+  const { phone, messageId } = message;
 
   const admin = createAdminSupabaseClient();
+  const { data: existingRequest } = await admin
+    .from('whatsapp_access_requests')
+    .select('id')
+    .eq('whatsapp_message_id', messageId)
+    .maybeSingle();
+  if (existingRequest) return NextResponse.json({ received: true });
+
   const { data: client } = await admin
     .from('clients')
-    .select('id, email, active')
+    .select('id, organization_id, email, status')
     .eq('whatsapp_e164', `+${phone}`)
-    .eq('active', true)
+    .eq('status', 'active')
     .maybeSingle();
 
   if (!client?.email) {
@@ -49,10 +58,53 @@ export async function POST(request: Request) {
   }
 
   if (data.user?.id) {
-    await admin.from('clients').update({ auth_user_id: data.user.id }).eq('id', client.id).is('auth_user_id', null);
+    const { error: accountError } = await admin.from('client_user_accounts').upsert(
+      { client_id: client.id, user_id: data.user.id },
+      { onConflict: 'client_id,user_id' }
+    );
+    if (accountError) throw accountError;
   }
 
   const magicLink = `${publicEnv.appUrl()}/auth/confirm?token_hash=${encodeURIComponent(data.properties.hashed_token)}&next=/cliente`;
+  const consentVersion = process.env.OPTOTICA_CONSENT_VERSION || '2026-09-01';
+  const tokenFingerprint = crypto.createHash('sha256').update(data.properties.hashed_token).digest('hex');
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+  const { error: requestError } = await admin.from('whatsapp_access_requests').upsert({
+    organization_id: client.organization_id,
+    client_id: client.id,
+    whatsapp_e164: `+${phone}`,
+    whatsapp_message_id: messageId,
+    consent_version: consentVersion,
+    token_hash: tokenFingerprint,
+    expires_at: expiresAt
+  }, { onConflict: 'whatsapp_message_id' });
+  if (requestError) throw requestError;
+
+  const { error: consentError } = await admin.from('client_consents').insert([
+    {
+      organization_id: client.organization_id,
+      client_id: client.id,
+      whatsapp_e164: `+${phone}`,
+      consent_type: 'authentication',
+      granted: true,
+      source: 'whatsapp_inbound',
+      policy_version: consentVersion,
+      evidence: { whatsapp_message_id: messageId }
+    },
+    {
+      organization_id: client.organization_id,
+      client_id: client.id,
+      whatsapp_e164: `+${phone}`,
+      consent_type: 'transactional_messages',
+      granted: true,
+      source: 'whatsapp_inbound',
+      policy_version: consentVersion,
+      evidence: { whatsapp_message_id: messageId }
+    }
+  ]);
+  if (consentError) throw consentError;
+
   await sendWhatsAppText(phone, `Seu acesso seguro ao Portal Optótica:\n${magicLink}\n\nEste link é pessoal e temporário. Não encaminhe.`);
   return NextResponse.json({ received: true });
 }

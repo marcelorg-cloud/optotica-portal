@@ -4,7 +4,7 @@ import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase
 
 export const metadata: Metadata = { title: 'Meus pedidos' };
 
-type ClientOrder = { id: string; order_number: number; status: string; final_amount: number | null; updated_at: string };
+type ClientOrder = { id: string; order_number: number; status: string; total: number | null; updated_at: string };
 
 export default async function ClientPage() {
   if (!isSupabaseConfigured()) redirect('/entrar');
@@ -12,10 +12,13 @@ export default async function ClientPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/entrar');
 
-  const { data: client } = await supabase.from('clients').select('id, full_name').eq('auth_user_id', user.id).eq('active', true).maybeSingle();
+  const { data: account } = await supabase.from('client_user_accounts').select('client_id').eq('user_id', user.id).maybeSingle();
+  const { data: client } = account
+    ? await supabase.from('clients').select('id, full_name').eq('id', account.client_id).eq('status', 'active').maybeSingle()
+    : { data: null };
   if (!client) return <div className="page-shell narrow"><div className="setup-note">Seu acesso ainda não está vinculado a um cadastro de cliente.</div></div>;
 
-  const { data } = await supabase.from('orders').select('id, order_number, status, final_amount, updated_at').eq('client_id', client.id).order('order_number', { ascending: false });
+  const { data } = await supabase.from('orders').select('id, order_number, status, total, updated_at').eq('client_id', client.id).order('order_number', { ascending: false });
   const orders = (data || []) as ClientOrder[];
 
   return (
@@ -26,7 +29,7 @@ export default async function ClientPage() {
           <article key={order.id}>
             <span>Pedido #{order.order_number}</span>
             <h2>{order.status}</h2>
-            <p>{order.final_amount == null ? 'Valor a definir' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(order.final_amount)}</p>
+            <p>{order.total == null ? 'Valor a definir' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(order.total)}</p>
           </article>
         )) : <div className="setup-note">Nenhum pedido disponível.</div>}
       </section>

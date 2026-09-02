@@ -4,7 +4,7 @@ import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase
 
 export const metadata: Metadata = { title: 'Área profissional' };
 
-type OrderSummary = { id: string; order_number: number; status: string; updated_at: string; clients: { full_name: string } | null };
+type OrderSummary = { id: string; order_number: number; status: string; total: number | null; updated_at: string; clients: { full_name: string } | null };
 
 export default async function ProfessionalPage() {
   if (!isSupabaseConfigured()) {
@@ -16,20 +16,20 @@ export default async function ProfessionalPage() {
   if (!user) redirect('/entrar?profissional=1');
 
   const { data: membership } = await supabase
-    .from('company_members')
-    .select('role, companies(name)')
+    .from('organization_members')
+    .select('role, organizations(name)')
     .eq('user_id', user.id)
     .eq('active', true)
     .limit(1)
     .maybeSingle();
 
-  if (!membership || !['owner', 'admin', 'optometrist', 'staff'].includes(membership.role)) {
+  if (!membership || !['owner', 'admin', 'professional', 'staff'].includes(membership.role)) {
     return <div className="page-shell narrow"><div className="setup-note">Seu usuário ainda não possui acesso profissional autorizado.</div></div>;
   }
 
   const { data } = await supabase
     .from('orders')
-    .select('id, order_number, status, updated_at, clients(full_name)')
+    .select('id, order_number, status, total, updated_at, clients(full_name)')
     .order('updated_at', { ascending: false })
     .limit(20);
   const orders = (data || []) as unknown as OrderSummary[];

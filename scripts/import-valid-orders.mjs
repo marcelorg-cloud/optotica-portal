@@ -18,7 +18,7 @@ if (!apply) {
   process.exit(0);
 }
 
-const required = ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SECRET_KEY', 'OPTOTICA_COMPANY_ID'];
+const required = ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SECRET_KEY', 'OPTOTICA_ORGANIZATION_ID'];
 for (const name of required) {
   if (!process.env[name]) throw new Error(`Variável obrigatória ausente: ${name}`);
 }
@@ -27,8 +27,8 @@ const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.
   auth: { persistSession: false, autoRefreshToken: false }
 });
 
-const companyId = process.env.OPTOTICA_COMPANY_ID;
-const unitId = process.env.OPTOTICA_UNIT_ID || null;
+const organizationId = process.env.OPTOTICA_ORGANIZATION_ID;
+const professionalId = process.env.OPTOTICA_PROFESSIONAL_ID || null;
 
 function phoneE164(value) {
   const digits = String(value || '').replace(/\D/g, '');
@@ -45,65 +45,82 @@ function decimal(value) {
 function orderStatus(value) {
   const status = String(value || '').toLowerCase();
   if (status.includes('entreg')) return 'delivered';
-  if (status.includes('produ')) return 'lens_production';
-  if (status.includes('confirm')) return 'confirmed';
-  return 'draft';
+  if (status.includes('produ')) return 'in_production';
+  if (status.includes('confirm') || status.includes('aprov')) return 'approved';
+  return 'in_progress';
 }
 
 for (const patient of patients) {
   const customer = patient.customer || {};
   const { data: client, error: clientError } = await supabase.from('clients').upsert({
-    company_id: companyId,
-    unit_id: unitId,
+    organization_id: organizationId,
     full_name: customer.name || 'Cliente migrado',
     whatsapp_e164: phoneE164(customer.whatsapp || patient.phone),
     email: customer.email || null,
-    dnp_od: decimal(customer.dnpOd),
-    dnp_oe: decimal(customer.dnpOe),
-    active: true
-  }, { onConflict: 'company_id,whatsapp_e164' }).select('id').single();
+    status: 'active'
+  }, { onConflict: 'organization_id,whatsapp_e164' }).select('id').single();
   if (clientError) throw clientError;
 
   for (const legacy of patient.orders || []) {
     const orderNumber = Number(legacy.number ?? legacy.numero);
     const { data: order, error: orderError } = await supabase.from('orders').upsert({
-      company_id: companyId,
-      unit_id: unitId,
+      organization_id: organizationId,
       client_id: client.id,
+      professional_id: professionalId,
       order_number: orderNumber,
       status: orderStatus(legacy.status),
-      final_amount: decimal(legacy.finalValue)
-    }, { onConflict: 'company_id,order_number' }).select('id').single();
+      total: decimal(legacy.finalValue) || 0
+    }, { onConflict: 'organization_id,order_number' }).select('id').single();
     if (orderError) throw orderError;
 
     const rx = legacy.prescription || {};
     const hasPrescription = Object.values(rx.od || {}).some(Boolean) || Object.values(rx.oe || {}).some(Boolean);
     if (hasPrescription) {
       const { error } = await supabase.from('prescriptions').upsert({
-        company_id: companyId,
+        organization_id: organizationId,
+        client_id: client.id,
         order_id: order.id,
-        od_sphere: decimal(rx.od?.esf), od_cylinder: decimal(rx.od?.cil), od_axis: decimal(rx.od?.eixo), od_addition: decimal(rx.od?.adicao),
-        oe_sphere: decimal(rx.oe?.esf), oe_cylinder: decimal(rx.oe?.cil), oe_axis: decimal(rx.oe?.eixo), oe_addition: decimal(rx.oe?.adicao)
+        professional_id: professionalId,
+        prescription_data: {
+          od: { sphere: decimal(rx.od?.esf), cylinder: decimal(rx.od?.cil), axis: decimal(rx.od?.eixo), addition: decimal(rx.od?.adicao) },
+          oe: { sphere: decimal(rx.oe?.esf), cylinder: decimal(rx.oe?.cil), axis: decimal(rx.oe?.eixo), addition: decimal(rx.oe?.adicao) }
+        }
       }, { onConflict: 'order_id' });
       if (error) throw error;
     }
 
-    for (const [budgetIndex, budget] of (legacy.budgets || []).entries()) {
-      const { error } = await supabase.from('budgets').upsert({
-        company_id: companyId,
+    let quoteId = null;
+    if ((legacy.budgets || []).length) {
+      const quoteTotal = (legacy.budgets || []).reduce((sum, budget) => sum + (decimal(budget.price) || 0), 0);
+      const { data: quote, error: quoteError } = await supabase.from('quotes').upsert({
+        organization_id: organizationId,
+        client_id: client.id,
         order_id: order.id,
+        legacy_key: `order-${orderNumber}`,
+        status: legacy.selectedBudgetId ? 'selected' : 'sent',
+        total: quoteTotal
+      }, { onConflict: 'organization_id,legacy_key' }).select('id').single();
+      if (quoteError) throw quoteError;
+      quoteId = quote.id;
+    }
+
+    for (const [budgetIndex, budget] of (legacy.budgets || []).entries()) {
+      const { error } = await supabase.from('quote_items').upsert({
+        quote_id: quoteId,
         legacy_key: String(budget.id || `${orderNumber}-${budgetIndex + 1}`),
-        details: budget.details || legacy.lensDraft?.type || 'Lente migrada',
-        laboratory: budget.lab || legacy.lensDraft?.lab || null,
-        amount: decimal(budget.price) || 0,
-        notes: budget.obs || null
-      }, { onConflict: 'order_id,legacy_key' });
+        item_type: 'lens',
+        description: budget.details || legacy.lensDraft?.type || 'Lente migrada',
+        internal_code: null,
+        quantity: 1,
+        unit_price: decimal(budget.price) || 0,
+        metadata: { laboratory: budget.lab || legacy.lensDraft?.lab || null, notes: budget.obs || null }
+      }, { onConflict: 'quote_id,legacy_key' });
       if (error) throw error;
     }
 
     if (legacy.selectedFrame?.name) {
       const { error } = await supabase.from('order_frames').upsert({
-        company_id: companyId,
+        organization_id: organizationId,
         order_id: order.id,
         frame_name: legacy.selectedFrame.name,
         sku: legacy.selectedFrame.sku || null,

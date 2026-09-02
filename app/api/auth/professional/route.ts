@@ -12,14 +12,13 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminSupabaseClient();
-  const { data: profile } = await admin
-    .from('profiles')
-    .select('user_id')
-    .eq('email', email)
-    .eq('active', true)
-    .maybeSingle();
+  const { data: users } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  const candidate = users?.users.find(user => user.email?.toLowerCase() === email);
+  const { data: membership } = candidate
+    ? await admin.from('organization_members').select('user_id').eq('user_id', candidate.id).eq('active', true).maybeSingle()
+    : { data: null };
 
-  if (profile) {
+  if (membership) {
     const supabase = await createServerSupabaseClient();
     await supabase.auth.signInWithOtp({
       email,
