@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Portal Optótica · Área do Cliente</title>
+  <style>
+    :root{
+      --bg:#f5f5f3;--surface:#fff;--surface2:#fafaf8;--text:#171717;--muted:#6d6d67;
+      --line:#deded8;--strong:#c8c8c0;--soft:#efefea;--success:#1f7a4b;--warning:#9a6512;
+      --radius:18px;--shadow:0 8px 28px rgba(0,0,0,.05);
+    }
+    *{box-sizing:border-box} html{scroll-behavior:smooth}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.45}
+    button,input{font:inherit}
+    .app{width:min(1240px,calc(100% - 28px));margin:20px auto 70px}
+    .top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:16px}
+    .eyebrow{margin:0 0 6px;color:var(--muted);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em}
+    h1{margin:0;font-size:clamp(30px,4vw,43px);line-height:1.04;letter-spacing:-.035em}
+    h2{margin:0;font-size:22px;letter-spacing:-.02em} h3{margin:0;font-size:16px}
+    .idbox{padding:10px 13px;background:#fff;border:1px solid var(--line);border-radius:14px;text-align:right}
+    .idbox span{display:block;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+    .idbox strong{font-size:13px}
+    .orders{display:flex;gap:8px;overflow-x:auto;padding:2px 0 14px}
+    .order-tab{flex:0 0 auto;min-height:42px;padding:9px 13px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--text);font-size:12px;font-weight:850;cursor:pointer}
+    .order-tab.active{background:#171717;color:#fff;border-color:#171717}.order-tab small{font-size:10px;opacity:.72}
+    .flow-wrap{position:sticky;top:0;z-index:15;padding:8px 0 14px;background:rgba(245,245,243,.95);backdrop-filter:blur(12px)}
+    .flow{display:grid;grid-template-columns:repeat(5,minmax(150px,1fr));gap:8px;overflow-x:auto}
+    .flow a{min-width:150px;display:grid;grid-template-columns:29px 1fr;gap:8px;align-items:center;padding:10px 11px;color:inherit;text-decoration:none;border:1px solid var(--line);background:#fff;border-radius:14px}
+    .step{width:29px;height:29px;border-radius:50%;display:grid;place-items:center;background:var(--soft);color:var(--muted);font-size:11px;font-weight:900}
+    .flow .done .step{background:var(--success);color:#fff}.flow .current{border-color:#171717;box-shadow:inset 0 0 0 1px #171717}.flow .current .step{background:#171717;color:#fff}
+    .flow strong{display:block;font-size:12px;line-height:1.15}.flow small{display:block;margin-top:2px;color:var(--muted);font-size:10px}
+    .card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;scroll-margin-top:120px}
+    .card+.card{margin-top:18px}.card-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;padding:20px 20px 14px;border-bottom:1px solid var(--line)}.card-body{padding:20px}
+    .tag{display:inline-flex;padding:6px 9px;border-radius:999px;font-size:10px;font-weight:900;background:#f6f0e7;color:var(--warning);white-space:nowrap}.tag.success{background:#edf7f1;color:var(--success)}
+    .summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.stat{padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--surface2)}.stat span{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;font-weight:800;letter-spacing:.06em}.stat strong{display:block;margin-top:4px;font-size:14px}
+    .readonly-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.readonly{padding:13px;border:1px solid var(--line);border-radius:12px;background:var(--surface2)}.readonly span{display:block;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}.readonly strong{display:block;margin-top:4px;font-size:13px}
+    .helper{color:var(--muted);font-size:11px}.notice{padding:13px 14px;border:1px solid var(--line);border-radius:13px;background:var(--surface2);color:#55554f;font-size:11px}
+    .photo-block{display:grid;grid-template-columns:180px 1fr;gap:16px;align-items:center;margin-top:16px;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--surface2)}
+    .photo{width:100%;aspect-ratio:4/5;border:1px solid var(--line);border-radius:14px;object-fit:cover;background:#eee}.upload{display:none}
+    .btn{appearance:none;border:0;border-radius:12px;min-height:42px;padding:9px 13px;font-weight:850;cursor:pointer}.btn-primary{background:#171717;color:#fff}.btn-secondary{background:#fff;color:#171717;border:1px solid var(--line)}
+    .budget-list{display:grid;gap:12px}.budget{display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:16px;border:1px solid var(--line);border-radius:14px;cursor:pointer}.budget.selected{border-color:#171717;box-shadow:inset 0 0 0 1px #171717;background:var(--surface2)}
+    .budget-main{display:flex;gap:12px;align-items:flex-start}.budget input{width:auto;margin-top:4px}.budget strong{display:block;font-size:14px}.budget small{display:block;margin-top:3px;color:var(--muted);font-size:11px}.price{font-size:20px;font-weight:900;white-space:nowrap}
+    .empty{padding:18px;border:1px dashed var(--strong);border-radius:13px;text-align:center;color:var(--muted);font-size:12px}
+    .rx-actions{display:flex;justify-content:flex-end;margin-bottom:12px}.rx-wrap{overflow-x:auto}.rx-table{width:100%;min-width:600px;border-collapse:separate;border-spacing:0;border:1px solid var(--line);border-radius:14px;overflow:hidden}.rx-table th,.rx-table td{padding:11px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);text-align:center}.rx-table th:last-child,.rx-table td:last-child{border-right:0}.rx-table tr:last-child th,.rx-table tr:last-child td{border-bottom:0}.rx-table thead th{background:var(--soft);font-size:10px;text-transform:uppercase}.rx-table tbody th{width:62px;background:var(--surface2);font-size:12px}
+    .suggestion-grid,.catalog-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.suggestion-card,.frame-card{border:1px solid var(--line);border-radius:15px;background:#fff;overflow:hidden}.tryon{position:relative;aspect-ratio:4/5;background:var(--surface2);overflow:hidden}.tryon img{width:100%;height:100%;object-fit:cover}.glasses{position:absolute;width:62%;left:19%;top:34%;height:18%;border:4px solid #222;border-radius:45%}.glasses:before,.glasses:after{content:"";position:absolute;top:14%;width:42%;height:70%;border:4px solid #222;border-radius:44%}.glasses:before{left:0}.glasses:after{right:0}.bridge{position:absolute;left:44%;top:47%;width:12%;height:4px;background:#222}
+    .frame-image{aspect-ratio:1.25;display:grid;place-items:center;background:linear-gradient(135deg,#f3f3ef,#fbfbf9);color:var(--muted);font-size:11px;border-bottom:1px solid var(--line)}.frame-info{padding:13px}.frame-info strong{display:block;font-size:14px}.frame-info small{display:block;margin-top:3px;color:var(--muted)}.frame-card.selected{border-color:#171717;box-shadow:inset 0 0 0 1px #171717}
+    .timeline{display:grid}.timeline-item{display:grid;grid-template-columns:28px 1fr auto;gap:11px;align-items:start;padding:13px 0;border-bottom:1px solid var(--line)}.timeline-item:last-child{border-bottom:0}.timeline-icon{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--soft);font-size:10px;font-weight:900}.timeline-item.done .timeline-icon{background:var(--success);color:#fff}.timeline-item.current .timeline-icon{background:#171717;color:#fff}.timeline-item strong{display:block;font-size:13px}.timeline-item small{color:var(--muted);font-size:11px}.timeline-date{color:var(--muted);font-size:10px}
+    .modal{display:none;position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.38);padding:20px;overflow:auto}.modal.active{display:block}.rx-doc{width:min(820px,100%);margin:20px auto;background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.18);overflow:hidden}.rx-doc-head{display:flex;justify-content:space-between;padding:24px;border-bottom:1px solid var(--line)}.rx-doc-body{padding:24px}.sig-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:36px}.sig{min-height:120px;border-top:1px solid #333;padding-top:10px;font-size:12px}.stamp{min-height:120px;border:1px dashed var(--strong);border-radius:12px;display:grid;place-items:center;text-align:center;padding:14px;font-size:12px}.modal-actions{display:flex;justify-content:flex-end;gap:10px;padding:0 24px 24px}
+    @media(max-width:900px){.summary{grid-template-columns:repeat(2,1fr)}.readonly-grid{grid-template-columns:repeat(2,1fr)}.suggestion-grid,.catalog-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:640px){.app{width:min(100% - 18px,1240px)}.top{flex-direction:column}.idbox{text-align:left}.summary,.readonly-grid,.suggestion-grid,.catalog-grid{grid-template-columns:1fr}.budget{grid-template-columns:1fr}.photo-block{grid-template-columns:1fr}.sig-grid{grid-template-columns:1fr}}
+    @media print{body *{visibility:hidden!important}#rxModal,#rxModal *{visibility:visible!important}#rxModal{display:block!important;position:static!important;background:#fff!important;padding:0!important}.rx-doc{width:100%!important;margin:0!important;box-shadow:none!important;border-radius:0!important}.modal-actions{display:none!important}}
+  </style>
+</head>
+<body>
+<main class="app">
+  <header class="top">
+    <div><p class="eyebrow">Portal Optótica · Área do Cliente</p><h1 id="hello">Olá</h1></div>
+    <div class="idbox"><span>ID do cliente · WhatsApp</span><strong id="clientPhone">—</strong></div>
+  </header>
+
+  <div class="orders" id="orders"></div>
+
+  <nav class="flow-wrap">
+    <div class="flow">
+      <a class="done" href="#dados"><span class="step">✓</span><span><strong>Meus dados</strong><small>cadastro + DNP</small></span></a>
+      <a class="current" href="#orcamentos"><span class="step">2</span><span><strong>Escolher lente</strong><small>orçamentos</small></span></a>
+      <a href="#receita"><span class="step">3</span><span><strong>Minha receita</strong><small>prescrição</small></span></a>
+      <a href="#armacao"><span class="step">4</span><span><strong>Escolher armação</strong><small>catálogo</small></span></a>
+      <a href="#status"><span class="step">5</span><span><strong>Acompanhar pedido</strong><small>produção + entrega</small></span></a>
+    </div>
+  </nav>
+
+  <section class="card">
+    <div class="card-head"><div><p class="eyebrow">VISÃO GERAL</p><h2 id="orderTitle">Pedido</h2></div><span class="tag" id="orderStatusTag">Em andamento</span></div>
+    <div class="card-body">
+      <div class="summary">
+        <div class="stat"><span>Lente</span><strong id="overviewLens">Escolha pendente</strong></div>
+        <div class="stat"><span>Armação</span><strong id="overviewFrame">Ainda não escolhida</strong></div>
+        <div class="stat"><span>Valor</span><strong id="overviewValue">A definir</strong></div>
+        <div class="stat"><span>Status</span><strong id="overviewStatus">Em andamento</strong></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="dados">
+    <div class="card-head"><div><p class="eyebrow">Cadastro</p><h2>Meus dados</h2></div><span class="tag success">Somente consulta</span></div>
+    <div class="card-body">
+      <div class="readonly-grid">
+        <div class="readonly"><span>Nome completo</span><strong id="dataName">—</strong></div>
+        <div class="readonly"><span>WhatsApp</span><strong id="dataPhone">—</strong></div>
+        <div class="readonly"><span>E-mail</span><strong id="dataEmail">—</strong></div>
+        <div class="readonly"><span>DNP OD</span><strong id="dataDnpOd">—</strong></div>
+        <div class="readonly"><span>DNP OE</span><strong id="dataDnpOe">—</strong></div>
+      </div>
+
+      <div class="photo-block">
+        <img id="photoPreview" class="photo" alt="Foto de prova online">
+        <div>
+          <p class="eyebrow">Único dado pessoal editável aqui</p>
+          <h3>Foto da prova online</h3>
+          <div class="helper">Você pode trocar esta foto. Os demais dados vêm do atendimento e não são editáveis nesta área.</div>
+          <div style="height:10px"></div>
+          <label class="btn btn-primary" for="photoInput">Trocar foto</label>
+          <input id="photoInput" class="upload" type="file" accept="image/*">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="orcamentos">
+    <div class="card-head"><div><p class="eyebrow">Preparados pelo profissional</p><h2>Orçamentos de lentes</h2></div><span class="tag">Selecione uma opção</span></div>
+    <div class="card-body">
+      <div id="budgetList" class="budget-list"></div>
+      <div class="notice" style="margin-top:14px">Você pode apenas escolher entre os orçamentos cadastrados pelo profissional. Laboratório e custos internos não são exibidos.</div>
+    </div>
+  </section>
+
+  <section class="card" id="receita">
+    <div class="card-head"><div><p class="eyebrow">Prescrição enviada pelo profissional</p><h2>Minha receita de óculos</h2></div><span class="tag success">Somente consulta</span></div>
+    <div class="card-body">
+      <div class="rx-actions"><button class="btn btn-primary" id="openPdf" type="button">Gerar PDF da prescrição</button></div>
+      <div class="rx-wrap">
+        <table class="rx-table"><thead><tr><th></th><th>Esférico</th><th>Cilíndrico</th><th>Eixo</th><th>Adição</th></tr></thead>
+        <tbody>
+          <tr><th>OD</th><td id="odEsf">—</td><td id="odCil">—</td><td id="odEixo">—</td><td id="odAd">—</td></tr>
+          <tr><th>OE</th><td id="oeEsf">—</td><td id="oeCil">—</td><td id="oeEixo">—</td><td id="oeAd">—</td></tr>
+        </tbody></table>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="armacao">
+    <div class="card-head"><div><p class="eyebrow">Catálogo</p><h2>Escolha sua armação</h2></div><span class="tag">Selecione um modelo</span></div>
+    <div class="card-body">
+      <p class="eyebrow">Sugestões para você · usando sua foto</p>
+      <div class="suggestion-grid" id="suggestions"></div>
+
+      <div style="height:20px"></div>
+      <p class="eyebrow">Catálogo de modelos</p>
+      <div class="catalog-grid" id="catalog"></div>
+    </div>
+  </section>
+
+  <section class="card" id="status">
+    <div class="card-head"><div><p class="eyebrow">Seu pedido</p><h2>Acompanhamento</h2></div><span class="tag" id="trackingTag">Em andamento</span></div>
+    <div class="card-body">
+      <div class="timeline">
+        <div class="timeline-item done"><div class="timeline-icon">✓</div><div><strong>Atendimento iniciado</strong><small>Cadastro e prescrição vinculados ao pedido.</small></div><div class="timeline-date">Concluído</div></div>
+        <div class="timeline-item current"><div class="timeline-icon">2</div><div><strong>Escolhas do pedido</strong><small>Selecione a lente e a armação.</small></div><div class="timeline-date">Agora</div></div>
+        <div class="timeline-item"><div class="timeline-icon">3</div><div><strong>Pedido confirmado</strong><small>Confirmação da solução e do pagamento.</small></div><div class="timeline-date">—</div></div>
+        <div class="timeline-item"><div class="timeline-icon">4</div><div><strong>Em produção</strong><small>Lentes e armação em preparação.</small></div><div class="timeline-date">—</div></div>
+        <div class="timeline-item"><div class="timeline-icon">5</div><div><strong>Montagem</strong><small>Óculos em montagem e conferência.</small></div><div class="timeline-date">—</div></div>
+        <div class="timeline-item"><div class="timeline-icon">6</div><div><strong>Pronto para entrega</strong><small>Acompanharemos a entrega até você.</small></div><div class="timeline-date">—</div></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="rxModal">
+  <div class="rx-doc">
+    <div class="rx-doc-head"><div><p class="eyebrow">Receituário óptico</p><h2>Prescrição de óculos</h2></div><strong id="pdfOrder">—</strong></div>
+    <div class="rx-doc-body">
+      <div class="readonly-grid">
+        <div class="readonly"><span>Paciente</span><strong id="pdfName">—</strong></div>
+        <div class="readonly"><span>WhatsApp</span><strong id="pdfPhone">—</strong></div>
+        <div class="readonly"><span>DNP OD</span><strong id="pdfDnpOd">—</strong></div>
+        <div class="readonly"><span>DNP OE</span><strong id="pdfDnpOe">—</strong></div>
+      </div>
+      <div style="height:20px"></div>
+      <div class="rx-wrap">
+        <table class="rx-table"><thead><tr><th></th><th>Esférico</th><th>Cilíndrico</th><th>Eixo</th><th>Adição</th></tr></thead>
+        <tbody>
+          <tr><th>OD</th><td id="pdfOdEsf">—</td><td id="pdfOdCil">—</td><td id="pdfOdEixo">—</td><td id="pdfOdAd">—</td></tr>
+          <tr><th>OE</th><td id="pdfOeEsf">—</td><td id="pdfOeCil">—</td><td id="pdfOeEixo">—</td><td id="pdfOeAd">—</td></tr>
+        </tbody></table>
+      </div>
+      <div class="sig-grid">
+        <div class="sig"><strong id="professionalName">Optometrista responsável</strong><br><span id="professionalRegistration">Cadastro profissional</span><br><br><strong>Assinatura:</strong> <span id="professionalSignature">assinatura cadastrada</span></div>
+        <div class="stamp"><div><strong>Carimbo do optometrista</strong><br><span id="professionalStamp">carimbo cadastrado</span></div></div>
+      </div>
+    </div>
+    <div class="modal-actions"><button class="btn btn-secondary" id="closePdf" type="button">Fechar</button><button class="btn btn-primary" id="printPdf" type="button">Imprimir / salvar PDF</button></div>
+  </div>
+</div>
+
+<script>
+  function normalizePhone(value){let d=String(value||'').replace(/\D/g,'');if(d.length===11)d='55'+d;return d}
+  const params=new URLSearchParams(location.search);
+  const phone=normalizePhone(params.get('telefone')||'5521999990000');
+  const storageKey='optotica_cliente_phone_'+phone;
+  let activeOrder='1287';
+
+  const defaultPhoto="data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='750'%3E%3Crect width='600' height='750' fill='%23ecece7'/%3E%3Ccircle cx='300' cy='275' r='115' fill='%23d4d4cd'/%3E%3Cpath d='M115 710c25-155 115-225 185-225s160 70 185 225' fill='%23d4d4cd'/%3E%3Ctext x='300' y='90' text-anchor='middle' font-family='Arial' font-size='24' fill='%23707069'%3EProva online%3C/text%3E%3C/svg%3E";
+
+  function demoRecord(){
+    return {
+      phone,
+      customer:{name:'Ana Souza',whatsapp:'(21) 99999-0000',email:'ana@email.com',dnpOd:'31',dnpOe:'30,5',photo:''},
+      professional:{name:'Optometrista responsável',registration:'Cadastro profissional',stamp:'Carimbo cadastrado no perfil',signature:'Assinatura cadastrada no perfil'},
+      orders:{
+        '1287':{
+          number:'1287',status:'em andamento',
+          prescription:{od:{esf:'-1,25',cil:'-0,50',eixo:'90°',adicao:''},oe:{esf:'-1,00',cil:'-0,75',eixo:'85°',adicao:''}},
+          budgets:[],selectedBudgetId:'',selectedFrame:{name:'',sku:'',color:'',origin:''},finalValue:''
+        }
+      }
+    }
+  }
+
+  function loadRecord(){
+    try{return JSON.parse(localStorage.getItem(storageKey)||'null')||demoRecord()}catch(e){return demoRecord()}
+  }
+
+  function saveRecord(record){
+    try{localStorage.setItem(storageKey,JSON.stringify(record))}catch(e){}
+  }
+
+  function val(v){return v||'—'}
+  function currentOrder(record){return (record.orders||{})[activeOrder]||{}}
+
+  const catalog=[
+    {id:'aurora',name:'Modelo Aurora',color:'Preto'},
+    {id:'dora',name:'Modelo Dora',color:'Tartaruga'},
+    {id:'matilda',name:'Modelo Matilda',color:'Cristal'}
+  ];
+
+  function render(){
+    const record=loadRecord(), customer=record.customer||{}, orders=record.orders||{};
+    const numbers=Object.keys(orders).sort((a,b)=>Number(a)-Number(b));
+    if(!numbers.includes(activeOrder)) activeOrder=numbers[0]||'1287';
+    const order=currentOrder(record), rx=order.prescription||{od:{},oe:{}}, selectedFrame=order.selectedFrame||{};
+
+    document.getElementById('hello').textContent='Olá'+(customer.name?' , '+customer.name.split(' ')[0]:'');
+    document.getElementById('clientPhone').textContent=customer.whatsapp||phone;
+    document.getElementById('dataName').textContent=val(customer.name);
+    document.getElementById('dataPhone').textContent=val(customer.whatsapp||phone);
+    document.getElementById('dataEmail').textContent=val(customer.email);
+    document.getElementById('dataDnpOd').textContent=customer.dnpOd?customer.dnpOd+' mm':'—';
+    document.getElementById('dataDnpOe').textContent=customer.dnpOe?customer.dnpOe+' mm':'—';
+    document.getElementById('photoPreview').src=customer.photo||defaultPhoto;
+
+    const ordersEl=document.getElementById('orders');ordersEl.innerHTML='';
+    numbers.forEach(n=>{
+      const b=document.createElement('button');b.className='order-tab'+(n===activeOrder?' active':'');b.innerHTML='Pedido #'+n+' <small>'+(orders[n].status||'em andamento')+'</small>';
+      b.onclick=()=>{activeOrder=n;render()};ordersEl.appendChild(b)
+    });
+
+    document.getElementById('orderTitle').textContent='Pedido #'+activeOrder;
+    document.getElementById('orderStatusTag').textContent=order.status||'Em andamento';
+    document.getElementById('overviewStatus').textContent=order.status||'Em andamento';
+
+    const budgets=order.budgets||[], budgetList=document.getElementById('budgetList');budgetList.innerHTML='';
+    if(!budgets.length){budgetList.innerHTML='<div class="empty">Nenhum orçamento de lente foi adicionado pelo profissional ainda.</div>'}
+    budgets.forEach(b=>{
+      const selected=String(order.selectedBudgetId||'')===String(b.id);
+      const card=document.createElement('div');card.className='budget'+(selected?' selected':'');
+      card.innerHTML='<div class="budget-main"><input type="radio" name="budget" '+(selected?'checked':'')+'><div><strong>'+val(b.details)+'</strong><small>'+(b.obs||'Opção preparada para este pedido')+'</small></div></div><div class="price">R$ '+val(b.price)+'</div>';
+      card.onclick=()=>{const r=loadRecord();r.orders[activeOrder].selectedBudgetId=String(b.id);saveRecord(r);render()};budgetList.appendChild(card)
+    });
+    const selectedBudget=budgets.find(b=>String(b.id)===String(order.selectedBudgetId));
+    document.getElementById('overviewLens').textContent=selectedBudget?selectedBudget.details:'Escolha pendente';
+    document.getElementById('overviewValue').textContent=selectedBudget?'R$ '+selectedBudget.price:(order.finalValue?'R$ '+order.finalValue:'A definir');
+
+    document.getElementById('odEsf').textContent=val(rx.od?.esf);document.getElementById('odCil').textContent=val(rx.od?.cil);document.getElementById('odEixo').textContent=val(rx.od?.eixo);document.getElementById('odAd').textContent=val(rx.od?.adicao);
+    document.getElementById('oeEsf').textContent=val(rx.oe?.esf);document.getElementById('oeCil').textContent=val(rx.oe?.cil);document.getElementById('oeEixo').textContent=val(rx.oe?.eixo);document.getElementById('oeAd').textContent=val(rx.oe?.adicao);
+
+    document.getElementById('overviewFrame').textContent=selectedFrame.name||'Ainda não escolhida';
+
+    const suggestions=document.getElementById('suggestions');suggestions.innerHTML='';
+    catalog.forEach((f,i)=>{
+      const c=document.createElement('article');c.className='suggestion-card';c.innerHTML='<div class="tryon"><img src="'+(customer.photo||defaultPhoto)+'"><div class="glasses" style="'+(i===1?'width:68%;left:16%;border-radius:35%':i===2?'width:60%;left:20%;border-radius:50%':'')+'"></div><div class="bridge"></div></div><div class="frame-info"><strong>'+f.name+'</strong><small>'+f.color+' · sugestão na sua foto</small></div>';suggestions.appendChild(c)
+    });
+
+    const catalogEl=document.getElementById('catalog');catalogEl.innerHTML='';
+    catalog.forEach(f=>{
+      const chosen=selectedFrame.name===f.name;
+      const c=document.createElement('article');c.className='frame-card'+(chosen?' selected':'');
+      c.innerHTML='<div class="frame-image">Imagem do modelo</div><div class="frame-info"><strong>'+f.name+'</strong><small>'+f.color+'</small><div style="height:10px"></div><button type="button" class="btn '+(chosen?'btn-primary':'btn-secondary')+'">'+(chosen?'Escolhida':'Escolher')+'</button></div>';
+      c.querySelector('button').onclick=()=>{const r=loadRecord();r.orders[activeOrder].selectedFrame={name:f.name,color:f.color,sku:'',origin:'Catálogo Optótica'};saveRecord(r);render()};catalogEl.appendChild(c)
+    });
+
+    // PDF
+    document.getElementById('pdfOrder').textContent='Pedido #'+activeOrder;
+    document.getElementById('pdfName').textContent=val(customer.name);document.getElementById('pdfPhone').textContent=val(customer.whatsapp||phone);
+    document.getElementById('pdfDnpOd').textContent=customer.dnpOd?customer.dnpOd+' mm':'—';document.getElementById('pdfDnpOe').textContent=customer.dnpOe?customer.dnpOe+' mm':'—';
+    ['OdEsf','OdCil','OdEixo','OdAd','OeEsf','OeCil','OeEixo','OeAd'].forEach(id=>document.getElementById('pdf'+id).textContent=document.getElementById(id.charAt(0).toLowerCase()+id.slice(1)).textContent);
+    const p=record.professional||{};
+    document.getElementById('professionalName').textContent=p.name||'Optometrista responsável';
+    document.getElementById('professionalRegistration').textContent=p.registration||'Cadastro profissional';
+    document.getElementById('professionalStamp').textContent=p.stamp||'Carimbo cadastrado';
+    document.getElementById('professionalSignature').textContent=p.signature||'Assinatura cadastrada';
+  }
+
+  document.getElementById('photoInput').addEventListener('change',e=>{
+    const file=e.target.files&&e.target.files[0];if(!file)return;
+    const reader=new FileReader();reader.onload=ev=>{const r=loadRecord();r.customer=r.customer||{};r.customer.photo=ev.target.result;saveRecord(r);render()};reader.readAsDataURL(file)
+  });
+  document.getElementById('openPdf').onclick=()=>document.getElementById('rxModal').classList.add('active');
+  document.getElementById('closePdf').onclick=()=>document.getElementById('rxModal').classList.remove('active');
+  document.getElementById('printPdf').onclick=()=>window.print();
+  document.getElementById('rxModal').addEventListener('click',e=>{if(e.target.id==='rxModal')e.currentTarget.classList.remove('active')});
+
+  render();
+</script>
+</body>
+</html>
