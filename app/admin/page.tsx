@@ -29,11 +29,11 @@ type ProfileReview = {
   display_name: string;
   email: string;
   account_type: string;
+  professional_kind: string | null;
   status: string;
   council_registration: string | null;
   technical_responsible_name: string | null;
   technical_responsible_registration: string | null;
-  legal_name: string | null;
   cnpj: string | null;
   address_line: string | null;
   address_number: string | null;
@@ -62,6 +62,13 @@ function formatDate(value: string | null) {
   return value ? new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—';
 }
 
+function formatRegistrationKind(accountType: string, professionalKind: string | null) {
+  if (accountType === 'optical_store') return 'Ótica';
+  if (professionalKind === 'bacharel') return 'Bacharel';
+  if (professionalKind === 'optometrista') return 'Optometrista';
+  return 'Profissional';
+}
+
 export default async function AdminPage() {
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -74,7 +81,7 @@ export default async function AdminPage() {
   const { data } = await admin
     .from('professional_profiles')
     .select(
-      'id, display_name, email, account_type, status, legal_name, cnpj, council_registration, technical_responsible_name, technical_responsible_registration, address_line, address_number, district, city, state, postal_code, phone_e164, contact_name, contact_email, contact_phone_e164, submitted_at, review_notes, professional_laboratories(id, name, legal_name, cnpj, address_line, address_number, city, state, phone_e164, status)'
+      'id, display_name, email, account_type, professional_kind, status, cnpj, council_registration, technical_responsible_name, technical_responsible_registration, address_line, address_number, district, city, state, postal_code, phone_e164, contact_name, contact_email, contact_phone_e164, submitted_at, review_notes, professional_laboratories(id, name, legal_name, cnpj, address_line, address_number, city, state, phone_e164, status)'
     )
     .order('submitted_at', { ascending: true, nullsFirst: false });
   const profiles = (data || []) as unknown as ProfileReview[];
@@ -172,9 +179,9 @@ function ProfileReviewCard({ profile }: { profile: ProfileReview }) {
       {profile.review_notes && <div className="setup-note" style={{ marginTop: 16 }}>Última observação: {profile.review_notes}</div>}
 
       <dl className="review-details">
-        <div><dt>Tipo</dt><dd>{profile.account_type === 'optical_store' ? 'Ótica' : 'Profissional'}{profile.cnpj ? ` · CNPJ ${profile.cnpj}` : ''}</dd></div>
-        <div><dt>Conselho</dt><dd>{profile.council_registration || 'Responsável técnico'}</dd></div>
-        <div><dt>Responsável</dt><dd>{profile.technical_responsible_name || '—'} {profile.technical_responsible_registration || ''}</dd></div>
+        <div><dt>Tipo</dt><dd>{formatRegistrationKind(profile.account_type, profile.professional_kind)}{profile.cnpj ? ` · ${profile.cnpj.length === 14 ? 'CNPJ' : 'CPF'} ${profile.cnpj}` : ''}</dd></div>
+        <div><dt>Registro</dt><dd>{profile.technical_responsible_registration || profile.council_registration || '—'}</dd></div>
+        <div><dt>Responsável</dt><dd>{profile.technical_responsible_name || '—'}</dd></div>
         <div><dt>Endereço</dt><dd>{profile.address_line || '—'}, {profile.address_number || 's/n'} · {profile.district || ''} · {profile.city}/{profile.state} · {profile.postal_code || ''}</dd></div>
         <div><dt>Telefone</dt><dd>{profile.phone_e164 || '—'}</dd></div>
         <div><dt>Contato</dt><dd>{profile.contact_name || '—'} · {profile.contact_email || ''} · {profile.contact_phone_e164 || ''}</dd></div>

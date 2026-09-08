@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
+import { isValidCNPJ, isValidCPF } from '@/lib/br-documents';
 
 type LaboratoryInput = {
   id?: unknown;
@@ -32,26 +33,35 @@ export async function POST(request: Request) {
   if (!user?.email) return NextResponse.json({ message: 'Faça login novamente.' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
-  const accountType = body?.accountType === 'optical_store' ? 'optical_store' : 'professional';
+  const registrationKind = ['optometrista', 'bacharel', 'optical_store'].includes(body?.registrationKind) ? body.registrationKind : 'optometrista';
+  const accountType = registrationKind === 'optical_store' ? 'optical_store' : 'professional';
+  const professionalKind = registrationKind === 'optical_store' ? null : registrationKind;
   const displayName = clean(body?.displayName, 140);
-  const councilRegistration = clean(body?.councilRegistration, 80);
   const technicalResponsibleName = clean(body?.technicalResponsibleName, 140);
   const technicalResponsibleRegistration = clean(body?.technicalResponsibleRegistration, 80);
   const city = clean(body?.city, 100);
   const state = clean(body?.state, 2).toUpperCase();
+  const postalCodeDigits = digits(body?.postalCode);
   const mainPhone = phone(body?.phone);
   const laboratories = Array.isArray(body?.laboratories) ? body.laboratories as LaboratoryInput[] : [];
-  const professionalCnpj = digits(body?.cnpj);
+  const documentNumber = digits(body?.documentNumber);
   const contactEmail = clean(body?.contactEmail, 254).toLowerCase();
 
   if (displayName.length < 2 || !clean(body?.addressLine) || !city || state.length !== 2 || !mainPhone) {
     return NextResponse.json({ message: 'Preencha nome, endereço, cidade, UF e telefone válidos.' }, { status: 400 });
   }
-  if (!councilRegistration && (!technicalResponsibleName || !technicalResponsibleRegistration)) {
-    return NextResponse.json({ message: 'Informe o registro do conselho ou o responsável técnico e seu registro.' }, { status: 400 });
+  if (postalCodeDigits.length !== 8) {
+    return NextResponse.json({ message: 'CEP deve ter 8 dígitos.' }, { status: 400 });
   }
-  if (accountType === 'optical_store' && professionalCnpj.length !== 14) {
-    return NextResponse.json({ message: 'Informe um CNPJ válido para a ótica.' }, { status: 400 });
+  if (!technicalResponsibleName || !technicalResponsibleRegistration) {
+    return NextResponse.json({ message: 'Informe o nome e o registro do responsável técnico optometrista.' }, { status: 400 });
+  }
+  if (accountType === 'optical_store') {
+    if (!isValidCNPJ(documentNumber)) {
+      return NextResponse.json({ message: 'CNPJ inválido. Verifique o número informado.' }, { status: 400 });
+    }
+  } else if (!isValidCPF(documentNumber)) {
+    return NextResponse.json({ message: 'CPF inválido. Verifique o número informado.' }, { status: 400 });
   }
   if (contactEmail && !/^\S+@\S+\.\S+$/.test(contactEmail)) {
     return NextResponse.json({ message: 'Informe um e-mail de contato válido.' }, { status: 400 });
@@ -75,7 +85,7 @@ export async function POST(request: Request) {
     phone_e164: phone(lab.phone),
     contact_name: clean(lab.contactName, 140) || null
   }));
-  if (normalizedLabs.some((lab) => lab.name.length < 2 || lab.cnpj.length !== 14 || !lab.address_line || !lab.city || lab.state.length !== 2 || !lab.phone_e164)) {
+  if (normalizedLabs.some((lab) => lab.name.length < 2 || !isValidCNPJ(lab.cnpj) || !lab.address_line || !lab.city || lab.state.length !== 2 || !lab.phone_e164)) {
     return NextResponse.json({ message: 'Revise nome, CNPJ, endereço, cidade, UF e telefone de cada laboratório.' }, { status: 400 });
   }
 
@@ -122,19 +132,18 @@ export async function POST(request: Request) {
   const now = new Date().toISOString();
   const { error: profileError } = await admin.from('professional_profiles').update({
     account_type: accountType,
+    professional_kind: professionalKind,
     display_name: displayName,
-    legal_name: clean(body?.legalName) || null,
-    council_registration: councilRegistration || null,
-    technical_responsible_name: technicalResponsibleName || null,
-    technical_responsible_registration: technicalResponsibleRegistration || null,
-    cnpj: professionalCnpj || null,
+    technical_responsible_name: technicalResponsibleName,
+    technical_responsible_registration: technicalResponsibleRegistration,
+    cnpj: documentNumber,
     address_line: clean(body?.addressLine),
     address_number: clean(body?.addressNumber, 30) || null,
     address_complement: clean(body?.addressComplement, 100) || null,
     district: clean(body?.district, 100) || null,
     city,
     state,
-    postal_code: digits(body?.postalCode) || null,
+    postal_code: postalCodeDigits,
     phone_e164: mainPhone,
     contact_name: clean(body?.contactName, 140) || null,
     contact_email: contactEmail || null,
