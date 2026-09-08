@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
+import { createAdminSupabaseClient, createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
 
 export const metadata: Metadata = { title: 'Área profissional' };
 
@@ -15,16 +16,20 @@ export default async function ProfessionalPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/entrar?profissional=1');
 
-  const { data: membership } = await supabase
-    .from('organization_members')
-    .select('role, organizations(name)')
-    .eq('user_id', user.id)
-    .eq('active', true)
-    .limit(1)
-    .maybeSingle();
-
-  if (!membership || !['owner', 'admin', 'professional', 'staff'].includes(membership.role)) {
-    return <div className="page-shell narrow"><div className="setup-note">Seu usuário ainda não possui acesso profissional autorizado.</div></div>;
+  const admin = createAdminSupabaseClient();
+  const [{ data: master }, { data: profile }] = await Promise.all([
+    admin.from('system_admins').select('user_id').eq('user_id', user.id).eq('active', true).maybeSingle(),
+    admin.from('professional_profiles').select('id, display_name, status, review_notes').eq('user_id', user.id).maybeSingle()
+  ]);
+  if (master) redirect('/admin');
+  if (!profile || ['draft', 'changes_requested'].includes(profile.status)) redirect('/profissional/cadastro');
+  if (profile.status !== 'approved') {
+    const labels: Record<string, string> = {
+      under_review: 'Seu cadastro está em análise pela equipe Optótica.',
+      rejected: 'Seu cadastro não foi aprovado.',
+      suspended: 'Seu acesso profissional está suspenso.'
+    };
+    return <div className="page-shell narrow"><div className="setup-note"><strong>{labels[profile.status] || 'Acesso indisponível.'}</strong>{profile.review_notes && <p>{profile.review_notes}</p>}</div></div>;
   }
 
   const { data } = await supabase
@@ -37,8 +42,8 @@ export default async function ProfessionalPage() {
   return (
     <div className="page-shell">
       <section className="dashboard-head">
-        <div><p className="eyebrow">Área profissional</p><h1>Atendimentos</h1><p className="muted">Pedidos recentes autorizados para sua empresa.</p></div>
-        <button className="button primary" type="button" disabled>+ Novo atendimento</button>
+        <div><p className="eyebrow">Área profissional</p><h1>{profile.display_name}</h1><p className="muted">Você vê somente os pacientes que aceitaram os convites criados por esta conta.</p></div>
+        <Link className="button primary" href="/profissional/pacientes/novo">Convidar paciente</Link>
       </section>
       <section className="card table-card">
         <div className="table-head"><span>Pedido</span><span>Cliente</span><span>Status</span><span>Atualização</span></div>
