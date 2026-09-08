@@ -1,0 +1,23 @@
+# Dados reais e pessoais
+/optotica-data/profiles.php
+
+# Segredos e configurações locais
+.env
+.env.*
+!.env.example
+
+# Arquivos de sistema e editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Exportações locais da migração
+/migration-output/
+
+# Next.js
+/node_modules/
+/.next/
+/out/
+*.tsbuildinfo
+.vercel/
