@@ -109,7 +109,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   const current = currentStepIndex === -1 ? 8 : currentStepIndex;
 
   const steps = [
-    { id: 'cliente', label: 'Cliente', hint: 'dados + DNP' },
+    { id: 'cliente', label: 'Paciente', hint: 'dados + DNP' },
     { id: 'os', label: 'OS / Orçamento', hint: 'lente + laboratório' },
     { id: 'armacao', label: 'Armação', hint: 'catálogo' },
     { id: 'comanda', label: 'Comanda final', hint: 'consolidação' },
@@ -117,7 +117,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
     { id: 'producao', label: 'Produção', hint: 'lente + armação' },
     { id: 'logistica', label: 'Logística', hint: 'prazos + rastreio' },
     { id: 'montagem', label: 'Montagem', hint: 'conferência' },
-    { id: 'entrega', label: 'Entrega', hint: 'cliente final' }
+    { id: 'entrega', label: 'Entrega', hint: 'paciente final' }
   ];
 
   const tag = (done: boolean, isCurrent: boolean) => done
@@ -150,7 +150,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
             <div className="card-head">
               <div className="step-title">
                 <span className="step-badge">1</span>
-                <div><p className="eyebrow">Etapa concluída</p><h2>Cliente</h2></div>
+                <div><p className="eyebrow">Etapa concluída</p><h2>Paciente</h2></div>
               </div>
               <span className="complete-tag">Completo</span>
             </div>
@@ -231,7 +231,14 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
               {tag(paymentDone, current === 4)}
             </div>
             <div className="card-body">
-              <PaymentStep orderId={order.id} initialValue={str(ful?.payment_value)} initialMethod={str(ful?.payment_method)} confirmed={paymentDone} />
+              <PaymentStep
+                orderId={order.id}
+                initialValue={str(ful?.payment_value)}
+                initialMethod={str(ful?.payment_method)}
+                initialDownValue={str(ful?.payment_down_value)}
+                initialPickupValue={str(ful?.payment_pickup_value)}
+                confirmed={paymentDone}
+              />
             </div>
           </section>
 
