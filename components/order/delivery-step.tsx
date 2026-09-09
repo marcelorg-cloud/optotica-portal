@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 const DESTINATIONS = [
   { value: 'loja', label: 'Loja' },
   { value: 'optometrista', label: 'Optometrista' },
-  { value: 'cliente_final', label: 'Cliente final' }
+  { value: 'cliente_final', label: 'Paciente final' }
 ];
 
 export function DeliveryStep({ orderId, initialDestination, initialDate, initialReceivedBy, initialNotes, confirmed }: {
@@ -46,7 +46,7 @@ export function DeliveryStep({ orderId, initialDestination, initialDate, initial
         <div className="field"><label>Data de envio / retirada</label><input name="date" type="date" defaultValue={initialDate} /></div>
         <div className="field"><label>Recebido por</label><input name="receivedBy" defaultValue={initialReceivedBy} maxLength={120} placeholder="Nome do responsável" /></div>
       </div>
-      <div className="field"><label>Confirmação de entrega ao cliente final</label>
+      <div className="field"><label>Confirmação de entrega ao paciente final</label>
         <textarea name="notes" rows={3} maxLength={500} defaultValue={initialNotes} placeholder="Data, responsável, observações e eventuais ajustes realizados na entrega..." />
       </div>
       <div className="actions">

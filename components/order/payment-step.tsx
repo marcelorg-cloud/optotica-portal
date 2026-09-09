@@ -10,10 +10,12 @@ const METHODS: Array<{ value: string; label: string }> = [
   { value: 'maquina', label: 'Máquina de cartão' }
 ];
 
-export function PaymentStep({ orderId, initialValue, initialMethod, confirmed }: {
+export function PaymentStep({ orderId, initialValue, initialMethod, initialDownValue, initialPickupValue, confirmed }: {
   orderId: string;
   initialValue: string;
   initialMethod: string;
+  initialDownValue: string;
+  initialPickupValue: string;
   confirmed: boolean;
 }) {
   const router = useRouter();
@@ -28,7 +30,14 @@ export function PaymentStep({ orderId, initialValue, initialMethod, confirmed }:
     const form = new FormData(formRef.current);
     const response = await fetch(`/api/professional/orders/${orderId}/fulfillment`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ section: 'pagamento', data: { paymentValue: form.get('value'), paymentMethod: form.get('method'), confirm } })
+      body: JSON.stringify({
+        section: 'pagamento',
+        data: {
+          paymentValue: form.get('value'), paymentMethod: form.get('method'),
+          paymentDownValue: form.get('downValue'), paymentPickupValue: form.get('pickupValue'),
+          confirm
+        }
+      })
     });
     const payload = await response.json().catch(() => ({}));
     if (response.ok) { setState('idle'); router.refresh(); }
@@ -41,7 +50,7 @@ export function PaymentStep({ orderId, initialValue, initialMethod, confirmed }:
         <div className="field">
           <label className="required">Valor final da venda</label>
           <div className="money"><input name="value" type="number" step="0.01" min="0" placeholder="0,00" defaultValue={initialValue} /></div>
-          <div className="helper">O valor final apresentado ao cliente.</div>
+          <div className="helper">O valor final apresentado ao paciente.</div>
         </div>
         <div className="field">
           <label>Forma de pagamento</label>
@@ -53,6 +62,18 @@ export function PaymentStep({ orderId, initialValue, initialMethod, confirmed }:
               </label>
             ))}
           </div>
+        </div>
+      </div>
+      <div className="grid grid-2">
+        <div className="field">
+          <label>Valor de entrada</label>
+          <div className="money"><input name="downValue" type="number" step="0.01" min="0" placeholder="0,00" defaultValue={initialDownValue} /></div>
+          <div className="helper">Se houver sinal/entrada pago antecipadamente.</div>
+        </div>
+        <div className="field">
+          <label>Valor na retirada</label>
+          <div className="money"><input name="pickupValue" type="number" step="0.01" min="0" placeholder="0,00" defaultValue={initialPickupValue} /></div>
+          <div className="helper">Valor restante a receber na entrega/retirada.</div>
         </div>
       </div>
       <div className="actions">

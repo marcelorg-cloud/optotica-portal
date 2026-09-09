@@ -39,6 +39,23 @@ export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId 
   const [budgetState, setBudgetState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [budgetMessage, setBudgetMessage] = useState('');
 
+  // Seleção de orçamento com atualização visual otimista: marca a opção
+  // escolhida na hora do clique (sem esperar o roundtrip + refresh da página
+  // inteira), evitando a lentidão percebida ao trocar de orçamento. O
+  // router.refresh() continua rodando em segundo plano pra manter o resto da
+  // página (resumo, indicador da etapa) sincronizado — a lógica de seleção em
+  // si não muda.
+  const [localSelectedQuoteId, setLocalSelectedQuoteId] = useState(selectedQuoteId);
+  const [prevSelectedQuoteId, setPrevSelectedQuoteId] = useState(selectedQuoteId);
+  const [selectMessage, setSelectMessage] = useState('');
+  // Ressincroniza com o servidor quando o pai re-renderiza com um valor novo
+  // (ex.: outra aba selecionou outro orçamento) — ajuste de estado durante o
+  // render, não em efeito, como recomendado pelos docs do React.
+  if (selectedQuoteId !== prevSelectedQuoteId) {
+    setPrevSelectedQuoteId(selectedQuoteId);
+    setLocalSelectedQuoteId(selectedQuoteId);
+  }
+
   async function submitRx(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setRxState('loading');
@@ -76,10 +93,20 @@ export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId 
   }
 
   async function selectQuote(quoteId: string) {
-    await fetch(`/api/professional/orders/${orderId}/select-quote`, {
+    if (quoteId === localSelectedQuoteId) return;
+    const previous = localSelectedQuoteId;
+    setLocalSelectedQuoteId(quoteId);
+    setSelectMessage('');
+    const response = await fetch(`/api/professional/orders/${orderId}/select-quote`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quoteId })
     });
-    router.refresh();
+    if (response.ok) {
+      router.refresh();
+    } else {
+      const payload = await response.json().catch(() => ({}));
+      setLocalSelectedQuoteId(previous);
+      setSelectMessage(payload.message || 'Não foi possível selecionar o orçamento.');
+    }
   }
 
   return (
@@ -161,9 +188,9 @@ export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId 
         <div className="helper" style={{ marginBottom: 10 }}>Cadastre quantas opções forem necessárias. Depois selecione a melhor opção para seguir com o pedido.</div>
         <div className="os-list">
           {quotes.length ? quotes.map((quote) => (
-            <div key={quote.id} className={`os-item budget-option${quote.id === selectedQuoteId ? ' selected-budget' : ''}`} onClick={() => selectQuote(quote.id)}>
+            <div key={quote.id} className={`os-item budget-option${quote.id === localSelectedQuoteId ? ' selected-budget' : ''}`} onClick={() => selectQuote(quote.id)}>
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <input type="radio" name="orcamento_escolhido" readOnly checked={quote.id === selectedQuoteId} style={{ width: 'auto', marginTop: 4 }} />
+                <input type="radio" name="orcamento_escolhido" readOnly checked={quote.id === localSelectedQuoteId} style={{ width: 'auto', marginTop: 4 }} />
                 <div>
                   <strong>{quote.description}</strong>
                   <small>{quote.laboratory}{quote.notes ? ' · ' + quote.notes : ''}</small>
@@ -173,6 +200,7 @@ export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId 
             </div>
           )) : <div className="empty-budget">Nenhum orçamento adicionado ainda.</div>}
         </div>
+        {selectMessage && <p className="form-message error">{selectMessage}</p>}
       </div>
     </div>
   );

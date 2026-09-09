@@ -17,6 +17,19 @@ export function ComandaStep({ orderId, clientName, dnp, lensDescription, laborat
   const formRef = useRef<HTMLFormElement>(null);
   const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [message, setMessage] = useState('');
+  // Atualização otimista do rótulo "confirmado": muda na hora, sem esperar o
+  // refresh da página inteira — o refresh continua acontecendo em segundo
+  // plano pra manter o resto da página sincronizado. Não muda a lógica de
+  // confirmação em si, só a velocidade percebida.
+  const [localConfirmed, setLocalConfirmed] = useState(confirmed);
+  const [prevConfirmed, setPrevConfirmed] = useState(confirmed);
+  // Ressincroniza com o servidor quando o pai re-renderiza com um valor novo —
+  // ajuste de estado durante o render, não em efeito (recomendado pelos docs
+  // do React), evita o encadeamento de re-renders que o efeito causaria.
+  if (confirmed !== prevConfirmed) {
+    setPrevConfirmed(confirmed);
+    setLocalConfirmed(confirmed);
+  }
 
   async function save(confirm: boolean) {
     if (!formRef.current) return;
@@ -35,14 +48,20 @@ export function ComandaStep({ orderId, clientName, dnp, lensDescription, laborat
       })
     });
     const payload = await response.json().catch(() => ({}));
-    if (response.ok) { setState('idle'); router.refresh(); }
-    else { setState('error'); setMessage(payload.message || 'Não foi possível salvar.'); }
+    if (response.ok) {
+      setState('idle');
+      if (confirm) setLocalConfirmed(true);
+      router.refresh();
+    } else {
+      setState('error');
+      setMessage(payload.message || 'Não foi possível salvar.');
+    }
   }
 
   return (
     <form className="stack" ref={formRef} onSubmit={(e) => { e.preventDefault(); save(false); }}>
       <div className="grid grid-3">
-        <div className="subsection"><h3>Cliente</h3>
+        <div className="subsection"><h3>Paciente</h3>
           <div className="summary-row"><span>Nome</span><strong>{clientName}</strong></div>
           <div className="summary-row"><span>DNP</span><strong>{dnp}</strong></div>
         </div>
@@ -70,7 +89,7 @@ export function ComandaStep({ orderId, clientName, dnp, lensDescription, laborat
       <div className="actions">
         <button className="button secondary" type="submit" disabled={state === 'loading'}>Salvar rascunho</button>
         <button className="button primary" type="button" disabled={state === 'loading'} onClick={() => save(true)}>
-          {confirmed ? 'Comanda confirmada ✓' : 'Confirmar comanda final'}
+          {localConfirmed ? 'Comanda confirmada ✓' : 'Confirmar comanda final'}
         </button>
       </div>
       {message && state === 'error' && <p className="form-message error">{message}</p>}
