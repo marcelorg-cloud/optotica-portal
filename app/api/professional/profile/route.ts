@@ -90,11 +90,19 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminSupabaseClient();
-  let { data: profile } = await admin
+  const { data: initialProfile, error: profileSelectError } = await admin
     .from('professional_profiles')
     .select('id, organization_id, status')
     .eq('user_id', user.id)
     .maybeSingle();
+  let profile = initialProfile;
+  if (profileSelectError) {
+    // Diagnóstico temporário: se isso aparecer nos Runtime Logs da Vercel,
+    // o problema é a própria consulta (ex.: mais de uma linha para o mesmo
+    // user_id, ou a service role key inválida/expirada), não a ausência de
+    // cadastro.
+    console.error('[professional/profile] falha ao buscar profile existente', { userId: user.id, profileSelectError });
+  }
   if (!profile) {
     // Só acontece se este usuário nunca passou pelo gatilho de autocadastro
     // (handle_self_registration, migração 202609070006) — hoje ele já cria o
@@ -108,14 +116,20 @@ export async function POST(request: Request) {
       .insert({ name: displayName, slug: slug || displayName, active: false })
       .select('id')
       .single();
-    if (orgError || !organization) return NextResponse.json({ message: 'Não foi possível iniciar o cadastro.' }, { status: 500 });
+    if (orgError || !organization) {
+      console.error('[professional/profile] falha ao criar organização', { userId: user.id, orgError });
+      return NextResponse.json({ message: 'Não foi possível iniciar o cadastro.' }, { status: 500 });
+    }
     const { data: created, error } = await admin.from('professional_profiles').insert({
       user_id: user.id,
       organization_id: organization.id,
       email: user.email,
       display_name: displayName
     }).select('id, organization_id, status').single();
-    if (error || !created) return NextResponse.json({ message: 'Não foi possível iniciar o cadastro.' }, { status: 500 });
+    if (error || !created) {
+      console.error('[professional/profile] falha ao criar professional_profiles', { userId: user.id, error });
+      return NextResponse.json({ message: 'Não foi possível iniciar o cadastro.' }, { status: 500 });
+    }
     await admin.from('organization_members').insert({ organization_id: organization.id, user_id: user.id, role: 'owner', active: false }).select('organization_id').maybeSingle();
     profile = created;
   }
