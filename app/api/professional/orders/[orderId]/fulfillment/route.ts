@@ -59,9 +59,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ or
   } else if (section === 'pagamento') {
     const method = typeof data.paymentMethod === 'string' && PAYMENT_METHODS.includes(data.paymentMethod) ? data.paymentMethod : '';
     const value = numberOrNull(data.paymentValue, 0, 1_000_000);
+    const downValue = numberOrNull(data.paymentDownValue, 0, 1_000_000);
+    const pickupValue = numberOrNull(data.paymentPickupValue, 0, 1_000_000);
     if (!method || value === undefined) return NextResponse.json({ message: 'Informe valor e forma de pagamento válidos.' }, { status: 400 });
+    if (downValue === undefined || pickupValue === undefined) {
+      return NextResponse.json({ message: 'Valor de entrada ou de retirada inválido.' }, { status: 400 });
+    }
     patch.payment_method = method;
     patch.payment_value = value;
+    patch.payment_down_value = downValue;
+    patch.payment_pickup_value = pickupValue;
     if (data.confirm) patch.payment_confirmed_at = new Date().toISOString();
   } else if (section === 'producao') {
     const frameStatus = typeof data.frameProductionStatus === 'string' && FRAME_PRODUCTION_STATUSES.includes(data.frameProductionStatus) ? data.frameProductionStatus : '';
