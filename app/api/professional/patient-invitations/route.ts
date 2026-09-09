@@ -3,12 +3,7 @@ import { NextResponse } from 'next/server';
 import QRCode from 'qrcode';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
 import { publicEnv } from '@/lib/env';
-
-function normalizeBrazilianPhone(value: string) {
-  const digits = value.replace(/\D/g, '');
-  const normalized = digits.length === 10 || digits.length === 11 ? `55${digits}` : digits;
-  return normalized.length >= 10 && normalized.length <= 15 ? `+${normalized}` : '';
-}
+import { toCanonicalWhatsAppE164 } from '@/lib/phone';
 
 export async function POST(request: Request) {
   const supabase = await createServerSupabaseClient();
@@ -17,7 +12,7 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null);
   const patientName = typeof body?.fullName === 'string' ? body.fullName.trim().replace(/\s+/g, ' ').slice(0, 120) : '';
-  const expectedWhatsApp = normalizeBrazilianPhone(typeof body?.whatsapp === 'string' ? body.whatsapp : '');
+  const expectedWhatsApp = toCanonicalWhatsAppE164(typeof body?.whatsapp === 'string' ? body.whatsapp : '');
   if (patientName.length < 2 || !expectedWhatsApp) {
     return NextResponse.json({ message: 'Preencha nome e WhatsApp válidos.' }, { status: 400 });
   }
