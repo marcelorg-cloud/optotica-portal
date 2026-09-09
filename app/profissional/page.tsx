@@ -49,11 +49,11 @@ export default async function ProfessionalPage() {
         </div>
       </section>
       <section className="card table-card">
-        <div className="table-head"><span>Pedido</span><span>Cliente</span><span>Status</span><span>Atualização</span></div>
+        <div className="table-head"><span>Pedido</span><span>Paciente</span><span>Status</span><span>Atualização</span></div>
         {orders.length ? orders.map(order => (
           <div className="table-row" key={order.id}>
             <strong>#{order.order_number}</strong>
-            <span>{order.clients?.full_name || 'Cliente'}</span>
+            <span>{order.clients?.full_name || 'Paciente'}</span>
             <span className="pill">{order.status}</span>
             <time>{new Intl.DateTimeFormat('pt-BR').format(new Date(order.updated_at))}</time>
           </div>
