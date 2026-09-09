@@ -64,7 +64,7 @@ function FieldError({ errors, name }: { errors: FieldErrors; name: string }) {
 
 export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?: ProfileInitialValues }) {
   const router = useRouter();
-  const [laboratories, setLaboratories] = useState<Laboratory[]>(() => initialValues.laboratories?.length ? initialValues.laboratories : [emptyLaboratory()]);
+  const [laboratories, setLaboratories] = useState<Laboratory[]>(() => initialValues.laboratories?.length ? initialValues.laboratories : []);
   const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [message, setMessage] = useState('');
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -165,6 +165,11 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
     setErrors({});
     setState('loading');
     setMessage('');
+    // Laboratório é opcional: um card deixado em branco (nunca preenchido)
+    // não é enviado, só os que o profissional realmente começou a preencher.
+    const providedLaboratories = laboratories.filter(
+      (laboratory) => laboratory.name.trim() || onlyDigits(laboratory.cnpj) || laboratory.addressLine.trim()
+    );
     const response = await fetch('/api/professional/profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -177,7 +182,7 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
         addressLine, addressNumber, addressComplement,
         district, city, state: addressState, postalCode: onlyDigits(postalCode),
         phone: value('phone'), contactName: value('contactName'), contactEmail: value('contactEmail'),
-        contactPhone: value('contactPhone'), laboratories
+        contactPhone: value('contactPhone'), laboratories: providedLaboratories
       })
     });
     const payload = await response.json().catch(() => ({}));
@@ -284,28 +289,28 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
       </fieldset>
 
       <fieldset>
-        <legend>Laboratórios ópticos</legend>
-        <p className="muted">Após o cadastro, será possível adicionar valores e tabelas de preços dos laboratórios.</p>
+        <legend>Laboratório principal</legend>
+        <p className="muted">Opcional. Se preferir, deixe em branco e cadastre os laboratórios depois — junto com eles será possível adicionar valores e tabelas de preços.</p>
         {laboratories.map((laboratory, index) => (
           <div className="laboratory-card" key={laboratory.id || `laboratory-${index}`}>
-            <div className="laboratory-head"><strong>Laboratório {index + 1}</strong>{laboratories.length > 1 && <button type="button" className="text-button" onClick={() => setLaboratories((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remover</button>}</div>
+            <div className="laboratory-head"><strong>{index === 0 ? 'Laboratório principal' : `Laboratório adicional ${index + 1}`}</strong><button type="button" className="text-button" onClick={() => setLaboratories((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remover</button></div>
             <div className="form-grid">
-              <label>Nome<input value={laboratory.name} onChange={(event) => updateLaboratory(index, 'name', event.target.value)} required /></label>
+              <label>Nome<input value={laboratory.name} onChange={(event) => updateLaboratory(index, 'name', event.target.value)} /></label>
               <label>Razão social<input value={laboratory.legalName} onChange={(event) => updateLaboratory(index, 'legalName', event.target.value)} /></label>
-              <label>CNPJ<input inputMode="numeric" value={formatCpfCnpj(laboratory.cnpj)} onChange={(event) => updateLaboratory(index, 'cnpj', onlyDigits(event.target.value))} required /></label>
-              <label>Telefone<input type="tel" value={laboratory.phone} onChange={(event) => updateLaboratory(index, 'phone', event.target.value)} required /></label>
+              <label>CNPJ<input inputMode="numeric" value={formatCpfCnpj(laboratory.cnpj)} onChange={(event) => updateLaboratory(index, 'cnpj', onlyDigits(event.target.value))} /></label>
+              <label>Telefone<input type="tel" value={laboratory.phone} onChange={(event) => updateLaboratory(index, 'phone', event.target.value)} /></label>
               <label>
                 CEP
                 <input inputMode="numeric" placeholder="00000-000" value={laboratory.postalCode} onChange={(event) => handleLabCepChange(index, event.target.value)} />
                 {laboratory.cepStatus === 'loading' && <span className="field-hint">Buscando endereço…</span>}
                 {laboratory.cepStatus === 'error' && <span className="field-hint">CEP não encontrado. Preencha manualmente.</span>}
               </label>
-              <label className="span-2">Logradouro<input value={laboratory.addressLine} onChange={(event) => updateLaboratory(index, 'addressLine', event.target.value)} required /></label>
+              <label className="span-2">Logradouro<input value={laboratory.addressLine} onChange={(event) => updateLaboratory(index, 'addressLine', event.target.value)} /></label>
               <label>Número<input value={laboratory.addressNumber} onChange={(event) => updateLaboratory(index, 'addressNumber', event.target.value)} /></label>
               <label>Complemento<input value={laboratory.addressComplement} onChange={(event) => updateLaboratory(index, 'addressComplement', event.target.value)} /></label>
               <label>Bairro<input value={laboratory.district} onChange={(event) => updateLaboratory(index, 'district', event.target.value)} /></label>
-              <label>Cidade<input value={laboratory.city} onChange={(event) => updateLaboratory(index, 'city', event.target.value)} required /></label>
-              <label>Estado<input minLength={2} maxLength={2} value={laboratory.state} onChange={(event) => updateLaboratory(index, 'state', event.target.value.toUpperCase())} required /></label>
+              <label>Cidade<input value={laboratory.city} onChange={(event) => updateLaboratory(index, 'city', event.target.value)} /></label>
+              <label>Estado<input minLength={2} maxLength={2} value={laboratory.state} onChange={(event) => updateLaboratory(index, 'state', event.target.value.toUpperCase())} /></label>
               <label>Pessoa de contato<input value={laboratory.contactName} onChange={(event) => updateLaboratory(index, 'contactName', event.target.value)} /></label>
             </div>
           </div>
