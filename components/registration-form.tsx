@@ -12,19 +12,26 @@ export function RegistrationForm() {
     setState('loading');
     setMessage('');
     const form = new FormData(formElement);
-    const response = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fullName: form.get('fullName'),
-        email: form.get('email'),
-        acceptedTerms: form.get('acceptedTerms') === 'on'
-      })
-    });
-    const payload = await response.json().catch(() => ({}));
-    setState(response.ok ? 'success' : 'error');
-    setMessage(payload.message || (response.ok ? 'Confira seu e-mail.' : 'Não foi possível concluir o cadastro.'));
-    if (response.ok) formElement.reset();
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: form.get('fullName'),
+          email: form.get('email'),
+          acceptedTerms: form.get('acceptedTerms') === 'on'
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      setState(response.ok ? 'success' : 'error');
+      setMessage(payload.message || (response.ok ? 'Confira seu e-mail.' : 'Não foi possível concluir o cadastro.'));
+      if (response.ok) formElement.reset();
+    } catch {
+      // Falha de rede/conexão — sem isso, o botão ficava travado em
+      // "Enviando..." para sempre, sem nenhuma mensagem para o usuário.
+      setState('error');
+      setMessage('Não foi possível conectar. Verifique sua internet e tente novamente.');
+    }
   }
 
   return (

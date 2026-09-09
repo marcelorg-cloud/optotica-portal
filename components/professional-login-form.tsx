@@ -11,14 +11,21 @@ export function ProfessionalLoginForm() {
     setState('loading');
     setMessage('');
     const form = new FormData(event.currentTarget);
-    const response = await fetch('/api/auth/professional', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: form.get('email') })
-    });
-    const payload = await response.json().catch(() => ({}));
-    setState(response.ok ? 'success' : 'error');
-    setMessage(payload.message || (response.ok ? 'Verifique seu e-mail.' : 'Não foi possível solicitar o acesso.'));
+    try {
+      const response = await fetch('/api/auth/professional', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.get('email') })
+      });
+      const payload = await response.json().catch(() => ({}));
+      setState(response.ok ? 'success' : 'error');
+      setMessage(payload.message || (response.ok ? 'Verifique seu e-mail.' : 'Não foi possível solicitar o acesso.'));
+    } catch {
+      // Falha de rede/conexão — sem isso, o botão ficava travado em
+      // "Enviando..." para sempre, sem nenhuma mensagem para o usuário.
+      setState('error');
+      setMessage('Não foi possível conectar. Verifique sua internet e tente novamente.');
+    }
   }
 
   return (

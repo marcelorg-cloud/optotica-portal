@@ -170,29 +170,36 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
     const providedLaboratories = laboratories.filter(
       (laboratory) => laboratory.name.trim() || onlyDigits(laboratory.cnpj) || laboratory.addressLine.trim()
     );
-    const response = await fetch('/api/professional/profile', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        registrationKind: kind,
-        displayName,
-        documentNumber: onlyDigits(documentNumber),
-        technicalResponsibleName: effectiveResponsibleName,
-        technicalResponsibleRegistration,
-        addressLine, addressNumber, addressComplement,
-        district, city, state: addressState, postalCode: onlyDigits(postalCode),
-        phone: value('phone'), contactName: value('contactName'), contactEmail: value('contactEmail'),
-        contactPhone: value('contactPhone'), laboratories: providedLaboratories
-      })
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (response.ok) {
-      router.push('/profissional');
-      router.refresh();
-      return;
+    try {
+      const response = await fetch('/api/professional/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          registrationKind: kind,
+          displayName,
+          documentNumber: onlyDigits(documentNumber),
+          technicalResponsibleName: effectiveResponsibleName,
+          technicalResponsibleRegistration,
+          addressLine, addressNumber, addressComplement,
+          district, city, state: addressState, postalCode: onlyDigits(postalCode),
+          phone: value('phone'), contactName: value('contactName'), contactEmail: value('contactEmail'),
+          contactPhone: value('contactPhone'), laboratories: providedLaboratories
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) {
+        router.push('/profissional');
+        router.refresh();
+        return;
+      }
+      setState('error');
+      setMessage(payload.message || 'Não foi possível enviar o cadastro.');
+    } catch {
+      // Falha de rede/conexão — sem isso, o botão ficava travado em
+      // "Enviando..." para sempre, sem nenhuma mensagem para o usuário.
+      setState('error');
+      setMessage('Não foi possível conectar. Verifique sua internet e tente novamente.');
     }
-    setState('error');
-    setMessage(payload.message || 'Não foi possível enviar o cadastro.');
   }
 
   return (
