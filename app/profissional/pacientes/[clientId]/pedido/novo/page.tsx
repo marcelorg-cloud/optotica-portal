@@ -11,7 +11,10 @@ export default async function NewOrderPage({ params }: { params: Promise<{ clien
 
   const admin = createAdminSupabaseClient();
   const { data: profile } = await admin.from('professional_profiles').select('status').eq('user_id', user.id).maybeSingle();
-  if (!profile || profile.status !== 'approved') redirect('/profissional');
+  if (!profile || profile.status !== 'approved') {
+    console.error('new_order_blocked_profile', { userId: user.id, profileStatus: profile?.status ?? null });
+    redirect('/profissional');
+  }
 
   const { data: assignment } = await admin
     .from('professional_client_assignments')
@@ -20,7 +23,10 @@ export default async function NewOrderPage({ params }: { params: Promise<{ clien
     .eq('client_id', clientId)
     .eq('active', true)
     .maybeSingle();
-  if (!assignment) redirect('/profissional/pacientes');
+  if (!assignment) {
+    console.error('new_order_blocked_assignment', { userId: user.id, clientId });
+    redirect('/profissional/pacientes');
+  }
 
   // "Novo pedido" sempre cria um atendimento novo, independente de já existir algum
   // pendente ou encerrado para este paciente — reabrir um atendimento em andamento
@@ -38,7 +44,7 @@ export default async function NewOrderPage({ params }: { params: Promise<{ clien
   for (let attempt = 0; attempt < 3 && !createdOrder; attempt++) {
     const { data: orderNumber, error: sequenceError } = await supabase.rpc('next_client_order_number', { target_client: clientId });
     if (sequenceError || orderNumber == null) {
-      console.error('order_number_generation_failed', { code: sequenceError?.code });
+      console.error('order_number_generation_failed', { code: sequenceError?.code, message: sequenceError?.message, clientId });
       redirect('/profissional/pacientes');
     }
 
@@ -53,13 +59,13 @@ export default async function NewOrderPage({ params }: { params: Promise<{ clien
 
     if (!orderError && inserted) { createdOrder = inserted; break; }
     if (orderError?.code !== '23505') {
-      console.error('order_create_failed', { code: orderError?.code });
+      console.error('order_create_failed', { code: orderError?.code, message: orderError?.message, clientId, orderNumber });
       redirect('/profissional/pacientes');
     }
     // 23505 = número duplicado por corrida rara — tenta de novo com o próximo número.
   }
   if (!createdOrder) {
-    console.error('order_create_failed', { code: 'retries_exhausted' });
+    console.error('order_create_failed', { code: 'retries_exhausted', clientId });
     redirect('/profissional/pacientes');
   }
 
