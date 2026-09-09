@@ -8,18 +8,15 @@ const LENS_MATERIALS = ['Resina', 'Policarbonato', 'Trivex', 'Outro'];
 const LENS_TREATMENTS = ['Antirreflexo', 'Verniz', 'Filtro azul', 'Fotossensível'];
 const LABORATORY_SUGGESTIONS = ['Laboratório A', 'Laboratório B', 'Laboratório C'];
 
-function EyeFields({ eye, label }: { eye: 'od' | 'oe'; label: string }) {
+function RxRow({ eye, label }: { eye: 'od' | 'oe'; label: string }) {
   return (
-    <>
-      <label htmlFor={`${eye}-esferico`}>{label} · Esférico</label>
-      <input id={`${eye}-esferico`} name={`${eye}-esferico`} type="number" step="0.25" min="-30" max="30" defaultValue="0" required />
-      <label htmlFor={`${eye}-cilindrico`}>{label} · Cilíndrico</label>
-      <input id={`${eye}-cilindrico`} name={`${eye}-cilindrico`} type="number" step="0.25" min="-30" max="30" defaultValue="0" required />
-      <label htmlFor={`${eye}-eixo`}>{label} · Eixo</label>
-      <input id={`${eye}-eixo`} name={`${eye}-eixo`} type="number" step="1" min="0" max="180" defaultValue="0" required />
-      <label htmlFor={`${eye}-adicao`}>{label} · Adição</label>
-      <input id={`${eye}-adicao`} name={`${eye}-adicao`} type="number" step="0.25" min="0" max="6" defaultValue="0" required />
-    </>
+    <tr>
+      <th>{label}</th>
+      <td><input name={`${eye}-esferico`} type="number" step="0.25" min="-30" max="30" placeholder="+0,00" defaultValue="0" required /></td>
+      <td><input name={`${eye}-cilindrico`} type="number" step="0.25" min="-30" max="30" placeholder="-0,00" defaultValue="0" required /></td>
+      <td><input name={`${eye}-eixo`} type="number" step="1" min="0" max="180" placeholder="0°" defaultValue="0" required /></td>
+      <td><input name={`${eye}-adicao`} type="number" step="0.25" min="0" max="6" placeholder="+0,00" defaultValue="0" required /></td>
+    </tr>
   );
 }
 
@@ -72,61 +69,92 @@ export function NewOrderForm({ clientId }: { clientId: string }) {
 
   return (
     <form className="stack" onSubmit={submit}>
-      <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
-        <legend style={{ fontWeight: 850, marginBottom: 8 }}>Receita</legend>
-        <div className="form-grid">
-          <EyeFields eye="od" label="OD" />
-          <EyeFields eye="oe" label="OE" />
+      <div className="subsection">
+        <h3>Receita</h3>
+        <div className="rx-scroll">
+          <table className="rx-table">
+            <thead>
+              <tr>
+                <th></th>
+                <th>Esférico</th>
+                <th>Cilíndrico</th>
+                <th>Eixo</th>
+                <th>Adição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <RxRow eye="od" label="OD" />
+              <RxRow eye="oe" label="OE" />
+            </tbody>
+          </table>
         </div>
-      </fieldset>
+      </div>
 
-      <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
-        <legend style={{ fontWeight: 850, margin: '18px 0 8px' }}>Definição da lente</legend>
-        <div className="form-grid">
-          <label htmlFor="lensType">Tipo de lente
-            <select id="lensType" name="lensType" required defaultValue="">
-              <option value="" disabled>Selecione</option>
-              {LENS_TYPES.map((option) => <option key={option} value={option}>{option}</option>)}
-            </select>
-          </label>
-          <label htmlFor="lensIndex">Índice
-            <select id="lensIndex" name="lensIndex" required defaultValue="">
-              <option value="" disabled>Selecione</option>
-              {LENS_INDEXES.map((option) => <option key={option} value={option}>{option}</option>)}
-            </select>
-          </label>
-          <label htmlFor="lensMaterial">Material
-            <select id="lensMaterial" name="lensMaterial" required defaultValue="">
-              <option value="" disabled>Selecione</option>
-              {LENS_MATERIALS.map((option) => <option key={option} value={option}>{option}</option>)}
-            </select>
-          </label>
-          <label htmlFor="lensTreatment">Tratamento
-            <select id="lensTreatment" name="lensTreatment" required defaultValue="">
-              <option value="" disabled>Selecione</option>
-              {LENS_TREATMENTS.map((option) => <option key={option} value={option}>{option}</option>)}
-            </select>
-          </label>
-          <label htmlFor="laboratory">Laboratório
-            <input id="laboratory" name="laboratory" list="laboratory-suggestions" required maxLength={120} />
-            <datalist id="laboratory-suggestions">
-              {LABORATORY_SUGGESTIONS.map((option) => <option key={option} value={option} />)}
-            </datalist>
-          </label>
+      <div className="grid grid-2">
+        <div className="subsection">
+          <h3>Definição da lente</h3>
+          <div className="grid grid-2">
+            <div className="field">
+              <label className="required" htmlFor="lensType">Tipo de lente</label>
+              <select id="lensType" name="lensType" required defaultValue="">
+                <option value="" disabled>Selecione</option>
+                {LENS_TYPES.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="lensIndex">Índice</label>
+              <select id="lensIndex" name="lensIndex" required defaultValue="">
+                <option value="" disabled>Selecione</option>
+                {LENS_INDEXES.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="lensMaterial">Material</label>
+              <select id="lensMaterial" name="lensMaterial" required defaultValue="">
+                <option value="" disabled>Selecione</option>
+                {LENS_MATERIALS.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="lensTreatment">Tratamento</label>
+              <select id="lensTreatment" name="lensTreatment" required defaultValue="">
+                <option value="" disabled>Selecione</option>
+                {LENS_TREATMENTS.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </div>
+            <div className="field span-2">
+              <label className="required" htmlFor="laboratory">Laboratório</label>
+              <input id="laboratory" name="laboratory" list="laboratory-suggestions" placeholder="Digite ou escolha um laboratório" required maxLength={120} />
+              <datalist id="laboratory-suggestions">
+                {LABORATORY_SUGGESTIONS.map((option) => <option key={option} value={option} />)}
+              </datalist>
+              <div className="helper">O nome pode ser digitado livremente e passa a acompanhar este orçamento.</div>
+            </div>
+          </div>
         </div>
-      </fieldset>
 
-      <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
-        <legend style={{ fontWeight: 850, margin: '18px 0 8px' }}>Novo orçamento</legend>
-        <label htmlFor="price">Valor do orçamento</label>
-        <input id="price" name="price" type="number" step="0.01" min="0" required />
-        <label htmlFor="notes">Observações</label>
-        <textarea id="notes" name="notes" rows={3} maxLength={500} />
-      </fieldset>
+        <div className="subsection">
+          <h3>Novo orçamento</h3>
+          <div className="field">
+            <label className="required" htmlFor="price">Valor do orçamento</label>
+            <div className="money">
+              <input id="price" name="price" type="number" step="0.01" min="0" placeholder="0,00" required />
+            </div>
+          </div>
+          <div style={{ height: 10 }} />
+          <div className="field">
+            <label htmlFor="notes">Observações</label>
+            <textarea id="notes" name="notes" rows={3} maxLength={500} placeholder="Condições, prazo, upgrade, observações do laboratório..." />
+            <div className="helper">Estas observações acompanham o orçamento deste pedido.</div>
+          </div>
+        </div>
+      </div>
 
-      <button className="button primary" disabled={state === 'loading'} type="submit">
-        {state === 'loading' ? 'Salvando…' : 'Salvar orçamento e criar pedido'}
-      </button>
+      <div className="actions">
+        <button className="button primary" disabled={state === 'loading'} type="submit">
+          {state === 'loading' ? 'Salvando…' : 'Salvar orçamento e criar pedido'}
+        </button>
+      </div>
       {message && state === 'error' && <p className="form-message error" role="status">{message}</p>}
     </form>
   );
