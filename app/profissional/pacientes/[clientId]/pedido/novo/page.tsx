@@ -22,19 +22,10 @@ export default async function NewOrderPage({ params }: { params: Promise<{ clien
     .maybeSingle();
   if (!assignment) redirect('/profissional/pacientes');
 
-  // Reaproveita um atendimento em andamento deste paciente com este profissional,
-  // em vez de criar um pedido novo a cada clique/atualização de página.
-  const { data: existingOrder } = await admin
-    .from('orders')
-    .select('id')
-    .eq('client_id', clientId)
-    .eq('professional_id', user.id)
-    .eq('status', 'in_progress')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (existingOrder) redirect(`/profissional/pacientes/${clientId}/pedido/${existingOrder.id}`);
+  // "Novo pedido" sempre cria um atendimento novo, independente de já existir algum
+  // pendente ou encerrado para este paciente — reabrir um atendimento em andamento
+  // é uma ação separada ("Continuar atendimento", na lista de pacientes), não deve
+  // bloquear a criação de um novo.
 
   // Numeração por paciente (não por organização): o primeiro atendimento deste
   // paciente é #1, o segundo #2, e assim por diante — independente de quantos

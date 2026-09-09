@@ -62,7 +62,7 @@ export default async function ProfessionalPatientsPage() {
         <div>
           <p className="eyebrow">Área profissional</p>
           <h1>Meus pacientes</h1>
-          <p className="muted">Pacientes que confirmaram o vínculo pelo WhatsApp. Clique em &quot;Novo pedido&quot; ou &quot;Continuar atendimento&quot; para iniciar o atendimento de um paciente já cadastrado.</p>
+          <p className="muted">Pacientes que confirmaram o vínculo pelo WhatsApp. &quot;Novo pedido&quot; sempre inicia um atendimento novo; &quot;Continuar atendimento&quot; aparece quando já existe um em andamento.</p>
         </div>
         <Link className="button primary" href="/profissional/pacientes/novo">Convidar paciente</Link>
       </section>
@@ -75,11 +75,12 @@ export default async function ProfessionalPatientsPage() {
               <strong>{patient.clients?.full_name || 'Paciente'}</strong>
               <span>{formatWhatsApp(patient.clients?.whatsapp_e164)}</span>
               <time>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(new Date(patient.created_at))}</time>
-              {openOrderId ? (
-                <Link className="button secondary" href={`/profissional/pacientes/${patient.client_id}/pedido/${openOrderId}`}>Continuar atendimento</Link>
-              ) : (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {openOrderId && (
+                  <Link className="button secondary" href={`/profissional/pacientes/${patient.client_id}/pedido/${openOrderId}`}>Continuar atendimento</Link>
+                )}
                 <Link className="button secondary" href={`/profissional/pacientes/${patient.client_id}/pedido/novo`}>Novo pedido</Link>
-              )}
+              </div>
             </div>
           );
         }) : <div className="empty-state">Nenhum paciente vinculado ainda. Convide um paciente para começar.</div>}
