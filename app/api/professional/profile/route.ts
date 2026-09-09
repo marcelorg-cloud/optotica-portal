@@ -66,8 +66,8 @@ export async function POST(request: Request) {
   if (contactEmail && !/^\S+@\S+\.\S+$/.test(contactEmail)) {
     return NextResponse.json({ message: 'Informe um e-mail de contato válido.' }, { status: 400 });
   }
-  if (!laboratories.length || laboratories.length > 10) {
-    return NextResponse.json({ message: 'Cadastre ao menos um laboratório (máximo de 10).' }, { status: 400 });
+  if (laboratories.length > 10) {
+    return NextResponse.json({ message: 'Máximo de 10 laboratórios.' }, { status: 400 });
   }
 
   const normalizedLabs = laboratories.map((lab) => ({
