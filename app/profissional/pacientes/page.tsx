@@ -37,13 +37,24 @@ export default async function ProfessionalPatientsPage() {
   if (master) redirect('/admin');
   if (!profile || profile.status !== 'approved') redirect('/profissional');
 
-  const { data } = await admin
-    .from('professional_client_assignments')
-    .select('client_id, created_at, clients(full_name, whatsapp_e164)')
-    .eq('professional_user_id', user.id)
-    .eq('active', true)
-    .order('created_at', { ascending: false });
+  const [{ data }, { data: openOrdersData }] = await Promise.all([
+    admin
+      .from('professional_client_assignments')
+      .select('client_id, created_at, clients(full_name, whatsapp_e164)')
+      .eq('professional_user_id', user.id)
+      .eq('active', true)
+      .order('created_at', { ascending: false }),
+    admin
+      .from('orders')
+      .select('id, client_id')
+      .eq('professional_id', user.id)
+      .eq('status', 'in_progress')
+  ]);
   const patients = (data || []) as unknown as PatientRow[];
+  // Atendimento em andamento por paciente — usado para reabrir direto em vez de
+  // passar pela tela "novo pedido" (que já reaproveitaria o mesmo pedido, mas o
+  // rótulo do botão deixava a ação pouco clara).
+  const openOrderByClient = new Map((openOrdersData || []).map((o) => [o.client_id, o.id]));
 
   return (
     <div className="page-shell">
@@ -57,14 +68,21 @@ export default async function ProfessionalPatientsPage() {
       </section>
       <section className="card table-card">
         <div className="table-head"><span>Paciente</span><span>WhatsApp</span><span>Vinculado em</span><span></span></div>
-        {patients.length ? patients.map((patient) => (
-          <div className="table-row" key={patient.client_id}>
-            <strong>{patient.clients?.full_name || 'Paciente'}</strong>
-            <span>{formatWhatsApp(patient.clients?.whatsapp_e164)}</span>
-            <time>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(new Date(patient.created_at))}</time>
-            <Link className="button secondary" href={`/profissional/pacientes/${patient.client_id}/pedido/novo`}>Novo pedido</Link>
-          </div>
-        )) : <div className="empty-state">Nenhum paciente vinculado ainda. Convide um paciente para começar.</div>}
+        {patients.length ? patients.map((patient) => {
+          const openOrderId = openOrderByClient.get(patient.client_id);
+          return (
+            <div className="table-row" key={patient.client_id}>
+              <strong>{patient.clients?.full_name || 'Paciente'}</strong>
+              <span>{formatWhatsApp(patient.clients?.whatsapp_e164)}</span>
+              <time>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(new Date(patient.created_at))}</time>
+              {openOrderId ? (
+                <Link className="button secondary" href={`/profissional/pacientes/${patient.client_id}/pedido/${openOrderId}`}>Continuar atendimento</Link>
+              ) : (
+                <Link className="button secondary" href={`/profissional/pacientes/${patient.client_id}/pedido/novo`}>Novo pedido</Link>
+              )}
+            </div>
+          );
+        }) : <div className="empty-state">Nenhum paciente vinculado ainda. Convide um paciente para começar.</div>}
       </section>
     </div>
   );
