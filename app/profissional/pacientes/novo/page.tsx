@@ -1,64 +1,76 @@
-import type { Metadata } from 'next';
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createAdminSupabaseClient, createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
 
-export const metadata: Metadata = { title: 'Área profissional' };
-
-type OrderSummary = { id: string; order_number: number; status: string; total: number | null; updated_at: string; clients: { full_name: string } | null };
-
-export default async function ProfessionalPage() {
-  if (!isSupabaseConfigured()) {
-    return <div className="page-shell narrow"><div className="setup-note">Configure as variáveis do Supabase para ativar a área profissional.</div></div>;
-  }
+export default async function NewOrderPage({ params }: { params: Promise<{ clientId: string }> }) {
+  const { clientId } = await params;
+  if (!isSupabaseConfigured()) redirect('/entrar');
 
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/entrar?profissional=1');
 
   const admin = createAdminSupabaseClient();
-  const [{ data: master }, { data: profile }] = await Promise.all([
-    admin.from('system_admins').select('user_id').eq('user_id', user.id).eq('active', true).maybeSingle(),
-    admin.from('professional_profiles').select('id, display_name, status, review_notes').eq('user_id', user.id).maybeSingle()
-  ]);
-  if (master) redirect('/admin');
-  if (!profile || ['draft', 'changes_requested'].includes(profile.status)) redirect('/profissional/cadastro');
-  if (profile.status !== 'approved') {
-    const labels: Record<string, string> = {
-      under_review: 'Seu cadastro está em análise pela equipe Optótica.',
-      rejected: 'Seu cadastro não foi aprovado.',
-      suspended: 'Seu acesso profissional está suspenso.'
-    };
-    return <div className="page-shell narrow"><div className="setup-note"><strong>{labels[profile.status] || 'Acesso indisponível.'}</strong>{profile.review_notes && <p>{profile.review_notes}</p>}</div></div>;
+  const { data: profile } = await admin.from('professional_profiles').select('status').eq('user_id', user.id).maybeSingle();
+  if (!profile || profile.status !== 'approved') redirect('/profissional');
+
+  const { data: assignment } = await admin
+    .from('professional_client_assignments')
+    .select('client_id, organization_id')
+    .eq('professional_user_id', user.id)
+    .eq('client_id', clientId)
+    .eq('active', true)
+    .maybeSingle();
+  if (!assignment) redirect('/profissional/pacientes');
+
+  // Reaproveita um atendimento em andamento deste paciente com este profissional,
+  // em vez de criar um pedido novo a cada clique/atualização de página.
+  const { data: existingOrder } = await admin
+    .from('orders')
+    .select('id')
+    .eq('client_id', clientId)
+    .eq('professional_id', user.id)
+    .eq('status', 'in_progress')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingOrder) redirect(`/profissional/pacientes/${clientId}/pedido/${existingOrder.id}`);
+
+  // Numeração por paciente (não por organização): o primeiro atendimento deste
+  // paciente é #1, o segundo #2, e assim por diante — independente de quantos
+  // atendimentos outros pacientes já tiveram. Poucas tentativas com o próximo
+  // número cobrem a rara corrida de duas requisições simultâneas (a trava
+  // consultiva dentro da função já evita a maioria dos casos; o índice único
+  // em (client_id, order_number) garante que nunca duas fiquem com o mesmo
+  // número mesmo assim).
+  let createdOrder: { id: string } | null = null;
+  for (let attempt = 0; attempt < 3 && !createdOrder; attempt++) {
+    const { data: orderNumber, error: sequenceError } = await supabase.rpc('next_client_order_number', { target_client: clientId });
+    if (sequenceError || orderNumber == null) {
+      console.error('order_number_generation_failed', { code: sequenceError?.code });
+      redirect('/profissional/pacientes');
+    }
+
+    const { data: inserted, error: orderError } = await admin.from('orders').insert({
+      organization_id: assignment.organization_id,
+      client_id: clientId,
+      order_number: orderNumber,
+      professional_id: user.id,
+      status: 'in_progress',
+      total: 0
+    }).select('id').single();
+
+    if (!orderError && inserted) { createdOrder = inserted; break; }
+    if (orderError?.code !== '23505') {
+      console.error('order_create_failed', { code: orderError?.code });
+      redirect('/profissional/pacientes');
+    }
+    // 23505 = número duplicado por corrida rara — tenta de novo com o próximo número.
+  }
+  if (!createdOrder) {
+    console.error('order_create_failed', { code: 'retries_exhausted' });
+    redirect('/profissional/pacientes');
   }
 
-  const { data } = await supabase
-    .from('orders')
-    .select('id, order_number, status, total, updated_at, clients(full_name)')
-    .order('updated_at', { ascending: false })
-    .limit(20);
-  const orders = (data || []) as unknown as OrderSummary[];
-
-  return (
-    <div className="page-shell">
-      <section className="dashboard-head">
-        <div><p className="eyebrow">Área profissional</p><h1>{profile.display_name}</h1><p className="muted">Você vê somente os pacientes que aceitaram os convites criados por esta conta.</p></div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <Link className="button secondary" href="/profissional/pacientes">Meus pacientes</Link>
-          <Link className="button primary" href="/profissional/pacientes/novo">Convidar paciente</Link>
-        </div>
-      </section>
-      <section className="card table-card">
-        <div className="table-head"><span>Pedido</span><span>Cliente</span><span>Status</span><span>Atualização</span></div>
-        {orders.length ? orders.map(order => (
-          <div className="table-row" key={order.id}>
-            <strong>#{order.order_number}</strong>
-            <span>{order.clients?.full_name || 'Cliente'}</span>
-            <span className="pill">{order.status}</span>
-            <time>{new Intl.DateTimeFormat('pt-BR').format(new Date(order.updated_at))}</time>
-          </div>
-        )) : <div className="empty-state">Nenhum pedido cadastrado.</div>}
-      </section>
-    </div>
-  );
+  redirect(`/profissional/pacientes/${clientId}/pedido/${createdOrder.id}`);
 }
