@@ -1,10 +1,5 @@
-import type { Metadata } from 'next';
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createAdminSupabaseClient, createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
-import { NewOrderForm } from '@/components/new-order-form';
-
-export const metadata: Metadata = { title: 'Novo pedido' };
 
 export default async function NewOrderPage({ params }: { params: Promise<{ clientId: string }> }) {
   const { clientId } = await params;
@@ -20,37 +15,45 @@ export default async function NewOrderPage({ params }: { params: Promise<{ clien
 
   const { data: assignment } = await admin
     .from('professional_client_assignments')
-    .select('client_id, clients(full_name)')
+    .select('client_id, organization_id')
     .eq('professional_user_id', user.id)
     .eq('client_id', clientId)
     .eq('active', true)
     .maybeSingle();
   if (!assignment) redirect('/profissional/pacientes');
-  const clientName = (assignment as unknown as { clients: { full_name: string } | null }).clients?.full_name || 'Paciente';
 
-  return (
-    <div className="page-shell narrow">
-      <div className="order-head">
-        <Link className="back-link" href="/profissional/pacientes">← Meus pacientes</Link>
-        <p className="eyebrow">Área profissional · {clientName}</p>
-        <h1>Novo pedido</h1>
-      </div>
-      <section className="card">
-        <div className="card-head">
-          <div className="step-title">
-            <span className="step-badge">1</span>
-            <div>
-              <p className="eyebrow">Etapa atual</p>
-              <h2>OS laboratorial + orçamento</h2>
-            </div>
-          </div>
-          <span className="pending-tag">Em andamento</span>
-        </div>
-        <div className="card-body">
-          <p className="muted" style={{ marginTop: 0 }}>Preencha a receita e o orçamento de lente. As etapas de armação, pagamento e produção ainda serão adicionadas.</p>
-          <NewOrderForm clientId={clientId} />
-        </div>
-      </section>
-    </div>
-  );
+  // Reaproveita um atendimento em andamento deste paciente com este profissional,
+  // em vez de criar um pedido novo a cada clique/atualização de página.
+  const { data: existingOrder } = await admin
+    .from('orders')
+    .select('id')
+    .eq('client_id', clientId)
+    .eq('professional_id', user.id)
+    .eq('status', 'in_progress')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingOrder) redirect(`/profissional/pacientes/${clientId}/pedido/${existingOrder.id}`);
+
+  const { data: orderNumber, error: sequenceError } = await supabase.rpc('next_order_number', { org_id: assignment.organization_id });
+  if (sequenceError || orderNumber == null) {
+    console.error('order_number_generation_failed', { code: sequenceError?.code });
+    redirect('/profissional/pacientes');
+  }
+
+  const { data: order, error: orderError } = await admin.from('orders').insert({
+    organization_id: assignment.organization_id,
+    client_id: clientId,
+    order_number: orderNumber,
+    professional_id: user.id,
+    status: 'in_progress',
+    total: 0
+  }).select('id').single();
+  if (orderError || !order) {
+    console.error('order_create_failed', { code: orderError?.code });
+    redirect('/profissional/pacientes');
+  }
+
+  redirect(`/profissional/pacientes/${clientId}/pedido/${order!.id}`);
 }
