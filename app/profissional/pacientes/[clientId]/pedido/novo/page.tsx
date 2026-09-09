@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createAdminSupabaseClient, createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { NewOrderForm } from '@/components/new-order-form';
@@ -29,11 +30,26 @@ export default async function NewOrderPage({ params }: { params: Promise<{ clien
 
   return (
     <div className="page-shell narrow">
+      <div className="order-head">
+        <Link className="back-link" href="/profissional/pacientes">← Meus pacientes</Link>
+        <p className="eyebrow">Área profissional · {clientName}</p>
+        <h1>Novo pedido</h1>
+      </div>
       <section className="card">
-        <p className="eyebrow">Área profissional</p>
-        <h1>Novo pedido — {clientName}</h1>
-        <p className="muted">Preencha a receita e o orçamento de lente. As etapas de armação, pagamento e produção ainda serão adicionadas.</p>
-        <NewOrderForm clientId={clientId} />
+        <div className="card-head">
+          <div className="step-title">
+            <span className="step-badge">1</span>
+            <div>
+              <p className="eyebrow">Etapa atual</p>
+              <h2>OS laboratorial + orçamento</h2>
+            </div>
+          </div>
+          <span className="pending-tag">Em andamento</span>
+        </div>
+        <div className="card-body">
+          <p className="muted" style={{ marginTop: 0 }}>Preencha a receita e o orçamento de lente. As etapas de armação, pagamento e produção ainda serão adicionadas.</p>
+          <NewOrderForm clientId={clientId} />
+        </div>
       </section>
     </div>
   );
