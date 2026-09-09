@@ -117,7 +117,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ or
   }
 
   if (section === 'entrega' && data.confirm) {
-    await admin.from('orders').update({ status: 'completed' }).eq('id', orderId);
+    // 'completed' não é um valor aceito por orders_status_check (só 'delivered' é) — com o
+    // valor errado, essa atualização falhava silenciosamente (o erro não era checado) e o
+    // pedido nunca saía de 'in_progress' mesmo depois de entregue, bloqueando pra sempre um
+    // novo atendimento desse paciente (a tela sempre reabria esse pedido como "em andamento").
+    const { error: deliveryStatusError } = await admin.from('orders').update({ status: 'delivered' }).eq('id', orderId);
+    if (deliveryStatusError) {
+      console.error('order_delivered_status_update_failed', { code: deliveryStatusError.code });
+    }
   }
 
   return NextResponse.json({ message: 'Etapa salva.' });
