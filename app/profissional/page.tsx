@@ -43,7 +43,10 @@ export default async function ProfessionalPage() {
     <div className="page-shell">
       <section className="dashboard-head">
         <div><p className="eyebrow">Área profissional</p><h1>{profile.display_name}</h1><p className="muted">Você vê somente os pacientes que aceitaram os convites criados por esta conta.</p></div>
-        <Link className="button primary" href="/profissional/pacientes/novo">Convidar paciente</Link>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <Link className="button secondary" href="/profissional/pacientes">Meus pacientes</Link>
+          <Link className="button primary" href="/profissional/pacientes/novo">Convidar paciente</Link>
+        </div>
       </section>
       <section className="card table-card">
         <div className="table-head"><span>Pedido</span><span>Cliente</span><span>Status</span><span>Atualização</span></div>
