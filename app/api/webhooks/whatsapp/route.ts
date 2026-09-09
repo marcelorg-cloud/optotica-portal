@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { createAdminSupabaseClient } from '@/lib/supabase/server';
 import { firstIncomingMessage, sendWhatsAppText, validMetaSignature } from '@/lib/meta';
 import { publicEnv, serverEnv } from '@/lib/env';
+import { toCanonicalWhatsAppE164 } from '@/lib/phone';
 
 type AdminClient = SupabaseClient;
 
@@ -87,7 +88,7 @@ export async function POST(request: Request) {
   const message = firstIncomingMessage(payload);
   if (!message) return NextResponse.json({ received: true });
   const phoneDigits = message.phone;
-  const whatsappE164 = `+${phoneDigits}`;
+  const whatsappE164 = toCanonicalWhatsAppE164(phoneDigits);
   const admin = createAdminSupabaseClient();
 
   const { data: processed } = await admin
@@ -111,7 +112,7 @@ export async function POST(request: Request) {
     const valid = invitation
       && invitation.status === 'pending'
       && new Date(invitation.expires_at).getTime() > Date.now()
-      && invitation.expected_whatsapp_e164 === whatsappE164;
+      && toCanonicalWhatsAppE164(invitation.expected_whatsapp_e164) === whatsappE164;
     if (!valid || !invitation) {
       await sendWhatsAppText(phoneDigits, 'Este convite é inválido, expirou ou pertence a outro número. Solicite um novo convite ao profissional.');
       return NextResponse.json({ received: true });
