@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { SiteHeader } from '@/components/site-header';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -12,16 +12,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="pt-BR">
       <body>
-        <header className="site-header">
-          <Link className="brand" href="/" aria-label="Optótica — início">
-            <span className="brand-mark" aria-hidden="true">O</span>
-            <span>optótica</span>
-          </Link>
-          <nav aria-label="Navegação principal">
-            <Link href="/entrar">Entrar</Link>
-            <Link href="/profissional">Área profissional</Link>
-          </nav>
-        </header>
+        <SiteHeader />
         <main>{children}</main>
         <footer className="site-footer">Optótica · infraestrutura independente e dados protegidos</footer>
       </body>
