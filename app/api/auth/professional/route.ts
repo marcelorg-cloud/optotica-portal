@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     const supabase = await createServerSupabaseClient();
     await supabase.auth.signInWithOtp({
       email,
-      options: { shouldCreateUser: false, emailRedirectTo: `${publicEnv.appUrl()}/auth/callback?next=/profissional` }
+      options: { shouldCreateUser: false,       emailRedirectTo: `${publicEnv.appUrl()}/auth/confirm` }
     });
   }
 
