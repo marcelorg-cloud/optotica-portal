@@ -6,11 +6,12 @@ import { useRouter } from 'next/navigation';
 type Variant = { color: string; image?: string; qty?: number };
 type Frame = { id: string; name: string; kind: string; variants: Variant[] };
 
-export function FrameStep({ orderId, frames, selectedFrameName, selectedColor }: {
+export function FrameStep({ orderId, frames, selectedFrameName, selectedColor, locked }: {
   orderId: string;
   frames: Frame[];
   selectedFrameName: string | null;
   selectedColor: string | null;
+  locked: boolean;
 }) {
   const router = useRouter();
   const [colorByFrame, setColorByFrame] = useState<Record<string, string>>(
@@ -20,6 +21,7 @@ export function FrameStep({ orderId, frames, selectedFrameName, selectedColor }:
   const [message, setMessage] = useState('');
 
   async function select(frameId: string) {
+    if (locked) return;
     const color = colorByFrame[frameId];
     if (!color) return;
     setSavingId(frameId);
@@ -35,9 +37,11 @@ export function FrameStep({ orderId, frames, selectedFrameName, selectedColor }:
 
   return (
     <div className="stack">
+      {locked && <div className="notice">🔒 Etapa bloqueada — Comanda final já confirmada.</div>}
       {selectedFrameName && (
         <div className="notice">Armação selecionada: <strong>{selectedFrameName}</strong> · cor {selectedColor}</div>
       )}
+      <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0 }}>
       <div className="grid grid-2">
         {frames.map((frame) => {
           const color = colorByFrame[frame.id] || '';
@@ -66,6 +70,7 @@ export function FrameStep({ orderId, frames, selectedFrameName, selectedColor }:
           );
         })}
       </div>
+      </fieldset>
       {message && <p className="form-message error">{message}</p>}
       <p className="helper">O valor do conjunto, incluindo as lentes, será informado pelo optometrista no orçamento.</p>
     </div>

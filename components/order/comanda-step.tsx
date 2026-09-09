@@ -32,7 +32,7 @@ export function ComandaStep({ orderId, clientName, dnp, lensDescription, laborat
   }
 
   async function save(confirm: boolean) {
-    if (!formRef.current) return;
+    if (!formRef.current || localConfirmed) return;
     setState('loading');
     setMessage('');
     const form = new FormData(formRef.current);
@@ -60,6 +60,8 @@ export function ComandaStep({ orderId, clientName, dnp, lensDescription, laborat
 
   return (
     <form className="stack" ref={formRef} onSubmit={(e) => { e.preventDefault(); save(false); }}>
+      {localConfirmed && <div className="notice">🔒 Comanda final confirmada — esta etapa e as etapas 1 a 3 (Paciente, OS/Orçamento e Armação) estão bloqueadas.</div>}
+      <fieldset disabled={localConfirmed} style={{ border: 'none', margin: 0, padding: 0 }}>
       <div className="grid grid-3">
         <div className="subsection"><h3>Paciente</h3>
           <div className="summary-row"><span>Nome</span><strong>{clientName}</strong></div>
@@ -92,6 +94,7 @@ export function ComandaStep({ orderId, clientName, dnp, lensDescription, laborat
           {localConfirmed ? 'Comanda confirmada ✓' : 'Confirmar comanda final'}
         </button>
       </div>
+      </fieldset>
       {message && state === 'error' && <p className="form-message error">{message}</p>}
     </form>
   );

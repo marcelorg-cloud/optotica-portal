@@ -43,6 +43,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ or
   const patch: Record<string, unknown> = { order_id: order.id, organization_id: order.organization_id };
 
   if (section === 'comanda') {
+    // Uma vez confirmada, a Comanda final (etapa 4) fica bloqueada — junto com
+    // as etapas 1 a 3 (Paciente/DNP, OS/Orçamento e Armação) — para não sobrescrever
+    // dados que já seguiram para pagamento/produção.
+    const { data: existingFulfillment } = await admin.from('order_fulfillment').select('comanda_confirmed_at').eq('order_id', orderId).maybeSingle();
+    if (existingFulfillment?.comanda_confirmed_at) {
+      return NextResponse.json({ message: 'A Comanda final já foi confirmada e não pode mais ser alterada.' }, { status: 409 });
+    }
     const heightOd = numberOrNull(data.measureHeightOd, 0, 60);
     const heightOe = numberOrNull(data.measureHeightOe, 0, 60);
     const bridge = numberOrNull(data.measureBridge, 0, 60);

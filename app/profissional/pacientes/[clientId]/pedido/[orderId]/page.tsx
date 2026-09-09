@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createAdminSupabaseClient, createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
+import { ClientStep } from '@/components/order/client-step';
 import { OsStep } from '@/components/order/os-step';
 import { FrameStep } from '@/components/order/frame-step';
 import { ComandaStep } from '@/components/order/comanda-step';
@@ -155,13 +156,15 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
               <span className="complete-tag">Completo</span>
             </div>
             <div className="card-body">
-              <div className="summary-grid">
-                <div className="stat"><span>Paciente</span><strong>{clientName}</strong></div>
-                <div className="stat"><span>WhatsApp</span><strong>{formatWhatsApp(client?.whatsapp_e164)}</strong></div>
-                <div className="stat"><span>DNP</span><strong>{dnp}</strong></div>
-                <div className="stat"><span>Armação</span><strong>{orderFrame?.frame_name || 'Ainda não escolhida'}</strong></div>
-              </div>
-              <div className="photo-box">Foto de prova online ainda não disponível nesta versão.</div>
+              <ClientStep
+                orderId={order.id}
+                clientName={clientName}
+                whatsapp={formatWhatsApp(client?.whatsapp_e164)}
+                initialDnpOd={str(client?.dnp_od)}
+                initialDnpOe={str(client?.dnp_oe)}
+                frameName={orderFrame?.frame_name || ''}
+                locked={comandaDone}
+              />
             </div>
           </section>
 
@@ -180,6 +183,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                 initialOe={toEye(rx?.oe)}
                 quotes={quotes}
                 selectedQuoteId={order.selected_quote_id}
+                locked={comandaDone}
               />
             </div>
           </section>
@@ -193,7 +197,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
               {tag(hasFrame, current === 2)}
             </div>
             <div className="card-body">
-              <FrameStep orderId={order.id} frames={frames} selectedFrameName={orderFrame?.frame_name || null} selectedColor={orderFrame?.color || null} />
+              <FrameStep orderId={order.id} frames={frames} selectedFrameName={orderFrame?.frame_name || null} selectedColor={orderFrame?.color || null} locked={comandaDone} />
             </div>
           </section>
 

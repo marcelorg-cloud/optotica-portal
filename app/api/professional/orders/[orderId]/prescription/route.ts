@@ -38,6 +38,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
     .maybeSingle();
   if (!order) return NextResponse.json({ message: 'Pedido não encontrado.' }, { status: 404 });
 
+  // Depois que a Comanda final (etapa 4) é confirmada, receita/orçamento/armação
+  // ficam bloqueados — evita alterar dados que já foram consolidados e
+  // repassados para pagamento/produção.
+  const { data: fulfillment } = await admin.from('order_fulfillment').select('comanda_confirmed_at').eq('order_id', orderId).maybeSingle();
+  if (fulfillment?.comanda_confirmed_at) {
+    return NextResponse.json({ message: 'A Comanda final já foi confirmada — a receita não pode mais ser alterada.' }, { status: 409 });
+  }
+
   const { error } = await admin.from('prescriptions').upsert({
     organization_id: order.organization_id,
     client_id: order.client_id,

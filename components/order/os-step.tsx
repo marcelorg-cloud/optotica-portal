@@ -26,12 +26,13 @@ function RxRow({ eye, label, value }: { eye: 'od' | 'oe'; label: string; value: 
 
 const EMPTY_EYE: EyeRx = { esferico: '0', cilindrico: '0', eixo: '0', adicao: '0' };
 
-export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId }: {
+export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId, locked }: {
   orderId: string;
   initialOd: EyeRx | null;
   initialOe: EyeRx | null;
   quotes: QuoteOption[];
   selectedQuoteId: string | null;
+  locked: boolean;
 }) {
   const router = useRouter();
   const [rxState, setRxState] = useState<'idle' | 'loading' | 'error'>('idle');
@@ -58,6 +59,7 @@ export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId 
 
   async function submitRx(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (locked) return;
     setRxState('loading');
     setRxMessage('');
     const form = new FormData(event.currentTarget);
@@ -76,6 +78,7 @@ export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId 
 
   async function submitBudget(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (locked) return;
     setBudgetState('loading');
     setBudgetMessage('');
     const form = new FormData(event.currentTarget);
@@ -93,7 +96,7 @@ export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId 
   }
 
   async function selectQuote(quoteId: string) {
-    if (quoteId === localSelectedQuoteId) return;
+    if (locked || quoteId === localSelectedQuoteId) return;
     const previous = localSelectedQuoteId;
     setLocalSelectedQuoteId(quoteId);
     setSelectMessage('');
@@ -111,7 +114,9 @@ export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId 
 
   return (
     <div className="stack">
+      {locked && <div className="notice">🔒 Etapa bloqueada — Comanda final já confirmada.</div>}
       <form className="subsection" onSubmit={submitRx}>
+        <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0 }}>
         <h3>Receita</h3>
         <div className="rx-scroll">
           <table className="rx-table">
@@ -126,9 +131,11 @@ export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId 
           <button className="button primary" type="submit" disabled={rxState === 'loading'}>{rxState === 'loading' ? 'Salvando…' : 'Salvar receita'}</button>
         </div>
         {rxMessage && rxState === 'error' && <p className="form-message error">{rxMessage}</p>}
+        </fieldset>
       </form>
 
       <form onSubmit={submitBudget}>
+        <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0 }}>
         <div className="grid grid-2">
           <div className="subsection">
             <h3>Definição da lente</h3>
@@ -181,6 +188,7 @@ export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId 
           <button className="button primary" type="submit" disabled={budgetState === 'loading'}>{budgetState === 'loading' ? 'Salvando…' : 'Adicionar orçamento'}</button>
         </div>
         {budgetMessage && budgetState === 'error' && <p className="form-message error">{budgetMessage}</p>}
+        </fieldset>
       </form>
 
       <div className="subsection">
@@ -188,7 +196,12 @@ export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId 
         <div className="helper" style={{ marginBottom: 10 }}>Cadastre quantas opções forem necessárias. Depois selecione a melhor opção para seguir com o pedido.</div>
         <div className="os-list">
           {quotes.length ? quotes.map((quote) => (
-            <div key={quote.id} className={`os-item budget-option${quote.id === localSelectedQuoteId ? ' selected-budget' : ''}`} onClick={() => selectQuote(quote.id)}>
+            <div
+              key={quote.id}
+              className={`os-item budget-option${quote.id === localSelectedQuoteId ? ' selected-budget' : ''}${locked ? ' locked' : ''}`}
+              style={locked ? { cursor: 'default', opacity: 0.75 } : undefined}
+              onClick={() => selectQuote(quote.id)}
+            >
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                 <input type="radio" name="orcamento_escolhido" readOnly checked={quote.id === localSelectedQuoteId} style={{ width: 'auto', marginTop: 4 }} />
                 <div>

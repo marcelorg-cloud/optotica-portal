@@ -37,6 +37,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
     .maybeSingle();
   if (!order) return NextResponse.json({ message: 'Pedido não encontrado.' }, { status: 404 });
 
+  // Depois que a Comanda final (etapa 4) é confirmada, orçamento/receita/armação
+  // ficam bloqueados.
+  const { data: fulfillment } = await admin.from('order_fulfillment').select('comanda_confirmed_at').eq('order_id', orderId).maybeSingle();
+  if (fulfillment?.comanda_confirmed_at) {
+    return NextResponse.json({ message: 'A Comanda final já foi confirmada — não é possível adicionar novos orçamentos.' }, { status: 409 });
+  }
+
   const { count: existingQuotes } = await admin
     .from('quotes')
     .select('id', { count: 'exact', head: true })

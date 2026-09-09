@@ -18,6 +18,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
   const { data: quote } = await admin.from('quotes').select('id, total').eq('id', quoteId).eq('order_id', orderId).maybeSingle();
   if (!quote) return NextResponse.json({ message: 'Orçamento não encontrado neste pedido.' }, { status: 404 });
 
+  // Depois que a Comanda final (etapa 4) é confirmada, a seleção de orçamento fica bloqueada.
+  const { data: fulfillment } = await admin.from('order_fulfillment').select('comanda_confirmed_at').eq('order_id', orderId).maybeSingle();
+  if (fulfillment?.comanda_confirmed_at) {
+    return NextResponse.json({ message: 'A Comanda final já foi confirmada — não é possível trocar o orçamento.' }, { status: 409 });
+  }
+
   const { error } = await admin.from('orders').update({ selected_quote_id: quote.id, total: quote.total }).eq('id', orderId);
   if (error) {
     console.error('select_quote_failed', { code: error.code });

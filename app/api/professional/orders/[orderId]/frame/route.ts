@@ -18,6 +18,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
   const { data: order } = await admin.from('orders').select('id, organization_id').eq('id', orderId).eq('professional_id', user.id).maybeSingle();
   if (!order) return NextResponse.json({ message: 'Pedido não encontrado.' }, { status: 404 });
 
+  // Depois que a Comanda final (etapa 4) é confirmada, a escolha de armação fica bloqueada.
+  const { data: fulfillment } = await admin.from('order_fulfillment').select('comanda_confirmed_at').eq('order_id', orderId).maybeSingle();
+  if (fulfillment?.comanda_confirmed_at) {
+    return NextResponse.json({ message: 'A Comanda final já foi confirmada — a armação não pode mais ser alterada.' }, { status: 409 });
+  }
+
   const { data: frame } = await admin.from('frames').select('id, name, sku, source, metadata').eq('id', frameId).maybeSingle();
   if (!frame) return NextResponse.json({ message: 'Armação não encontrada.' }, { status: 404 });
 
