@@ -62,7 +62,7 @@ export default async function ProfessionalPatientsPage() {
         <div>
           <p className="eyebrow">Área profissional</p>
           <h1>Meus pacientes</h1>
-          <p className="muted">Pacientes que confirmaram o vínculo pelo WhatsApp.</p>
+          <p className="muted">Pacientes que confirmaram o vínculo pelo WhatsApp. Clique em &quot;Novo pedido&quot; ou &quot;Continuar atendimento&quot; para iniciar o atendimento de um paciente já cadastrado.</p>
         </div>
         <Link className="button primary" href="/profissional/pacientes/novo">Convidar paciente</Link>
       </section>
