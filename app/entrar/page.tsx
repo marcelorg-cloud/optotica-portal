@@ -22,6 +22,7 @@ export default function LoginPage() {
           <p className="muted">Informe seu e-mail. Cadastros em análise também podem entrar para acompanhar o status.</p>
           <ProfessionalLoginForm />
           <p className="fine-print">Primeiro acesso? <Link className="text-link" href="/cadastrar">Cadastre seu e-mail</Link>.</p>
+          <p className="fine-print">É master? <Link className="text-link" href="/entrar/master">Entrar com senha</Link>.</p>
         </section>
       </div>
     </div>
