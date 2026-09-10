@@ -61,7 +61,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   if (!order || order.client_id !== clientId) redirect('/profissional/pacientes');
 
   const [{ data: client }, { data: prescription }, { data: quotesData }, { data: orderFrame }, { data: fulfillment }, { data: framesData }] = await Promise.all([
-    admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe').eq('id', clientId).maybeSingle(),
+    admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe, dnp_photo_path, birth_date, cpf').eq('id', clientId).maybeSingle(),
     admin.from('prescriptions').select('prescription_data').eq('order_id', orderId).maybeSingle(),
     admin.from('quotes').select('id, total, quote_items(description, metadata)').eq('order_id', orderId),
     admin.from('order_frames').select('frame_name, sku, color').eq('order_id', orderId).maybeSingle(),
@@ -71,6 +71,15 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
 
   const clientName = client?.full_name || 'Paciente';
   const dnp = `OD ${client?.dnp_od ?? '—'} · OE ${client?.dnp_oe ?? '—'}`;
+
+  // Bucket 'dnp-photos' é privado (seção 0.17) — a URL pública não funciona,
+  // então cada carregamento da página gera uma URL assinada nova (1h de
+  // validade, mais que suficiente para o tempo de uma sessão de atendimento).
+  let dnpPhotoUrl: string | null = null;
+  if (client?.dnp_photo_path) {
+    const { data: signed } = await admin.storage.from('dnp-photos').createSignedUrl(client.dnp_photo_path, 3600);
+    dnpPhotoUrl = signed?.signedUrl || null;
+  }
 
   const rx = (prescription?.prescription_data || null) as { od?: Record<string, unknown>; oe?: Record<string, unknown> } | null;
   const toEye = (e?: Record<string, unknown>) => e ? {
@@ -163,6 +172,9 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                 whatsapp={formatWhatsApp(client?.whatsapp_e164)}
                 initialDnpOd={str(client?.dnp_od)}
                 initialDnpOe={str(client?.dnp_oe)}
+                initialDnpPhotoUrl={dnpPhotoUrl}
+                initialBirthDate={str(client?.birth_date)}
+                initialCpf={str(client?.cpf)}
                 frameName={orderFrame?.frame_name || ''}
                 locked={comandaDone}
               />

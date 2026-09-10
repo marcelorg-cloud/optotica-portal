@@ -98,7 +98,7 @@ function drawOverlay(ctx: CanvasRenderingContext2D, pts: DnpPoints) {
 
 export function DnpPhotoTool({ orderId, onSaved, onClose }: {
   orderId: string;
-  onSaved: (odMm: number, oeMm: number) => void;
+  onSaved: (odMm: number, oeMm: number, photoUrl: string | null) => void;
   onClose: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -285,7 +285,7 @@ export function DnpPhotoTool({ orderId, onSaved, onClose }: {
     const payload = await response.json().catch(() => ({}));
     setSaving(false);
     if (response.ok) {
-      onSaved(result.odMm, result.oeMm);
+      onSaved(result.odMm, result.oeMm, payload.photoUrl || null);
     } else {
       setSaveError(payload.message || 'Não foi possível salvar a medição.');
     }

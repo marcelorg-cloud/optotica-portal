@@ -64,6 +64,10 @@ function formatDate(value: string | null) {
 
 function formatRegistrationKind(accountType: string, professionalKind: string | null) {
   if (accountType === 'optical_store') return 'Ótica';
+  if (accountType === 'laboratory') return 'Laboratório';
+  // 'bacharel' não é mais uma opção do formulário, mas pode existir em
+  // cadastros antigos já aprovados — mantido aqui só para exibição correta
+  // desses registros históricos.
   if (professionalKind === 'bacharel') return 'Bacharel';
   if (professionalKind === 'optometrista') return 'Optometrista';
   return 'Profissional';

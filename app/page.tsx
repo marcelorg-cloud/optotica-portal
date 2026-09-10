@@ -5,11 +5,10 @@ export default function HomePage() {
     <div className="page-shell">
       <section className="hero">
         <div>
-          <p className="eyebrow">Portal Optótica</p>
-          <h1>Da prescrição à entrega, tudo em um só lugar.</h1>
+          <p className="eyebrow">Para visionários como você</p>
+          <h1>A conexão do universo ótico optométrico.</h1>
           <p className="lead">
-            Um portal seguro para profissionais administrarem atendimentos e clientes acompanharem
-            pedidos, escolhas e documentos.
+            Entre no portal da inovação Optótica e veja a realidade digital a seu favor.
           </p>
           <div className="actions">
             <Link className="button primary" href="/entrar">Acessar pelo WhatsApp</Link>

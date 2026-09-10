@@ -17,7 +17,9 @@ export default async function ProfessionalRegistrationPage() {
     ? await admin.from('professional_laboratories').select('id, name, legal_name, cnpj, address_line, address_number, address_complement, district, city, state, postal_code, phone_e164, contact_name').eq('professional_profile_id', profile.id).neq('status', 'suspended').order('created_at')
     : { data: [] };
 
-  const registrationKind = profile?.account_type === 'optical_store' ? 'optical_store' : (profile?.professional_kind || 'optometrista');
+  const registrationKind = profile?.account_type === 'optical_store' || profile?.account_type === 'laboratory'
+    ? profile.account_type
+    : (profile?.professional_kind || 'optometrista');
   const initialValues = {
     registrationKind,
     displayName: profile?.display_name || user.user_metadata.full_name || '',

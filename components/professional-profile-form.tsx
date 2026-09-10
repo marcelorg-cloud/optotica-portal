@@ -12,7 +12,7 @@ import {
   onlyDigits
 } from '@/lib/br-documents';
 
-type RegistrationKind = 'optometrista' | 'bacharel' | 'optical_store';
+type RegistrationKind = 'optometrista' | 'optical_store' | 'laboratory';
 
 type Laboratory = {
   id?: string;
@@ -131,9 +131,9 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
     if (displayName.trim().length < 2) nextErrors.displayName = 'Informe o nome completo do profissional ou da ótica.';
 
     const documentDigits = onlyDigits(documentNumber);
-    const expectCnpj = kind === 'optical_store';
+    const expectCnpj = kind === 'optical_store' || kind === 'laboratory';
     if (!documentDigits) {
-      nextErrors.documentNumber = expectCnpj ? 'Informe o CNPJ da ótica.' : 'Informe o CPF do profissional.';
+      nextErrors.documentNumber = expectCnpj ? 'Informe o CNPJ.' : 'Informe o CPF.';
     } else if (expectCnpj ? !isValidCNPJ(documentDigits) : !isValidCPF(documentDigits)) {
       nextErrors.documentNumber = documentErrorMessage(documentDigits) || (expectCnpj ? 'CNPJ inválido. Verifique o número informado.' : 'CPF inválido. Verifique o número informado.');
     }
@@ -211,27 +211,27 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
             Tipo de cadastro
             <select value={kind} onChange={(event) => setKind(event.target.value as RegistrationKind)}>
               <option value="optometrista">Optometrista</option>
-              <option value="bacharel">Bacharel</option>
               <option value="optical_store">Ótica</option>
+              <option value="laboratory">Laboratório</option>
             </select>
           </label>
           <label>
-            Nome completo do profissional ou da ótica
+            Nome do profissional, ótica ou laboratório
             <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} minLength={2} maxLength={140} required />
             <FieldError errors={errors} name="displayName" />
           </label>
           <label>
-            CPF do profissional ou CNPJ da ótica
+            CPF ou CNPJ
             <input
               value={documentNumber}
               onChange={(event) => setDocumentNumber(formatCpfCnpj(event.target.value))}
               inputMode="numeric"
-              placeholder={kind === 'optical_store' ? '00.000.000/0000-00' : '000.000.000-00'}
+              placeholder={kind === 'optometrista' ? '000.000.000-00' : '00.000.000/0000-00'}
               required
             />
             <FieldError errors={errors} name="documentNumber" />
           </label>
-          {kind !== 'optical_store' && (
+          {kind === 'optometrista' && (
             <label className="check-row span-2">
               <input type="checkbox" checked={sameAsResponsible} onChange={(event) => toggleSameAsResponsible(event.target.checked)} />
               <span>O responsável técnico é o próprio profissional</span>

@@ -33,9 +33,16 @@ export async function POST(request: Request) {
   if (!user?.email) return NextResponse.json({ message: 'Faça login novamente.' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
-  const registrationKind = ['optometrista', 'bacharel', 'optical_store'].includes(body?.registrationKind) ? body.registrationKind : 'optometrista';
-  const accountType = registrationKind === 'optical_store' ? 'optical_store' : 'professional';
-  const professionalKind = registrationKind === 'optical_store' ? null : registrationKind;
+  // 'bacharel' foi removido das opções do formulário (só fica como valor
+  // histórico em cadastros antigos, ainda aceito pela constraint do banco);
+  // 'laboratory' é um tipo de cadastro novo, tratado como as demais contas de
+  // empresa (mesma exigência de CNPJ) — account_type não é usado por nenhuma
+  // política de RLS/isolamento, é só informativo (ver seção 4 do estado
+  // consolidado), então adicionar um valor novo não afeta o isolamento entre
+  // organizações.
+  const registrationKind = ['optometrista', 'optical_store', 'laboratory'].includes(body?.registrationKind) ? body.registrationKind : 'optometrista';
+  const accountType = registrationKind === 'optometrista' ? 'professional' : registrationKind;
+  const professionalKind = registrationKind === 'optometrista' ? 'optometrista' : null;
   const displayName = clean(body?.displayName, 140);
   const technicalResponsibleName = clean(body?.technicalResponsibleName, 140);
   const technicalResponsibleRegistration = clean(body?.technicalResponsibleRegistration, 80);
@@ -56,7 +63,7 @@ export async function POST(request: Request) {
   if (!technicalResponsibleName || !technicalResponsibleRegistration) {
     return NextResponse.json({ message: 'Informe o nome e o registro do responsável técnico optometrista.' }, { status: 400 });
   }
-  if (accountType === 'optical_store') {
+  if (accountType === 'optical_store' || accountType === 'laboratory') {
     if (!isValidCNPJ(documentNumber)) {
       return NextResponse.json({ message: 'CNPJ inválido. Verifique o número informado.' }, { status: 400 });
     }
