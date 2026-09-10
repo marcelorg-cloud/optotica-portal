@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createAdminSupabaseClient, createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
+import { orderCode } from '@/lib/order-code';
 
 export const metadata: Metadata = { title: 'Área profissional' };
 
@@ -53,7 +54,7 @@ export default async function ProfessionalPage() {
         <div className="table-head"><span>Pedido</span><span>Paciente</span><span>Status</span><span>Atualização</span></div>
         {orders.length ? orders.map(order => (
           <div className="table-row" key={order.id}>
-            <strong>#{order.order_number}</strong>
+            <strong>{orderCode(order.clients?.full_name || 'Paciente', order.order_number)}</strong>
             <span>{order.clients?.full_name || 'Paciente'}</span>
             <span className="pill">{order.status}</span>
             <time>{new Intl.DateTimeFormat('pt-BR').format(new Date(order.updated_at))}</time>

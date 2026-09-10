@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { orderCode } from '@/lib/order-code';
 
 type Eye = { esferico: string; cilindrico: string; eixo: string; adicao: string } | null;
 
@@ -34,7 +35,7 @@ export function PrescriptionCard({ orderNumber, clientName, whatsapp, dnp, od, o
         <div className="rx-doc">
           <div className="rx-doc-head">
             <div><p className="eyebrow">Receituário óptico</p><h2>Prescrição de óculos</h2></div>
-            <strong>Pedido #{orderNumber}</strong>
+            <strong>Pedido {orderCode(clientName, orderNumber)}</strong>
           </div>
           <div className="rx-doc-body">
             <div className="summary-grid" style={{ gridTemplateColumns: 'repeat(3,minmax(0,1fr))' }}>

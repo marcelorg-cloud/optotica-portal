@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createAdminSupabaseClient, createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
+import { orderCode } from '@/lib/order-code';
 import { OrderTabs } from '@/components/client-area/order-tabs';
 import { QuotesStep } from '@/components/client-area/quotes-step';
 import { ClientFrameStep } from '@/components/client-area/frame-step';
@@ -135,7 +136,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
   const stepsDone = [true, hasQuote, hasRx, hasFrame, trackingDone];
   const currentStep = stepsDone.findIndex((d) => !d);
 
-  const orderTabs = (allOrders || []).map((o) => ({ id: o.id, orderNumber: o.order_number, status: o.status }));
+  const orderTabs = (allOrders || []).map((o) => ({ id: o.id, code: orderCode(clientName, o.order_number), status: o.status }));
 
   return (
     <div className="page-shell">
@@ -159,7 +160,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
 
       <section className="card">
         <div className="card-head">
-          <div><p className="eyebrow">Visão geral</p><h2>Pedido #{order.order_number}</h2></div>
+          <div><p className="eyebrow">Visão geral</p><h2>Pedido {orderCode(clientName, order.order_number)}</h2></div>
           <span className={locked ? 'complete-tag' : 'pending-tag'}>{STATUS_LABEL[order.status] || order.status}</span>
         </div>
         <div className="card-body">

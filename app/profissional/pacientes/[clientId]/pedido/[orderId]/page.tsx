@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createAdminSupabaseClient, createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
+import { orderCode } from '@/lib/order-code';
 import { ClientStep } from '@/components/order/client-step';
 import { OsStep } from '@/components/order/os-step';
 import { FrameStep } from '@/components/order/frame-step';
@@ -130,7 +131,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
       <div className="order-head">
         <Link className="back-link" href="/profissional/pacientes">← Meus pacientes</Link>
         <p className="eyebrow">Área profissional</p>
-        <h1>Atendimento #{order.order_number}</h1>
+        <h1>Atendimento {orderCode(clientName, order.order_number)}</h1>
       </div>
 
       <nav className="flow-wrap" aria-label="Fluxo do atendimento">
