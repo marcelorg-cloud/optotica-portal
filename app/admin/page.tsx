@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
 import {
@@ -106,6 +107,7 @@ export default async function AdminPage() {
     <div className="page-shell">
       <section className="dashboard-head">
         <div><p className="eyebrow">Usuário master</p><h1>Aprovações</h1><p className="muted">Aprovar um cadastro libera o profissional, seus laboratórios e a geração de convites.</p></div>
+        <Link className="button secondary" href="/admin/catalogo">Painel de Catálogo</Link>
       </section>
       <div className="review-list">
         {profiles.map((profile) => (

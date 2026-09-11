@@ -42,16 +42,55 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get('status');
 
+  // Tela "Fila de Compras" (seção 0.28) precisa de nomes, não só IDs — join
+  // com clients/catalog_products/catalog_suppliers/professional_laboratories.
   let query = auth.admin
     .from('catalog_purchase_orders')
-    .select('id, client_id, order_id, product_id, color_name, supplier_id, laboratory_id, status, aliexpress_order_number, amount_paid, purchased_at, delivered_at, created_at')
+    .select(
+      'id, client_id, order_id, product_id, color_name, supplier_id, laboratory_id, status, aliexpress_order_number, amount_paid, purchased_at, delivered_at, created_at,' +
+      ' clients(full_name, cpf), catalog_products(model_name, sku_optotica), catalog_suppliers(name), professional_laboratories(name, city, state)'
+    )
     .order('created_at', { ascending: false });
   if (status) query = query.eq('status', status);
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ message: 'Não foi possível carregar a fila de compras.' }, { status: 500 });
 
-  return NextResponse.json({ purchaseOrders: data || [] });
+  type Row = {
+    id: string; client_id: string; order_id: string | null; product_id: string; color_name: string;
+    supplier_id: string; laboratory_id: string | null; status: string; aliexpress_order_number: string | null;
+    amount_paid: number | null; purchased_at: string | null; delivered_at: string | null; created_at: string;
+    clients: { full_name: string; cpf: string | null } | null;
+    catalog_products: { model_name: string; sku_optotica: string } | null;
+    catalog_suppliers: { name: string } | null;
+    professional_laboratories: { name: string; city: string; state: string } | null;
+  };
+
+  const purchaseOrders = ((data || []) as unknown as Row[]).map((row) => ({
+    id: row.id,
+    clientId: row.client_id,
+    orderId: row.order_id,
+    productId: row.product_id,
+    colorName: row.color_name,
+    supplierId: row.supplier_id,
+    laboratoryId: row.laboratory_id,
+    status: row.status,
+    aliexpressOrderNumber: row.aliexpress_order_number,
+    amountPaid: row.amount_paid,
+    purchasedAt: row.purchased_at,
+    deliveredAt: row.delivered_at,
+    createdAt: row.created_at,
+    clientName: row.clients?.full_name || null,
+    clientCpf: row.clients?.cpf || null,
+    productName: row.catalog_products?.model_name || null,
+    productSku: row.catalog_products?.sku_optotica || null,
+    supplierName: row.catalog_suppliers?.name || null,
+    laboratoryName: row.professional_laboratories?.name || null,
+    laboratoryCity: row.professional_laboratories?.city || null,
+    laboratoryState: row.professional_laboratories?.state || null
+  }));
+
+  return NextResponse.json({ purchaseOrders });
 }
 
 export async function POST(request: Request) {

@@ -7,11 +7,20 @@ import { QuotesStep } from '@/components/client-area/quotes-step';
 import { ClientFrameStep } from '@/components/client-area/frame-step';
 import { PhotoUpload } from '@/components/client-area/photo-upload';
 import { PrescriptionCard } from '@/components/client-area/prescription-card';
+import { TryonPanel, type TryonProduct } from '@/components/client-area/tryon-panel';
 
 export const metadata: Metadata = { title: 'Meu pedido' };
 
 const BUCKET = 'try-on-photos';
+const CATALOG_PHOTOS_BUCKET = 'catalog-product-photos';
 const STATUS_LABEL: Record<string, string> = { in_progress: 'Em andamento', completed: 'Concluído' };
+
+type CatalogColorRow = {
+  id: string;
+  color_name: string;
+  processed_image_path: string | null;
+  catalog_products: { id: string; model_name: string; lens_width_mm: number | null } | null;
+};
 
 type QuoteRow = { id: string; total: number; quote_items: { description: string }[] | null };
 type FrameVariant = { color: string; image?: string; qty?: number };
@@ -61,6 +70,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     { data: orderFrame },
     { data: fulfillment },
     { data: framesData },
+    { data: catalogColorsData },
     { data: professional }
   ] = await Promise.all([
     admin.from('orders').select('id, order_number, status').eq('client_id', client.id).order('order_number', { ascending: false }),
@@ -69,6 +79,12 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     admin.from('order_frames').select('frame_name, sku, color').eq('order_id', orderId).maybeSingle(),
     admin.from('order_fulfillment').select('*').eq('order_id', orderId).maybeSingle(),
     admin.from('frames').select('id, name, metadata').is('organization_id', null).eq('active', true).order('name'),
+    admin
+      .from('catalog_product_color_images')
+      .select('id, color_name, processed_image_path, catalog_products!inner(id, model_name, lens_width_mm, status)')
+      .eq('status', 'validada')
+      .not('processed_image_path', 'is', null)
+      .eq('catalog_products.status', 'publicado'),
     order.professional_id
       ? admin.from('professional_profiles').select('display_name, council_registration').eq('user_id', order.professional_id).maybeSingle()
       : Promise.resolve({ data: null as { display_name: string; council_registration: string | null } | null })
@@ -108,6 +124,30 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(`${photoFolder}/${photoFiles[0].name}`, 3600);
     photoUrl = signed?.signedUrl || null;
   }
+
+  // Prova online (seção 0.29): catálogo novo (AliExpress/dropshipping,
+  // migração 202609110020), separado do catálogo de armações em estoque
+  // (`frames`, usado em "Escolher armação" acima) — só entram aqui cores já
+  // validadas manualmente pelo master, com a foto de fundo já removido.
+  const catalogColorRows = (catalogColorsData || []) as unknown as CatalogColorRow[];
+  const tryonProducts: TryonProduct[] = (
+    await Promise.all(
+      catalogColorRows
+        .filter((row) => row.processed_image_path && row.catalog_products?.lens_width_mm)
+        .map(async (row) => {
+          const { data: signed } = await admin.storage.from(CATALOG_PHOTOS_BUCKET).createSignedUrl(row.processed_image_path!, 3600);
+          if (!signed?.signedUrl) return null;
+          return {
+            id: row.id,
+            productId: row.catalog_products!.id,
+            modelName: row.catalog_products!.model_name,
+            colorName: row.color_name,
+            lensWidthMm: Number(row.catalog_products!.lens_width_mm),
+            processedImageUrl: signed.signedUrl
+          };
+        })
+    )
+  ).filter((p): p is TryonProduct => p !== null);
 
   const ful = fulfillment as Record<string, unknown> | null;
   const locked = order.status === 'completed';
@@ -220,6 +260,16 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
             selectedColor={orderFrame?.color || null}
             locked={locked}
           />
+        </div>
+      </section>
+
+      <section className="card" id="prova-online">
+        <div className="card-head">
+          <div><p className="eyebrow">Catálogo online</p><h2>Prova online — experimente armações com a sua foto</h2></div>
+          <span className="pending-tag">Opcional</span>
+        </div>
+        <div className="card-body">
+          <TryonPanel clientPhotoUrl={photoUrl} dnpOd={client.dnp_od} dnpOe={client.dnp_oe} products={tryonProducts} />
         </div>
       </section>
 

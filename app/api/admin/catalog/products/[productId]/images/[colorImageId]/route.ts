@@ -43,11 +43,25 @@ export async function PATCH(
       return NextResponse.json({ message: 'Este item não está marcado como incompleto.' }, { status: 409 });
     }
     const remainingFields = Array.isArray(body?.stillMissing) ? body.stillMissing.filter((f: unknown) => typeof f === 'string') : [];
+    // originalImagePath: uso real de hoje (11/09/2026) — "Adicionar foto" na
+    // tela de detalhe do produto sobe a foto real que faltou (o caso comum
+    // registrado na migração: anúncio só trazia amostra de cor, sem foto de
+    // produto). Confirma que o objeto chegou no Storage antes de gravar,
+    // mesmo padrão da rota de criação de cor (.../images, POST).
+    const originalImagePath = typeof body?.originalImagePath === 'string' ? body.originalImagePath : undefined;
+    if (originalImagePath) {
+      if (!originalImagePath.startsWith(`${productId}/`)) {
+        return NextResponse.json({ message: 'Envio inválido.' }, { status: 400 });
+      }
+      const { error: signError } = await auth.admin.storage.from('catalog-product-photos').createSignedUrl(originalImagePath, 60);
+      if (signError) return NextResponse.json({ message: 'Não encontramos a foto enviada. Tente enviar de novo.' }, { status: 400 });
+    }
     const { error } = await auth.admin
       .from('catalog_product_color_images')
       .update({
         status: remainingFields.length ? 'incompleto' : 'pendente',
         missing_required_fields: remainingFields,
+        original_image_path: originalImagePath,
         processed_image_path: typeof body?.processedImagePath === 'string' ? body.processedImagePath : undefined,
         updated_at: now
       })
