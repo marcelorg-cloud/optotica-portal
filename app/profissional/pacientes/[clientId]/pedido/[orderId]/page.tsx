@@ -19,6 +19,13 @@ type QuoteItemMeta = { lensType?: string; lensIndex?: string; lensMaterial?: str
 type QuoteRow = { id: string; total: number; quote_items: { description: string; metadata: QuoteItemMeta }[] | null };
 type FrameVariant = { color: string; image?: string; qty?: number };
 type FrameRow = { id: string; name: string; metadata: { kind?: string; variants?: FrameVariant[] } | null };
+type LaboratoryRow = { id: string; name: string; is_primary: boolean };
+type MenuTierRow = {
+  lens_type: 'single_vision' | 'multifocal';
+  tier_number: number; is_addon: boolean; tier_name: string; benefit_phrase: string | null;
+  target_audience: string | null; manufacturer: string | null; product_line: string | null;
+  lens_index: string | null; ar_treatment: string | null; price: number;
+};
 
 function formatWhatsApp(e164?: string | null) {
   if (!e164) return '—';
@@ -40,7 +47,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   if (!user) redirect('/entrar?profissional=1');
 
   const admin = createAdminSupabaseClient();
-  const { data: profile } = await admin.from('professional_profiles').select('status').eq('user_id', user.id).maybeSingle();
+  const { data: profile } = await admin.from('professional_profiles').select('status, organization_id').eq('user_id', user.id).maybeSingle();
   if (!profile || profile.status !== 'approved') redirect('/profissional');
 
   const { data: assignment } = await admin
@@ -60,13 +67,32 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
     .maybeSingle();
   if (!order || order.client_id !== clientId) redirect('/profissional/pacientes');
 
-  const [{ data: client }, { data: prescription }, { data: quotesData }, { data: orderFrame }, { data: fulfillment }, { data: framesData }] = await Promise.all([
+  const [{ data: client }, { data: prescription }, { data: quotesData }, { data: orderFrame }, { data: fulfillment }, { data: framesData }, { data: menuTiersData }, { data: laboratoriesData }] = await Promise.all([
     admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe, dnp_photo_path, birth_date, cpf').eq('id', clientId).maybeSingle(),
     admin.from('prescriptions').select('prescription_data').eq('order_id', orderId).maybeSingle(),
     admin.from('quotes').select('id, total, quote_items(description, metadata)').eq('order_id', orderId),
     admin.from('order_frames').select('frame_name, sku, color').eq('order_id', orderId).maybeSingle(),
     admin.from('order_fulfillment').select('*').eq('order_id', orderId).maybeSingle(),
-    admin.from('frames').select('id, name, metadata').is('organization_id', null).eq('active', true).order('name')
+    admin.from('frames').select('id, name, metadata').is('organization_id', null).eq('active', true).order('name'),
+    profile.organization_id
+      ? admin.from('lens_menu_tiers')
+          .select('lens_type, tier_number, is_addon, tier_name, benefit_phrase, target_audience, manufacturer, product_line, lens_index, ar_treatment, price')
+          .eq('organization_id', profile.organization_id)
+          .eq('active', true)
+          .order('lens_type', { ascending: true })
+          .order('tier_number', { ascending: true })
+      : Promise.resolve({ data: [] as unknown[] }),
+    // Laboratórios parceiros já aprovados desta ótica (professional_laboratories) —
+    // usados na Etapa 6 (Produção) para vincular qual laboratório está
+    // produzindo a lente deste atendimento (migração 202609110019).
+    profile.organization_id
+      ? admin.from('professional_laboratories')
+          .select('id, name, is_primary')
+          .eq('organization_id', profile.organization_id)
+          .eq('status', 'approved')
+          .order('is_primary', { ascending: false })
+          .order('name')
+      : Promise.resolve({ data: [] as unknown[] })
   ]);
 
   const clientName = client?.full_name || 'Paciente';
@@ -97,6 +123,11 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
     };
   });
   const selectedQuote = quotes.find((q) => q.id === order.selected_quote_id) || null;
+  const menuTiers = ((menuTiersData || []) as unknown as MenuTierRow[]).map((t) => ({
+    lensType: t.lens_type, tierNumber: t.tier_number, isAddon: t.is_addon, tierName: t.tier_name, benefitPhrase: t.benefit_phrase,
+    targetAudience: t.target_audience, manufacturer: t.manufacturer, productLine: t.product_line,
+    lensIndex: t.lens_index, arTreatment: t.ar_treatment, price: Number(t.price) || 0
+  }));
 
   const frames = ((framesData || []) as unknown as FrameRow[]).map((f) => ({
     id: f.id, name: f.name, kind: f.metadata?.kind || '', variants: f.metadata?.variants || []
@@ -197,6 +228,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                 quotes={quotes}
                 selectedQuoteId={order.selected_quote_id}
                 locked={comandaDone}
+                menuTiers={menuTiers}
               />
             </div>
           </section>
@@ -274,6 +306,8 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                 initialFrameRef={str(ful?.frame_supplier_reference)}
                 initialLensStatus={str(ful?.lens_production_status) || 'aguardando_envio'}
                 initialLensRef={str(ful?.lens_lab_reference)}
+                initialLaboratoryId={str(ful?.laboratory_id)}
+                laboratoryOptions={((laboratoriesData || []) as unknown as LaboratoryRow[]).map((lab) => ({ id: lab.id, name: lab.name, isPrimary: Boolean(lab.is_primary) }))}
               />
             </div>
           </section>

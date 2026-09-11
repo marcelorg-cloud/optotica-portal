@@ -17,8 +17,11 @@ const LENS_STATUSES = [
   { value: 'pronta', label: 'Pronta' }
 ];
 
-export function ProductionStep({ orderId, initialFrameStatus, initialFrameRef, initialLensStatus, initialLensRef }: {
+export type LaboratoryOption = { id: string; name: string; isPrimary: boolean };
+
+export function ProductionStep({ orderId, initialFrameStatus, initialFrameRef, initialLensStatus, initialLensRef, laboratoryOptions, initialLaboratoryId }: {
   orderId: string; initialFrameStatus: string; initialFrameRef: string; initialLensStatus: string; initialLensRef: string;
+  laboratoryOptions: LaboratoryOption[]; initialLaboratoryId: string;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -36,7 +39,8 @@ export function ProductionStep({ orderId, initialFrameStatus, initialFrameRef, i
         section: 'producao',
         data: {
           frameProductionStatus: form.get('frameStatus'), frameSupplierReference: form.get('frameRef'),
-          lensProductionStatus: form.get('lensStatus'), lensLabReference: form.get('lensRef')
+          lensProductionStatus: form.get('lensStatus'), lensLabReference: form.get('lensRef'),
+          laboratoryId: form.get('laboratoryId') || null
         }
       })
     });
@@ -67,6 +71,17 @@ export function ProductionStep({ orderId, initialFrameStatus, initialFrameRef, i
           </div>
           <div style={{ height: 10 }} />
           <div className="field"><label>Nº OS do laboratório</label><input name="lensRef" defaultValue={initialLensRef} maxLength={120} placeholder="Código / referência" /></div>
+          <div style={{ height: 10 }} />
+          <div className="field">
+            <label>Laboratório responsável</label>
+            <select name="laboratoryId" defaultValue={initialLaboratoryId}>
+              <option value="">Não definido</option>
+              {laboratoryOptions.map((lab) => (
+                <option key={lab.id} value={lab.id}>{lab.name}{lab.isPrimary ? ' (principal)' : ''}</option>
+              ))}
+            </select>
+            {!laboratoryOptions.length && <span className="field-hint">Nenhum laboratório aprovado cadastrado no seu perfil.</span>}
+          </div>
         </div>
       </div>
       <div className="actions"><button className="button primary" type="submit" disabled={state === 'loading'}>{state === 'loading' ? 'Salvando…' : 'Salvar status de produção'}</button></div>

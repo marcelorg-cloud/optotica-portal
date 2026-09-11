@@ -17,6 +17,7 @@ type LaboratoryInput = {
   postalCode?: unknown;
   phone?: unknown;
   contactName?: unknown;
+  isPrimary?: unknown;
 };
 
 const clean = (value: unknown, max = 180) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, max) : '';
@@ -90,10 +91,18 @@ export async function POST(request: Request) {
     state: clean(lab.state, 2).toUpperCase(),
     postal_code: digits(lab.postalCode) || null,
     phone_e164: phone(lab.phone),
-    contact_name: clean(lab.contactName, 140) || null
+    contact_name: clean(lab.contactName, 140) || null,
+    is_primary: lab.isPrimary === true
   }));
   if (normalizedLabs.some((lab) => lab.name.length < 2 || !isValidCNPJ(lab.cnpj) || !lab.address_line || !lab.city || lab.state.length !== 2 || !lab.phone_e164)) {
     return NextResponse.json({ message: 'Revise nome, CNPJ, endereço, cidade, UF e telefone de cada laboratório.' }, { status: 400 });
+  }
+  // "Principal" é uma marcação explícita, não mais a posição no array (ver
+  // migração 202609110019) — a constraint do banco (índice único parcial)
+  // já garante no máximo 1 por profissional, mas validamos aqui antes para
+  // devolver uma mensagem clara em vez de um erro 500 de constraint.
+  if (normalizedLabs.filter((lab) => lab.is_primary).length > 1) {
+    return NextResponse.json({ message: 'Selecione no máximo um laboratório como principal.' }, { status: 400 });
   }
 
   const admin = createAdminSupabaseClient();
@@ -176,6 +185,17 @@ export async function POST(request: Request) {
   }).eq('id', profile.id);
   if (profileError) return NextResponse.json({ message: 'Não foi possível salvar os dados profissionais.' }, { status: 500 });
 
+  // Suspender ANTES de gravar os enviados: um laboratório suspenso também
+  // perde is_primary (linha 39 da migração 202609110019 garante no máximo 1
+  // is_primary=true por profissional — se o antigo principal saiu da lista
+  // enviada mas ainda estivesse com is_primary=true no banco, o upsert logo
+  // abaixo marcando um novo principal esbarraria nessa constraint).
+  const labsToSuspend = [...existingLabIds].filter((id) => !submittedExistingIds.includes(id));
+  if (labsToSuspend.length) {
+    const { error: suspendError } = await admin.from('professional_laboratories').update({ status: 'suspended', is_primary: false, updated_at: now }).eq('professional_profile_id', profile.id).in('id', labsToSuspend);
+    if (suspendError) return NextResponse.json({ message: 'Não foi possível atualizar os laboratórios removidos.' }, { status: 500 });
+  }
+
   const { error: labsError } = await admin.from('professional_laboratories').upsert(normalizedLabs.map((lab) => ({
     ...lab,
     professional_profile_id: profile.id,
@@ -184,11 +204,6 @@ export async function POST(request: Request) {
     updated_at: now
   })), { onConflict: 'id' });
   if (labsError) return NextResponse.json({ message: 'Os dados foram salvos, mas os laboratórios precisam ser reenviados.' }, { status: 500 });
-  const labsToSuspend = [...existingLabIds].filter((id) => !submittedExistingIds.includes(id));
-  if (labsToSuspend.length) {
-    const { error: suspendError } = await admin.from('professional_laboratories').update({ status: 'suspended', updated_at: now }).eq('professional_profile_id', profile.id).in('id', labsToSuspend);
-    if (suspendError) return NextResponse.json({ message: 'Cadastro enviado, mas laboratórios removidos precisam de revisão administrativa.' }, { status: 500 });
-  }
 
   return NextResponse.json({ message: 'Cadastro enviado para análise da equipe Optótica.' });
 }

@@ -22,6 +22,7 @@ type Laboratory = {
   state: string;
   phone_e164: string;
   status: string;
+  is_primary: boolean;
 };
 
 type ProfileReview = {
@@ -85,7 +86,7 @@ export default async function AdminPage() {
   const { data } = await admin
     .from('professional_profiles')
     .select(
-      'id, display_name, email, account_type, professional_kind, status, cnpj, council_registration, technical_responsible_name, technical_responsible_registration, address_line, address_number, district, city, state, postal_code, phone_e164, contact_name, contact_email, contact_phone_e164, submitted_at, review_notes, professional_laboratories(id, name, legal_name, cnpj, address_line, address_number, city, state, phone_e164, status)'
+      'id, display_name, email, account_type, professional_kind, status, cnpj, council_registration, technical_responsible_name, technical_responsible_registration, address_line, address_number, district, city, state, postal_code, phone_e164, contact_name, contact_email, contact_phone_e164, submitted_at, review_notes, professional_laboratories(id, name, legal_name, cnpj, address_line, address_number, city, state, phone_e164, status, is_primary)'
     )
     .order('submitted_at', { ascending: true, nullsFirst: false });
   const profiles = (data || []) as unknown as ProfileReview[];
@@ -194,7 +195,7 @@ function ProfileReviewCard({ profile }: { profile: ProfileReview }) {
       <div className="laboratory-summary">
         <strong>Laboratórios</strong>
         {profile.professional_laboratories?.length ? profile.professional_laboratories.map((lab) => (
-          <span key={lab.id}>{lab.name}{lab.legal_name ? ` (${lab.legal_name})` : ''} · CNPJ {lab.cnpj} · {lab.address_line}, {lab.address_number || 's/n'} · {lab.city}/{lab.state} · {lab.phone_e164} · {lab.status}</span>
+          <span key={lab.id}>{lab.is_primary ? '★ ' : ''}{lab.name}{lab.legal_name ? ` (${lab.legal_name})` : ''} · CNPJ {lab.cnpj} · {lab.address_line}, {lab.address_number || 's/n'} · {lab.city}/{lab.state} · {lab.phone_e164} · {lab.status}{lab.is_primary ? ' · principal' : ''}</span>
         )) : <span>Nenhum laboratório.</span>}
       </div>
     </article>

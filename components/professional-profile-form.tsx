@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   documentErrorMessage,
@@ -28,12 +28,13 @@ type Laboratory = {
   postalCode: string;
   phone: string;
   contactName: string;
+  isPrimary: boolean;
   cepStatus?: 'idle' | 'loading' | 'done' | 'error';
 };
 
 const emptyLaboratory = (): Laboratory => ({
   name: '', legalName: '', cnpj: '', addressLine: '', addressNumber: '', addressComplement: '',
-  district: '', city: '', state: '', postalCode: '', phone: '', contactName: '', cepStatus: 'idle'
+  district: '', city: '', state: '', postalCode: '', phone: '', contactName: '', isPrimary: false, cepStatus: 'idle'
 });
 
 type ProfileInitialValues = {
@@ -87,6 +88,12 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
 
   function updateLaboratory(index: number, field: keyof Laboratory, value: string) {
     setLaboratories((current) => current.map((laboratory, itemIndex) => itemIndex === index ? { ...laboratory, [field]: value } : laboratory));
+  }
+
+  // "Principal" é uma marcação explícita (migração 202609110019) — só um
+  // laboratório por vez, nunca mais implícito pela posição no array.
+  function setPrimaryLaboratory(index: number) {
+    setLaboratories((current) => current.map((laboratory, itemIndex) => ({ ...laboratory, isPrimary: itemIndex === index })));
   }
 
   async function handleCepChange(value: string) {
@@ -296,11 +303,18 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
       </fieldset>
 
       <fieldset>
-        <legend>Laboratório principal</legend>
-        <p className="muted">Opcional. Se preferir, deixe em branco e cadastre os laboratórios depois — junto com eles será possível adicionar valores e tabelas de preços.</p>
+        <legend>Laboratórios parceiros</legend>
+        <p className="muted">Opcional. Se preferir, deixe em branco e cadastre os laboratórios depois. Marque um como principal se quiser deixar isso explícito (ex.: para onde os pedidos são enviados por padrão).</p>
         {laboratories.map((laboratory, index) => (
           <div className="laboratory-card" key={laboratory.id || `laboratory-${index}`}>
-            <div className="laboratory-head"><strong>{index === 0 ? 'Laboratório principal' : `Laboratório adicional ${index + 1}`}</strong><button type="button" className="text-button" onClick={() => setLaboratories((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remover</button></div>
+            <div className="laboratory-head">
+              <strong>{`Laboratório ${index + 1}`}</strong>
+              <button type="button" className="text-button" onClick={() => setLaboratories((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remover</button>
+            </div>
+            <label className="check-row" style={{ marginBottom: 10 }}>
+              <input type="radio" name="primaryLaboratory" checked={laboratory.isPrimary} onChange={() => setPrimaryLaboratory(index)} />
+              <span>Este é o laboratório principal</span>
+            </label>
             <div className="form-grid">
               <label>Nome<input value={laboratory.name} onChange={(event) => updateLaboratory(index, 'name', event.target.value)} /></label>
               <label>Razão social<input value={laboratory.legalName} onChange={(event) => updateLaboratory(index, 'legalName', event.target.value)} /></label>
@@ -320,6 +334,8 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
               <label>Estado<input minLength={2} maxLength={2} value={laboratory.state} onChange={(event) => updateLaboratory(index, 'state', event.target.value.toUpperCase())} /></label>
               <label>Pessoa de contato<input value={laboratory.contactName} onChange={(event) => updateLaboratory(index, 'contactName', event.target.value)} /></label>
             </div>
+            {laboratory.id && <LabPriceListManager laboratoryId={laboratory.id} />}
+            {!laboratory.id && <p className="field-hint" style={{ marginTop: 10 }}>Salve o cadastro para poder enviar a tabela de preços deste laboratório.</p>}
           </div>
         ))}
         <button className="button secondary" type="button" disabled={laboratories.length >= 10} onClick={() => setLaboratories((current) => [...current, emptyLaboratory()])}>Adicionar laboratório</button>
@@ -329,5 +345,108 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
       <button className="button primary" disabled={state === 'loading'} type="submit">{state === 'loading' ? 'Enviando…' : 'Enviar cadastro para análise'}</button>
       {message && <p className="form-message error" role="status">{message}</p>}
     </form>
+  );
+}
+
+type PriceList = { id: string; fileName: string; versionLabel: string | null; createdAt: string; active: boolean; downloadUrl: string | null };
+type PriceListFetchResult = { ok: true; priceLists: PriceList[] } | { ok: false };
+
+// Função de módulo (fora do componente): busca pura, sem chamar setState —
+// evita o aviso do eslint-plugin-react-hooks sobre setState síncrono dentro
+// de efeito e sobre dependências de função recriada a cada render.
+async function fetchLabPriceLists(laboratoryId: string): Promise<PriceListFetchResult> {
+  try {
+    const response = await fetch(`/api/professional/laboratories/${laboratoryId}/price-lists`);
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok) return { ok: true, priceLists: payload.priceLists || [] };
+    return { ok: false };
+  } catch {
+    return { ok: false };
+  }
+}
+
+// Biblioteca de preços do laboratório (migração 202609110019): arquivos
+// anexados com a tabela de SERVIÇOS do próprio laboratório (montagem,
+// surfaçagem, biselamento) — não é preço de lente, isso já é o cardápio de
+// lentes (lens_catalog_items). Cada envio novo vira uma versão nova, nunca
+// apaga a anterior (histórico).
+function LabPriceListManager({ laboratoryId }: { laboratoryId: string }) {
+  const [lists, setLists] = useState<PriceList[]>([]);
+  const [loadState, setLoadState] = useState<'idle' | 'loading' | 'error' | 'done'>('loading');
+  const [uploadState, setUploadState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [message, setMessage] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchLabPriceLists(laboratoryId).then((result) => {
+      if (cancelled) return;
+      if (result.ok) { setLists(result.priceLists); setLoadState('done'); }
+      else setLoadState('error');
+    });
+    return () => { cancelled = true; };
+  }, [laboratoryId]);
+
+  async function upload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setUploadState('loading');
+    setMessage('');
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const response = await fetch(`/api/professional/laboratories/${laboratoryId}/price-lists`, { method: 'POST', body: form });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setUploadState('idle');
+        const result = await fetchLabPriceLists(laboratoryId);
+        if (result.ok) setLists(result.priceLists);
+      } else {
+        setUploadState('error'); setMessage(payload.message || 'Não foi possível enviar o arquivo.');
+      }
+    } catch {
+      setUploadState('error');
+      setMessage('Não foi possível conectar. Verifique sua internet e tente novamente.');
+    }
+  }
+
+  const current = lists.find((item) => item.active);
+  const history = lists.filter((item) => !item.active);
+
+  return (
+    <div className="lab-price-lists">
+      <div className="lab-price-lists-head">
+        <strong>Biblioteca de preços (tabela de serviços deste laboratório)</strong>
+        <label className="button secondary small" style={{ cursor: uploadState === 'loading' ? 'wait' : 'pointer' }}>
+          {uploadState === 'loading' ? 'Enviando…' : current ? 'Enviar nova versão' : 'Enviar arquivo'}
+          <input type="file" style={{ display: 'none' }} onChange={upload} disabled={uploadState === 'loading'} accept=".pdf,.xls,.xlsx,.csv,.jpg,.jpeg,.png" />
+        </label>
+      </div>
+      {loadState === 'loading' && <p className="field-hint">Carregando…</p>}
+      {loadState === 'error' && <p className="field-hint">Não foi possível carregar os arquivos enviados.</p>}
+      {current ? (
+        <p className="field-hint">
+          Vigente: {current.downloadUrl ? <a href={current.downloadUrl} target="_blank" rel="noreferrer">{current.fileName}</a> : current.fileName}
+          {' · '}{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(current.createdAt))}
+        </p>
+      ) : (loadState === 'done' && <p className="field-hint">Nenhum arquivo enviado ainda.</p>)}
+      {history.length > 0 && (
+        <>
+          <button type="button" className="text-button" onClick={() => setShowHistory((v) => !v)}>{showHistory ? 'Ocultar histórico' : `Ver histórico (${history.length})`}</button>
+          {showHistory && (
+            <ul className="lab-price-lists-history">
+              {history.map((item) => (
+                <li key={item.id}>
+                  {item.downloadUrl ? <a href={item.downloadUrl} target="_blank" rel="noreferrer">{item.fileName}</a> : item.fileName}
+                  {' · '}{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(item.createdAt))}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+      {message && uploadState === 'error' && <p className="form-message error">{message}</p>}
+    </div>
   );
 }

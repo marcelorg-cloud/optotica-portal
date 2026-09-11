@@ -14,7 +14,7 @@ export default async function ProfessionalRegistrationPage() {
   const { data: profile } = await admin.from('professional_profiles').select('id, account_type, professional_kind, display_name, council_registration, technical_responsible_name, technical_responsible_registration, cnpj, address_line, address_number, address_complement, district, city, state, postal_code, phone_e164, contact_name, contact_email, contact_phone_e164, status, review_notes').eq('user_id', user.id).maybeSingle();
   if (profile && !['draft', 'changes_requested'].includes(profile.status)) redirect('/profissional');
   const { data: laboratories } = profile
-    ? await admin.from('professional_laboratories').select('id, name, legal_name, cnpj, address_line, address_number, address_complement, district, city, state, postal_code, phone_e164, contact_name').eq('professional_profile_id', profile.id).neq('status', 'suspended').order('created_at')
+    ? await admin.from('professional_laboratories').select('id, name, legal_name, cnpj, address_line, address_number, address_complement, district, city, state, postal_code, phone_e164, contact_name, is_primary').eq('professional_profile_id', profile.id).neq('status', 'suspended').order('created_at')
     : { data: [] };
 
   const registrationKind = profile?.account_type === 'optical_store' || profile?.account_type === 'laboratory'
@@ -32,7 +32,8 @@ export default async function ProfessionalRegistrationPage() {
     laboratories: (laboratories || []).map((lab) => ({
       id: lab.id, name: lab.name, legalName: lab.legal_name || '', cnpj: lab.cnpj, addressLine: lab.address_line,
       addressNumber: lab.address_number || '', addressComplement: lab.address_complement || '', district: lab.district || '',
-      city: lab.city, state: lab.state, postalCode: lab.postal_code || '', phone: lab.phone_e164, contactName: lab.contact_name || ''
+      city: lab.city, state: lab.state, postalCode: lab.postal_code || '', phone: lab.phone_e164, contactName: lab.contact_name || '',
+      isPrimary: Boolean(lab.is_primary)
     }))
   };
 

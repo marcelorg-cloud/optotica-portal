@@ -85,6 +85,25 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ or
     patch.frame_supplier_reference = textOrNull(data.frameSupplierReference, 120);
     patch.lens_production_status = lensStatus;
     patch.lens_lab_reference = textOrNull(data.lensLabReference, 120);
+    // laboratoryId (migração 202609110019): qual laboratório parceiro já
+    // cadastrado (professional_laboratories) está produzindo a lente deste
+    // atendimento — vazio/null = ainda não definido. Sempre validado contra
+    // os laboratórios da MESMA organização, nunca aceito de outra (evita um
+    // profissional vincular um laboratório de outra ótica pelo id).
+    if (data.laboratoryId === null || data.laboratoryId === '' || data.laboratoryId === undefined) {
+      patch.laboratory_id = null;
+    } else if (typeof data.laboratoryId === 'string') {
+      const { data: lab } = await admin
+        .from('professional_laboratories')
+        .select('id')
+        .eq('id', data.laboratoryId)
+        .eq('organization_id', order.organization_id)
+        .maybeSingle();
+      if (!lab) return NextResponse.json({ message: 'Laboratório inválido para esta ótica.' }, { status: 400 });
+      patch.laboratory_id = lab.id;
+    } else {
+      return NextResponse.json({ message: 'Laboratório inválido.' }, { status: 400 });
+    }
   } else if (section === 'logistica') {
     const milestone = typeof data.milestone === 'string' ? LOGISTICS_MILESTONES[data.milestone] : '';
     if (!milestone) return NextResponse.json({ message: 'Marco de logística inválido.' }, { status: 400 });
