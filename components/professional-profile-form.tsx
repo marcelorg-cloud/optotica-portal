@@ -63,7 +63,7 @@ function FieldError({ errors, name }: { errors: FieldErrors; name: string }) {
   return errors[name] ? <span className="field-error">{errors[name]}</span> : null;
 }
 
-export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?: ProfileInitialValues }) {
+export function ProfessionalProfileForm({ initialValues = {}, locked = false }: { initialValues?: ProfileInitialValues; locked?: boolean }) {
   const router = useRouter();
   const [laboratories, setLaboratories] = useState<Laboratory[]>(() => initialValues.laboratories?.length ? initialValues.laboratories : []);
   const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
@@ -162,12 +162,17 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
     const form = new FormData(event.currentTarget);
     const value = (name: string) => String(form.get(name) || '');
 
-    const fieldErrors = validate(value('phone'));
-    if (Object.keys(fieldErrors).length) {
-      setErrors(fieldErrors);
-      setState('error');
-      setMessage('Corrija os campos destacados antes de enviar.');
-      return;
+    // Com o perfil aprovado (locked), os campos pessoais/empresa ficam
+    // desabilitados/somente leitura na tela e não são reenviados para
+    // análise — não faz sentido validá-los de novo aqui.
+    if (!locked) {
+      const fieldErrors = validate(value('phone'));
+      if (Object.keys(fieldErrors).length) {
+        setErrors(fieldErrors);
+        setState('error');
+        setMessage('Corrija os campos destacados antes de enviar.');
+        return;
+      }
     }
     setErrors({});
     setState('loading');
@@ -211,12 +216,18 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
 
   return (
     <form className="profile-form" onSubmit={submit} noValidate>
-      <fieldset>
-        <legend>Identificação</legend>
+      {locked && (
+        <p className="muted" style={{ marginBottom: 16 }}>
+          Seus dados pessoais/da empresa já foram aprovados e ficam bloqueados nesta tela. Você ainda pode adicionar,
+          editar ou remover laboratórios parceiros logo abaixo — isso não reabre a análise dos seus dados.
+        </p>
+      )}
+      <fieldset disabled={locked}>
+        <legend>Identificação{locked ? ' (bloqueado após aprovação)' : ''}</legend>
         <div className="form-grid">
           <label>
             Tipo de cadastro
-            <select value={kind} onChange={(event) => setKind(event.target.value as RegistrationKind)}>
+            <select value={kind} onChange={(event) => setKind(event.target.value as RegistrationKind)} disabled={locked}>
               <option value="optometrista">Optometrista</option>
               <option value="optical_store">Ótica</option>
               <option value="laboratory">Laboratório</option>
@@ -224,7 +235,7 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
           </label>
           <label>
             Nome do profissional, ótica ou laboratório
-            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} minLength={2} maxLength={140} required />
+            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} minLength={2} maxLength={140} required disabled={locked} />
             <FieldError errors={errors} name="displayName" />
           </label>
           <label>
@@ -235,12 +246,13 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
               inputMode="numeric"
               placeholder={kind === 'optometrista' ? '000.000.000-00' : '00.000.000/0000-00'}
               required
+              disabled={locked}
             />
             <FieldError errors={errors} name="documentNumber" />
           </label>
           {kind === 'optometrista' && (
             <label className="check-row span-2">
-              <input type="checkbox" checked={sameAsResponsible} onChange={(event) => toggleSameAsResponsible(event.target.checked)} />
+              <input type="checkbox" checked={sameAsResponsible} onChange={(event) => toggleSameAsResponsible(event.target.checked)} disabled={locked} />
               <span>O responsável técnico é o próprio profissional</span>
             </label>
           )}
@@ -249,7 +261,7 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
             <input
               value={effectiveResponsibleName}
               onChange={(event) => setTechnicalResponsibleName(event.target.value)}
-              disabled={sameAsResponsible}
+              disabled={sameAsResponsible || locked}
               maxLength={140}
               required
             />
@@ -257,48 +269,52 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
           </label>
           <label>
             Registro no Conselho Regional de Ótica e Optometria
-            <input value={technicalResponsibleRegistration} onChange={(event) => setTechnicalResponsibleRegistration(event.target.value)} maxLength={80} required />
+            <input value={technicalResponsibleRegistration} onChange={(event) => setTechnicalResponsibleRegistration(event.target.value)} maxLength={80} required disabled={locked} />
             <FieldError errors={errors} name="technicalResponsibleRegistration" />
           </label>
         </div>
       </fieldset>
 
+      {/* Sem disabled no fieldset aqui: telefone/contato usam readOnly (não
+          disabled) para continuarem presentes no FormData no envio — um
+          <fieldset disabled> desabilitaria também esses campos e eles
+          sairiam do FormData mesmo sendo readOnly. */}
       <fieldset>
-        <legend>Endereço e contato</legend>
+        <legend>Endereço e contato{locked ? ' (bloqueado após aprovação)' : ''}</legend>
         <div className="form-grid">
           <label>
             CEP
-            <input value={postalCode} onChange={(event) => handleCepChange(event.target.value)} inputMode="numeric" placeholder="00000-000" required />
+            <input value={postalCode} onChange={(event) => handleCepChange(event.target.value)} inputMode="numeric" placeholder="00000-000" required disabled={locked} />
             <FieldError errors={errors} name="postalCode" />
             {cepStatus === 'loading' && <span className="field-hint">Buscando endereço…</span>}
             {cepStatus === 'error' && <span className="field-hint">CEP não encontrado. Preencha manualmente.</span>}
           </label>
           <label className="span-2">
             Logradouro
-            <input value={addressLine} onChange={(event) => setAddressLine(event.target.value)} maxLength={180} required />
+            <input value={addressLine} onChange={(event) => setAddressLine(event.target.value)} maxLength={180} required disabled={locked} />
             <FieldError errors={errors} name="addressLine" />
           </label>
-          <label>Número<input value={addressNumber} onChange={(event) => setAddressNumber(event.target.value)} maxLength={30} /></label>
-          <label>Complemento<input value={addressComplement} onChange={(event) => setAddressComplement(event.target.value)} maxLength={100} /></label>
-          <label>Bairro<input value={district} onChange={(event) => setDistrict(event.target.value)} maxLength={100} /></label>
+          <label>Número<input value={addressNumber} onChange={(event) => setAddressNumber(event.target.value)} maxLength={30} disabled={locked} /></label>
+          <label>Complemento<input value={addressComplement} onChange={(event) => setAddressComplement(event.target.value)} maxLength={100} disabled={locked} /></label>
+          <label>Bairro<input value={district} onChange={(event) => setDistrict(event.target.value)} maxLength={100} disabled={locked} /></label>
           <label>
             Cidade
-            <input value={city} onChange={(event) => setCity(event.target.value)} maxLength={100} required />
+            <input value={city} onChange={(event) => setCity(event.target.value)} maxLength={100} required disabled={locked} />
             <FieldError errors={errors} name="city" />
           </label>
           <label>
             Estado
-            <input value={addressState} onChange={(event) => setAddressState(event.target.value.toUpperCase())} minLength={2} maxLength={2} required />
+            <input value={addressState} onChange={(event) => setAddressState(event.target.value.toUpperCase())} minLength={2} maxLength={2} required disabled={locked} />
             <FieldError errors={errors} name="state" />
           </label>
           <label>
             Telefone principal
-            <input name="phone" defaultValue={initialValues.phone || ''} type="tel" required />
+            <input name="phone" defaultValue={initialValues.phone || ''} type="tel" required readOnly={locked} />
             <FieldError errors={errors} name="phone" />
           </label>
-          <label>Pessoa de contato<input name="contactName" defaultValue={initialValues.contactName || ''} maxLength={140} /></label>
-          <label>E-mail de contato<input name="contactEmail" defaultValue={initialValues.contactEmail || ''} type="email" /></label>
-          <label>WhatsApp de contato<input name="contactPhone" defaultValue={initialValues.contactPhone || ''} type="tel" /></label>
+          <label>Pessoa de contato<input name="contactName" defaultValue={initialValues.contactName || ''} maxLength={140} readOnly={locked} /></label>
+          <label>E-mail de contato<input name="contactEmail" defaultValue={initialValues.contactEmail || ''} type="email" readOnly={locked} /></label>
+          <label>WhatsApp de contato<input name="contactPhone" defaultValue={initialValues.contactPhone || ''} type="tel" readOnly={locked} /></label>
         </div>
       </fieldset>
 
@@ -341,8 +357,13 @@ export function ProfessionalProfileForm({ initialValues = {} }: { initialValues?
         <button className="button secondary" type="button" disabled={laboratories.length >= 10} onClick={() => setLaboratories((current) => [...current, emptyLaboratory()])}>Adicionar laboratório</button>
       </fieldset>
 
-      <label className="check-row"><input type="checkbox" required /><span>Declaro que os dados são verdadeiros e autorizo a Optótica a validá-los.</span></label>
-      <button className="button primary" disabled={state === 'loading'} type="submit">{state === 'loading' ? 'Enviando…' : 'Enviar cadastro para análise'}</button>
+      <label className="check-row">
+        <input type="checkbox" required />
+        <span>{locked ? 'Declaro que os dados dos laboratórios informados são verdadeiros e autorizo a Optótica a validá-los.' : 'Declaro que os dados são verdadeiros e autorizo a Optótica a validá-los.'}</span>
+      </label>
+      <button className="button primary" disabled={state === 'loading'} type="submit">
+        {state === 'loading' ? 'Enviando…' : locked ? 'Salvar laboratórios' : 'Enviar cadastro para análise'}
+      </button>
       {message && <p className="form-message error" role="status">{message}</p>}
     </form>
   );

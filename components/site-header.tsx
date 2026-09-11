@@ -9,6 +9,10 @@ export function SiteHeader({ loggedIn }: { loggedIn: boolean }) {
   // A área do cliente é para o paciente — não faz sentido oferecer ali um link para
   // "Entrar"/"Sair" (de novo) ou para a área profissional, que é uma conta/contexto diferente.
   const isClientArea = pathname?.startsWith('/cliente');
+  // Só mostra o link "Perfil" quando já se está na área profissional — evita
+  // oferecer o link (e o redirect de login que ele dispararia) para quem
+  // ainda nem entrou como profissional.
+  const isProfessionalArea = pathname?.startsWith('/profissional');
 
   async function handleSignOut() {
     await fetch('/api/auth/sign-out', { method: 'POST' });
@@ -35,6 +39,7 @@ export function SiteHeader({ loggedIn }: { loggedIn: boolean }) {
           ) : (
             <Link href="/entrar">Entrar</Link>
           )}
+          {isProfessionalArea && <Link href="/profissional/cadastro">Perfil</Link>}
           <Link href="/profissional">Área profissional</Link>
         </nav>
       )}

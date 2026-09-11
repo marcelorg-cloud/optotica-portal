@@ -55,25 +55,6 @@ export async function POST(request: Request) {
   const documentNumber = digits(body?.documentNumber);
   const contactEmail = clean(body?.contactEmail, 254).toLowerCase();
 
-  if (displayName.length < 2 || !clean(body?.addressLine) || !city || state.length !== 2 || !mainPhone) {
-    return NextResponse.json({ message: 'Preencha nome, endereço, cidade, UF e telefone válidos.' }, { status: 400 });
-  }
-  if (postalCodeDigits.length !== 8) {
-    return NextResponse.json({ message: 'CEP deve ter 8 dígitos.' }, { status: 400 });
-  }
-  if (!technicalResponsibleName || !technicalResponsibleRegistration) {
-    return NextResponse.json({ message: 'Informe o nome e o registro do responsável técnico optometrista.' }, { status: 400 });
-  }
-  if (accountType === 'optical_store' || accountType === 'laboratory') {
-    if (!isValidCNPJ(documentNumber)) {
-      return NextResponse.json({ message: 'CNPJ inválido. Verifique o número informado.' }, { status: 400 });
-    }
-  } else if (!isValidCPF(documentNumber)) {
-    return NextResponse.json({ message: 'CPF inválido. Verifique o número informado.' }, { status: 400 });
-  }
-  if (contactEmail && !/^\S+@\S+\.\S+$/.test(contactEmail)) {
-    return NextResponse.json({ message: 'Informe um e-mail de contato válido.' }, { status: 400 });
-  }
   if (laboratories.length > 10) {
     return NextResponse.json({ message: 'Máximo de 10 laboratórios.' }, { status: 400 });
   }
@@ -149,8 +130,40 @@ export async function POST(request: Request) {
     await admin.from('organization_members').insert({ organization_id: organization.id, user_id: user.id, role: 'owner', active: false }).select('organization_id').maybeSingle();
     profile = created;
   }
-  if (!['draft', 'changes_requested'].includes(profile.status)) {
+  // Um perfil 'approved' reabre esta mesma rota só para editar laboratórios
+  // (ver componente ProfessionalProfileForm, prop `locked`): os dados
+  // pessoais/empresa ficam bloqueados e NÃO voltam para 'under_review' só
+  // por causa de um laboratório novo/alterado. Os demais status fora de
+  // draft/changes_requested/approved continuam bloqueados por completo.
+  const professionalFieldsLocked = profile.status === 'approved';
+  if (!professionalFieldsLocked && !['draft', 'changes_requested'].includes(profile.status)) {
     return NextResponse.json({ message: 'Este cadastro está bloqueado para edição enquanto é analisado.' }, { status: 409 });
+  }
+
+  if (!professionalFieldsLocked) {
+    // Essas validações só se aplicam quando os dados pessoais/empresa ainda
+    // podem ser alterados (rascunho ou solicitação de ajuste). Com o perfil
+    // aprovado, esses campos chegam bloqueados/somente leitura da tela — não
+    // faz sentido (nem é necessário) validá-los de novo aqui.
+    if (displayName.length < 2 || !clean(body?.addressLine) || !city || state.length !== 2 || !mainPhone) {
+      return NextResponse.json({ message: 'Preencha nome, endereço, cidade, UF e telefone válidos.' }, { status: 400 });
+    }
+    if (postalCodeDigits.length !== 8) {
+      return NextResponse.json({ message: 'CEP deve ter 8 dígitos.' }, { status: 400 });
+    }
+    if (!technicalResponsibleName || !technicalResponsibleRegistration) {
+      return NextResponse.json({ message: 'Informe o nome e o registro do responsável técnico optometrista.' }, { status: 400 });
+    }
+    if (accountType === 'optical_store' || accountType === 'laboratory') {
+      if (!isValidCNPJ(documentNumber)) {
+        return NextResponse.json({ message: 'CNPJ inválido. Verifique o número informado.' }, { status: 400 });
+      }
+    } else if (!isValidCPF(documentNumber)) {
+      return NextResponse.json({ message: 'CPF inválido. Verifique o número informado.' }, { status: 400 });
+    }
+    if (contactEmail && !/^\S+@\S+\.\S+$/.test(contactEmail)) {
+      return NextResponse.json({ message: 'Informe um e-mail de contato válido.' }, { status: 400 });
+    }
   }
 
   const { data: existingLabs } = await admin.from('professional_laboratories').select('id').eq('professional_profile_id', profile.id);
@@ -160,30 +173,32 @@ export async function POST(request: Request) {
   if (unknownSubmittedId) return NextResponse.json({ message: 'Um dos laboratórios não pertence a este cadastro.' }, { status: 403 });
 
   const now = new Date().toISOString();
-  const { error: profileError } = await admin.from('professional_profiles').update({
-    account_type: accountType,
-    professional_kind: professionalKind,
-    display_name: displayName,
-    technical_responsible_name: technicalResponsibleName,
-    technical_responsible_registration: technicalResponsibleRegistration,
-    cnpj: documentNumber,
-    address_line: clean(body?.addressLine),
-    address_number: clean(body?.addressNumber, 30) || null,
-    address_complement: clean(body?.addressComplement, 100) || null,
-    district: clean(body?.district, 100) || null,
-    city,
-    state,
-    postal_code: postalCodeDigits,
-    phone_e164: mainPhone,
-    contact_name: clean(body?.contactName, 140) || null,
-    contact_email: contactEmail || null,
-    contact_phone_e164: phone(body?.contactPhone) || null,
-    status: 'under_review',
-    submitted_at: now,
-    review_notes: null,
-    updated_at: now
-  }).eq('id', profile.id);
-  if (profileError) return NextResponse.json({ message: 'Não foi possível salvar os dados profissionais.' }, { status: 500 });
+  if (!professionalFieldsLocked) {
+    const { error: profileError } = await admin.from('professional_profiles').update({
+      account_type: accountType,
+      professional_kind: professionalKind,
+      display_name: displayName,
+      technical_responsible_name: technicalResponsibleName,
+      technical_responsible_registration: technicalResponsibleRegistration,
+      cnpj: documentNumber,
+      address_line: clean(body?.addressLine),
+      address_number: clean(body?.addressNumber, 30) || null,
+      address_complement: clean(body?.addressComplement, 100) || null,
+      district: clean(body?.district, 100) || null,
+      city,
+      state,
+      postal_code: postalCodeDigits,
+      phone_e164: mainPhone,
+      contact_name: clean(body?.contactName, 140) || null,
+      contact_email: contactEmail || null,
+      contact_phone_e164: phone(body?.contactPhone) || null,
+      status: 'under_review',
+      submitted_at: now,
+      review_notes: null,
+      updated_at: now
+    }).eq('id', profile.id);
+    if (profileError) return NextResponse.json({ message: 'Não foi possível salvar os dados profissionais.' }, { status: 500 });
+  }
 
   // Suspender ANTES de gravar os enviados: um laboratório suspenso também
   // perde is_primary (linha 39 da migração 202609110019 garante no máximo 1
@@ -205,5 +220,9 @@ export async function POST(request: Request) {
   })), { onConflict: 'id' });
   if (labsError) return NextResponse.json({ message: 'Os dados foram salvos, mas os laboratórios precisam ser reenviados.' }, { status: 500 });
 
-  return NextResponse.json({ message: 'Cadastro enviado para análise da equipe Optótica.' });
+  return NextResponse.json({
+    message: professionalFieldsLocked
+      ? 'Laboratórios atualizados. Itens novos ou alterados entram em análise da equipe Optótica.'
+      : 'Cadastro enviado para análise da equipe Optótica.'
+  });
 }

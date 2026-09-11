@@ -12,7 +12,12 @@ export default async function ProfessionalRegistrationPage() {
 
   const admin = createAdminSupabaseClient();
   const { data: profile } = await admin.from('professional_profiles').select('id, account_type, professional_kind, display_name, council_registration, technical_responsible_name, technical_responsible_registration, cnpj, address_line, address_number, address_complement, district, city, state, postal_code, phone_e164, contact_name, contact_email, contact_phone_e164, status, review_notes').eq('user_id', user.id).maybeSingle();
-  if (profile && !['draft', 'changes_requested'].includes(profile.status)) redirect('/profissional');
+  // Um cadastro aprovado reabre esta mesma tela — só para poder incluir/editar
+  // laboratórios parceiros — mas com os dados pessoais/empresa bloqueados
+  // (professionalFieldsLocked abaixo). Os demais status (under_review,
+  // rejected, suspended) continuam sem acesso a este formulário.
+  if (profile && !['draft', 'changes_requested', 'approved'].includes(profile.status)) redirect('/profissional');
+  const professionalFieldsLocked = profile?.status === 'approved';
   const { data: laboratories } = profile
     ? await admin.from('professional_laboratories').select('id, name, legal_name, cnpj, address_line, address_number, address_complement, district, city, state, postal_code, phone_e164, contact_name, is_primary').eq('professional_profile_id', profile.id).neq('status', 'suspended').order('created_at')
     : { data: [] };
@@ -39,9 +44,19 @@ export default async function ProfessionalRegistrationPage() {
 
   return (
     <div className="page-shell form-shell">
-      <section className="dashboard-head"><div><p className="eyebrow">Validação Optótica</p><h1>Cadastre seus dados</h1><p className="muted">Preencha os dados de suas atividades e dos laboratórios para que seu cadastro seja analisado e seja permitida a inclusão de pacientes.</p></div></section>
+      <section className="dashboard-head">
+        <div>
+          <p className="eyebrow">Validação Optótica</p>
+          <h1>{professionalFieldsLocked ? 'Seu perfil' : 'Cadastre seus dados'}</h1>
+          <p className="muted">
+            {professionalFieldsLocked
+              ? 'Seus dados já foram aprovados e ficam bloqueados aqui. Adicione, edite ou remova laboratórios parceiros abaixo quando precisar.'
+              : 'Preencha os dados de suas atividades e dos laboratórios para que seu cadastro seja analisado e seja permitida a inclusão de pacientes.'}
+          </p>
+        </div>
+      </section>
       {profile?.review_notes && <div className="setup-note">Solicitação da equipe: {profile.review_notes}</div>}
-      <ProfessionalProfileForm initialValues={initialValues} />
+      <ProfessionalProfileForm initialValues={initialValues} locked={professionalFieldsLocked} />
     </div>
   );
 }
