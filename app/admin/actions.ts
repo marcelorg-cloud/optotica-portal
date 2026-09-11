@@ -30,6 +30,33 @@ async function cascadeApproveLaboratories(profileId: string, reviewerId: string)
     .eq('status', 'under_review');
 }
 
+// Aprova UM laboratório específico, isolado do profissional (migração
+// 202609110019 + seção 0.24 do estado consolidado): desde que um profissional
+// já aprovado pode reabrir o cadastro só para adicionar/editar laboratórios
+// (sem voltar o próprio status para 'under_review'), o cascadeApproveLaboratories
+// acima — que só roda dentro de approveProfessionalAction — nunca mais é
+// chamado para esse profissional, e um laboratório novo ficaria preso em
+// 'under_review' para sempre. Esta ação cobre esse caso: aprova só o
+// laboratório indicado, sem depender do status do profissional.
+export async function approveLaboratoryAction(formData: FormData) {
+  const laboratoryId = String(formData.get('target_laboratory') || '');
+  if (!laboratoryId) throw new Error('Laboratório inválido.');
+  const supabase = await createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Faça login novamente.');
+  const admin = createAdminSupabaseClient();
+  const { data: master } = await admin.from('system_admins').select('user_id').eq('user_id', user.id).eq('active', true).maybeSingle();
+  if (!master) throw new Error('Apenas o usuário master pode aprovar laboratórios.');
+  const now = new Date().toISOString();
+  const { error } = await admin
+    .from('professional_laboratories')
+    .update({ status: 'approved', reviewed_by: user.id, reviewed_at: now, review_notes: null, updated_at: now })
+    .eq('id', laboratoryId)
+    .eq('status', 'under_review');
+  if (error) throw new Error(error.message);
+  revalidatePath('/admin');
+}
+
 export async function approveProfessionalAction(formData: FormData) {
   const targetProfile = String(formData.get('target_profile') || '');
   const supabase = await createServerSupabaseClient();
