@@ -11,6 +11,17 @@ const LABORATORY_SUGGESTIONS = ['Laboratório A', 'Laboratório B', 'Laboratóri
 
 type EyeRx = { esferico: string; cilindrico: string; eixo: string; adicao: string };
 type QuoteOption = { id: string; total: number; description: string; laboratory: string; notes: string };
+type MenuTierOption = {
+  lensType: 'single_vision' | 'multifocal';
+  tierNumber: number; isAddon: boolean; tierName: string; benefitPhrase: string | null;
+  targetAudience: string | null; manufacturer: string | null; productLine: string | null;
+  lensIndex: string | null; arTreatment: string | null; price: number;
+};
+
+const MENU_CATEGORY_LABELS: Record<MenuTierOption['lensType'], string> = {
+  single_vision: 'Visão simples',
+  multifocal: 'Multifocal'
+};
 
 function RxRow({ eye, label, value }: { eye: 'od' | 'oe'; label: string; value: EyeRx }) {
   return (
@@ -26,19 +37,37 @@ function RxRow({ eye, label, value }: { eye: 'od' | 'oe'; label: string; value: 
 
 const EMPTY_EYE: EyeRx = { esferico: '0', cilindrico: '0', eixo: '0', adicao: '0' };
 
-export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId, locked }: {
+export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId, locked, menuTiers = [] }: {
   orderId: string;
   initialOd: EyeRx | null;
   initialOe: EyeRx | null;
   quotes: QuoteOption[];
   selectedQuoteId: string | null;
   locked: boolean;
+  menuTiers?: MenuTierOption[];
 }) {
   const router = useRouter();
   const [rxState, setRxState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [rxMessage, setRxMessage] = useState('');
   const [budgetState, setBudgetState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [budgetMessage, setBudgetMessage] = useState('');
+  const [menuAddingKey, setMenuAddingKey] = useState<string | null>(null);
+  const [menuMessage, setMenuMessage] = useState('');
+
+  async function addFromMenu(lensType: MenuTierOption['lensType'], tierNumber: number) {
+    const key = `${lensType}-${tierNumber}`;
+    if (locked || menuAddingKey !== null) return;
+    setMenuAddingKey(key);
+    setMenuMessage('');
+    const response = await fetch(`/api/professional/orders/${orderId}/quotes/from-menu`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lensType, tierNumber })
+    });
+    const payload = await response.json().catch(() => ({}));
+    setMenuAddingKey(null);
+    if (response.ok) { router.refresh(); }
+    else { setMenuMessage(payload.message || 'Não foi possível adicionar este nível ao orçamento.'); }
+  }
 
   // Seleção de orçamento com atualização visual otimista: marca a opção
   // escolhida na hora do clique (sem esperar o roundtrip + refresh da página
@@ -133,6 +162,48 @@ export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId,
         {rxMessage && rxState === 'error' && <p className="form-message error">{rxMessage}</p>}
         </fieldset>
       </form>
+
+      {menuTiers.length > 0 && (
+        <div className="subsection">
+          <h3>Cardápio de lentes</h3>
+          <div className="helper" style={{ marginBottom: 10 }}>
+            Clique em um nível para adicionar um orçamento já pré-preenchido com a composição e o preço configurados. Você pode ajustar ou remover depois.
+          </div>
+          <div className="stack">
+            {(['single_vision', 'multifocal'] as const).map((lensType) => {
+              const tiersOfType = menuTiers.filter((t) => t.lensType === lensType);
+              if (tiersOfType.length === 0) return null;
+              return (
+                <div className="menu-category-group" key={lensType}>
+                  <p className="helper">{MENU_CATEGORY_LABELS[lensType]}</p>
+                  <div className="os-list">
+                    {tiersOfType.map((tier) => {
+                      const key = `${lensType}-${tier.tierNumber}`;
+                      return (
+                        <div key={key} className={`os-item budget-option${tier.isAddon ? ' selected-budget' : ''}`} style={{ cursor: locked ? 'default' : 'pointer', opacity: locked ? 0.75 : 1 }}
+                          onClick={() => addFromMenu(lensType, tier.tierNumber)}>
+                          <div>
+                            <strong>{tier.tierName}{tier.isAddon ? ' · Grife' : ''}</strong>
+                            <small>
+                              {[tier.manufacturer, tier.productLine, tier.lensIndex, tier.arTreatment].filter(Boolean).join(' · ') || 'Composição a definir'}
+                            </small>
+                            {tier.benefitPhrase && <small>{tier.benefitPhrase}</small>}
+                          </div>
+                          <div className="price">
+                            R$ {tier.price.toFixed(2).replace('.', ',')}
+                            <div className="helper" style={{ marginTop: 4 }}>{menuAddingKey === key ? 'Adicionando…' : 'Adicionar ao orçamento'}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {menuMessage && <p className="form-message error">{menuMessage}</p>}
+        </div>
+      )}
 
       <form onSubmit={submitBudget}>
         <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0 }}>
