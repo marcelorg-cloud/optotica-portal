@@ -211,18 +211,22 @@ export async function POST(request: Request) {
     if (suspendError) return NextResponse.json({ message: 'Não foi possível atualizar os laboratórios removidos.' }, { status: 500 });
   }
 
+  // Decisão do usuário (11/09/2026): laboratório parceiro não passa mais por
+  // aprovação do master — é liberado assim que o profissional cadastra (ou
+  // edita) o laboratório, sem etapa de análise intermediária. Diferente do
+  // cadastro do PROFISSIONAL em si (esse continua analisado normalmente).
   const { error: labsError } = await admin.from('professional_laboratories').upsert(normalizedLabs.map((lab) => ({
     ...lab,
     professional_profile_id: profile.id,
     organization_id: profile.organization_id,
-    status: 'under_review',
+    status: 'approved',
     updated_at: now
   })), { onConflict: 'id' });
   if (labsError) return NextResponse.json({ message: 'Os dados foram salvos, mas os laboratórios precisam ser reenviados.' }, { status: 500 });
 
   return NextResponse.json({
     message: professionalFieldsLocked
-      ? 'Laboratórios atualizados. Itens novos ou alterados entram em análise da equipe Optótica.'
+      ? 'Laboratórios atualizados.'
       : 'Cadastro enviado para análise da equipe Optótica.'
   });
 }
