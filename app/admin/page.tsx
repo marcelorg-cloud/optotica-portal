@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
 import {
+  approveLaboratoryAction,
   approveProfessionalAction,
   reactivateProfessionalAction,
   rejectProfessionalAction,
@@ -152,52 +153,4 @@ function ProfileReviewCard({ profile }: { profile: ProfileReview }) {
             </form>
           )}
           {canRequestChanges && (
-            <form action={requestChangesAction} className="stack" style={{ marginTop: 0 }}>
-              <input type="hidden" name="target_profile" value={profile.id} />
-              <textarea name="notes" placeholder="O que precisa ser corrigido?" required minLength={3} />
-              <button className="button secondary" type="submit">Pedir ajustes</button>
-            </form>
-          )}
-          {canReject && (
-            <form action={rejectProfessionalAction} className="stack" style={{ marginTop: 0 }}>
-              <input type="hidden" name="target_profile" value={profile.id} />
-              <textarea name="notes" placeholder="Motivo da rejeição" required minLength={3} />
-              <button className="text-button danger" type="submit">Rejeitar</button>
-            </form>
-          )}
-          {canSuspend && (
-            <form action={suspendProfessionalAction} className="stack" style={{ marginTop: 0 }}>
-              <input type="hidden" name="target_profile" value={profile.id} />
-              <textarea name="notes" placeholder="Motivo da suspensão" required minLength={3} />
-              <button className="text-button danger" type="submit">Suspender</button>
-            </form>
-          )}
-          {canReactivate && (
-            <form action={reactivateProfessionalAction}>
-              <input type="hidden" name="target_profile" value={profile.id} />
-              <button className="button primary" type="submit">Reativar</button>
-            </form>
-          )}
-        </div>
-      </div>
-
-      {profile.review_notes && <div className="setup-note" style={{ marginTop: 16 }}>Última observação: {profile.review_notes}</div>}
-
-      <dl className="review-details">
-        <div><dt>Tipo</dt><dd>{formatRegistrationKind(profile.account_type, profile.professional_kind)}{profile.cnpj ? ` · ${profile.cnpj.length === 14 ? 'CNPJ' : 'CPF'} ${profile.cnpj}` : ''}</dd></div>
-        <div><dt>Registro</dt><dd>{profile.technical_responsible_registration || profile.council_registration || '—'}</dd></div>
-        <div><dt>Responsável</dt><dd>{profile.technical_responsible_name || '—'}</dd></div>
-        <div><dt>Endereço</dt><dd>{profile.address_line || '—'}, {profile.address_number || 's/n'} · {profile.district || ''} · {profile.city}/{profile.state} · {profile.postal_code || ''}</dd></div>
-        <div><dt>Telefone</dt><dd>{profile.phone_e164 || '—'}</dd></div>
-        <div><dt>Contato</dt><dd>{profile.contact_name || '—'} · {profile.contact_email || ''} · {profile.contact_phone_e164 || ''}</dd></div>
-      </dl>
-
-      <div className="laboratory-summary">
-        <strong>Laboratórios</strong>
-        {profile.professional_laboratories?.length ? profile.professional_laboratories.map((lab) => (
-          <span key={lab.id}>{lab.is_primary ? '★ ' : ''}{lab.name}{lab.legal_name ? ` (${lab.legal_name})` : ''} · CNPJ {lab.cnpj} · {lab.address_line}, {lab.address_number || 's/n'} · {lab.city}/{lab.state} · {lab.phone_e164} · {lab.status}{lab.is_primary ? ' · principal' : ''}</span>
-        )) : <span>Nenhum laboratório.</span>}
-      </div>
-    </article>
-  );
-}
+            <form action={requestChangesAction}
