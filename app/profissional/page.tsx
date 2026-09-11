@@ -48,6 +48,7 @@ export default async function ProfessionalPage() {
           <Link className="button primary" href="/profissional/pacientes">Iniciar novo atendimento</Link>
           <Link className="button secondary" href="/profissional/pacientes">Meus pacientes</Link>
           <Link className="button secondary" href="/profissional/pacientes/novo">Convidar paciente</Link>
+          <Link className="button secondary" href="/profissional/cardapio">Cardápio de lentes</Link>
         </div>
       </section>
       <section className="card table-card">
