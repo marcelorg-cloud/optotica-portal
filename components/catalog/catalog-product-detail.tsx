@@ -27,6 +27,7 @@ type ColorImage = {
   validatedAt: string | null;
   originalImageUrl: string | null;
   processedImageUrl: string | null;
+  hasSourceImageUrl: boolean;
 };
 
 const STATUS_LABEL: Record<string, string> = { em_triagem: 'Em triagem', publicado: 'Publicado', arquivado: 'Arquivado' };
@@ -149,6 +150,15 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     if (input) input.value = '';
   }
 
+  async function handleImportPhoto(colorImageId: string) {
+    setBusy(true);
+    setMessage(null);
+    const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/import-photo`, { method: 'POST' });
+    setBusy(false);
+    setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+    if (ok) load();
+  }
+
   async function handleProcess(colorImageId: string) {
     setBusy(true);
     setMessage(null);
@@ -243,12 +253,15 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
 
                 {color.status === 'incompleto' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {color.hasSourceImageUrl && (
+                      <button className="button primary small" type="button" disabled={busy} onClick={() => handleImportPhoto(color.id)}>Importar do AliExpress</button>
+                    )}
                     <input
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
                       ref={(el) => { fixFileInputs.current[color.id] = el; }}
                     />
-                    <button className="button secondary small" type="button" disabled={busy} onClick={() => handleAddMissingPhoto(color.id)}>Adicionar foto</button>
+                    <button className="button secondary small" type="button" disabled={busy} onClick={() => handleAddMissingPhoto(color.id)}>Adicionar foto{color.hasSourceImageUrl ? ' manualmente' : ''}</button>
                   </div>
                 )}
                 {color.status === 'pendente' && (
