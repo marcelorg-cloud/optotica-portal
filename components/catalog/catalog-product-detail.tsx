@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/browser-client';
 import { parseAliexpressJson, type ParsedAliexpressColor } from '@/lib/catalog/parse-aliexpress-json';
 import { COLOR_VOCABULARY } from '@/lib/catalog/sku-standard';
+import { colorSwatchBackground, colorSwatchIsLight, colorSwatchSolidHex } from '@/lib/catalog/color-swatch-style';
 
 type Product = {
   id: string;
@@ -678,6 +679,15 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                     const title = color.colorVariantNumber
                       ? `Cor ${color.colorVariantNumber} — ${color.colorPrincipal}${color.colorSecondary ? ` / ${color.colorSecondary}` : ''}`
                       : color.colorName;
+                    // Bolinha colorida de acordo com a cor de verdade da variante
+                    // (pedido do usuário, 13/09/2026: "colorir cada checkbox de
+                    // cor de acordo com a cor correspondente") — marcada = bolinha
+                    // preenchida com a cor (bicolor vira meio a meio); desmarcada =
+                    // só o contorno na cor, fundo branco. O "✓" garante que dá pra
+                    // ver que está marcada mesmo em cores muito claras (branco,
+                    // cristal etc.), onde o preenchimento sozinho quase não aparece.
+                    const solidHex = colorSwatchSolidHex(color.colorPrincipal);
+                    const isLight = colorSwatchIsLight(color.colorPrincipal);
                     return (
                       <button
                         key={color.id}
@@ -690,13 +700,14 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                           lineHeight: 1,
                           padding: '4px 6px',
                           borderRadius: 999,
-                          border: marked ? '2px solid #1a73e8' : '1px solid #ccc',
-                          background: marked ? '#1a73e8' : '#fff',
-                          color: marked ? '#fff' : '#333',
-                          cursor: 'pointer'
+                          border: `2px solid ${solidHex}`,
+                          background: marked ? colorSwatchBackground(color.colorPrincipal, color.colorSecondary) : '#fff',
+                          color: marked ? (isLight ? '#222' : '#fff') : solidHex,
+                          cursor: 'pointer',
+                          fontWeight: 700
                         }}
                       >
-                        {label}
+                        {label}{marked ? ' ✓' : ''}
                       </button>
                     );
                   })}
@@ -814,7 +825,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
               </div>
               <div className="catalog-color-body">
                 <div className="name">
-                  <span className="catalog-swatch" />
+                  <span className="catalog-swatch" style={{ background: colorSwatchBackground(color.colorPrincipal, color.colorSecondary) }} />
                   {color.colorVariantNumber ? `Cor ${color.colorVariantNumber} — ${color.colorPrincipal}${color.colorSecondary ? ` / ${color.colorSecondary}` : ''}` : color.colorName}
                 </div>
                 {color.variantSku && <span className="muted" style={{ fontSize: 11 }}>SKU {color.variantSku}</span>}
