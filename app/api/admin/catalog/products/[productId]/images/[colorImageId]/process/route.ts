@@ -100,15 +100,17 @@ export async function POST(
     if (configMissing) {
       message = 'Configure REPLICATE_API_TOKEN na Vercel antes de processar imagens.';
     } else if (rateLimited) {
-      // O texto da mensagem agora inclui `detail` (achado em produção,
-      // 13/09/2026): antes essa mensagem era sempre o mesmo texto fixo, então
-      // não dava pra saber se um segundo 429 era a MESMA causa (conta ainda
-      // com crédito reduzido) ou uma causa DIFERENTE (ex.: token de uma conta
-      // errada, ou um 429 comum de limite por minuto sem relação com
-      // crédito) — o usuário reportou o mesmo aviso mesmo depois de comprar
-      // US$10 de crédito e esperar 10 minutos (bem mais que os 5 minutos que
-      // o próprio Replicate diz levar pra propagar).
-      message = `O Replicate limitou as requisições (${detail}). Espere um minuto e tente de novo — se continuar mesmo com crédito na conta, considere comprar mais em replicate.com/account/billing.`;
+      // O texto da mensagem inclui `detail` (achado em produção, 13/09/2026):
+      // antes essa mensagem era sempre o mesmo texto fixo, então não dava pra
+      // saber se um segundo 429 era a MESMA causa ou uma diferente. A
+      // sugestão de "comprar mais crédito" foi removida (13/09/2026, 2ª
+      // vez): usuário confirmou saldo de US$9,99 e auto-reload/pagamento
+      // ativos, e mesmo assim o Replicate seguiu devolvendo essa mensagem
+      // citando "less than $5.0 in credit" — nesse ponto já é uma
+      // inconsistência do lado do Replicate entre o saldo real e o que o
+      // limitador de requisições está enxergando, não algo que se resolve
+      // comprando mais crédito.
+      message = `O Replicate limitou as requisições (${detail}). Espere um minuto e tente de novo. Se persistir mesmo com saldo e pagamento confirmados na conta, pode ser uma inconsistência do lado do Replicate — nesse caso vale falar com o suporte deles (replicate.com), mostrando essa mensagem e o saldo da conta.`;
     } else {
       message = `Falha ao processar a imagem: ${detail}. Tente novamente — se persistir, tente trocar a foto de posição do produto ou a foto desta cor.`;
     }
