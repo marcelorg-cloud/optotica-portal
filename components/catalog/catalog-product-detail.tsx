@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/browser-client';
+import { parseAliexpressJson, type ParsedAliexpressColor } from '@/lib/catalog/parse-aliexpress-json';
 
 type Product = {
   id: string;
@@ -76,6 +77,19 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const messageRef = useRef<HTMLParagraphElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [showNewColor, setShowNewColor] = useState(false);
+
+  // "Importar/atualizar do AliExpress" (13/09/2026, pedido do usuário — "e os
+  // modelos que já estão cadastrados?"): mesma ideia da seção 0.49 (colar
+  // JSON na criação de produto novo), agora pra um produto que já existe.
+  // Só acrescenta — nunca mexe no nome do modelo/medidas já cadastrados:
+  // cria as cores que ainda não existem (comparando por nome, sem repetir as
+  // que já estão na tela) e adiciona as fotos gerais do anúncio na galeria
+  // (idempotente — colar o mesmo JSON de novo não duplica nada).
+  const [showAliexpressImport, setShowAliexpressImport] = useState(false);
+  const [aliexpressImportText, setAliexpressImportText] = useState('');
+  const [importParseMessage, setImportParseMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const [importColors, setImportColors] = useState<(ParsedAliexpressColor & { include: boolean; alreadyExists: boolean })[]>([]);
+  const [importGalleryUrls, setImportGalleryUrls] = useState<string[]>([]);
 
   // A mensagem de sucesso/erro fica perto do topo da página — mas as ações
   // por cor (Trocar foto, Processar com IA etc.) ficam mais abaixo, na
@@ -206,6 +220,78 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
       if (ok) { event.currentTarget.reset(); newColorFileRef.current = null; setShowNewColor(false); load(); }
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleParseAliexpressImport() {
+    setImportParseMessage(null);
+    try {
+      const parsed = parseAliexpressJson(aliexpressImportText);
+      const existingNames = new Set((colors || []).map((c) => c.colorName.trim().toLowerCase()));
+      const withInclude = parsed.colors.map((c) => {
+        const alreadyExists = existingNames.has(c.colorName.trim().toLowerCase());
+        return { ...c, alreadyExists, include: !alreadyExists };
+      });
+      setImportColors(withInclude);
+      setImportGalleryUrls(parsed.galleryImageUrls);
+      const existingCount = withInclude.filter((c) => c.alreadyExists).length;
+      setImportParseMessage({
+        kind: 'success',
+        text: `Encontrei ${parsed.colors.length} cor(es)${existingCount ? ` (${existingCount} já cadastrada(s) aqui, desmarcada(s))` : ''} e ${parsed.galleryImageUrls.length} foto(s) gerais do anúncio.`
+      });
+    } catch (err) {
+      setImportColors([]);
+      setImportGalleryUrls([]);
+      setImportParseMessage({ kind: 'error', text: err instanceof Error ? err.message : 'Não foi possível ler esse JSON.' });
+    }
+  }
+
+  function updateImportColor(index: number, patch: Partial<ParsedAliexpressColor & { include: boolean }>) {
+    setImportColors((prev) => prev.map((c, i) => (i === index ? { ...c, ...patch } : c)));
+  }
+
+  async function handleImportAliexpress() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const toCreate = importColors.filter((c) => c.include && c.colorName.trim());
+      let successCount = 0;
+      let failCount = 0;
+      for (const color of toCreate) {
+        const res = await fetchJson(`/api/admin/catalog/products/${productId}/images`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ colorName: color.colorName.trim(), supplierSku: color.supplierSku || undefined, sourceImageUrl: color.sourceImageUrl || undefined })
+        });
+        if (res.ok) successCount += 1;
+        else failCount += 1;
+      }
+
+      let galleryMessage = '';
+      if (importGalleryUrls.length) {
+        const galleryRes = await fetchJson(`/api/admin/catalog/products/${productId}/gallery`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageUrls: importGalleryUrls })
+        });
+        galleryMessage = galleryRes.ok ? ` ${galleryRes.payload.message}` : ' Não foi possível salvar as fotos da galeria.';
+      }
+
+      const parts: string[] = [];
+      if (toCreate.length) parts.push(`${successCount} cor(es) criada(s)${failCount ? ` (${failCount} falharam — confira nomes repetidos)` : ''}.`);
+      if (galleryMessage) parts.push(galleryMessage.trim());
+      setMessage({ kind: failCount ? 'error' : 'success', text: parts.join(' ') || 'Nada novo para importar desse JSON.' });
+
+      setShowAliexpressImport(false);
+      setAliexpressImportText('');
+      setImportColors([]);
+      setImportGalleryUrls([]);
+      setImportParseMessage(null);
+      load();
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
@@ -473,8 +559,62 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
 
       <div className="catalog-toolbar">
         <h2 style={{ margin: 0, fontSize: 18 }}>Cores e fotos de prova</h2>
-        <button className="button secondary" type="button" onClick={() => setShowNewColor((v) => !v)}>+ Adicionar cor</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="button secondary" type="button" onClick={() => setShowAliexpressImport((v) => !v)}>Importar/atualizar do AliExpress</button>
+          <button className="button secondary" type="button" onClick={() => setShowNewColor((v) => !v)}>+ Adicionar cor</button>
+        </div>
       </div>
+
+      {showAliexpressImport && (
+        <div className="card" style={{ padding: 16, marginBottom: 16, display: 'grid', gap: 12 }}>
+          <div style={{ display: 'grid', gap: 8 }}>
+            <label style={{ fontSize: 13, fontWeight: 600 }}>Colar JSON do AliExpress</label>
+            <p className="helper" style={{ margin: 0 }}>
+              Cole a resposta da API &quot;Item Detail&quot; deste produto — cria as cores que ainda não existem aqui
+              (com a foto de referência já associada) e adiciona as fotos gerais na galeria. Nada do que já está
+              cadastrado neste produto é alterado.
+            </p>
+            <textarea
+              rows={4}
+              value={aliexpressImportText}
+              onChange={(e) => setAliexpressImportText(e.target.value)}
+              placeholder='Cole aqui o JSON, ex.: {"result":{"item":{...}}}'
+              style={{ fontFamily: 'monospace', fontSize: 12 }}
+            />
+            <div>
+              <button className="button secondary small" type="button" onClick={handleParseAliexpressImport} disabled={!aliexpressImportText.trim()}>
+                Analisar JSON
+              </button>
+            </div>
+            {importParseMessage && <p className={`form-message ${importParseMessage.kind}`} style={{ margin: 0 }}>{importParseMessage.text}</p>}
+          </div>
+
+          {importColors.length > 0 && (
+            <div style={{ display: 'grid', gap: 8 }}>
+              <label style={{ fontSize: 13, fontWeight: 600 }}>Cores detectadas — desmarque ou edite o nome antes de importar</label>
+              {importColors.map((color, index) => (
+                <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: color.alreadyExists ? 0.6 : 1 }}>
+                  <input type="checkbox" checked={color.include} onChange={(e) => updateImportColor(index, { include: e.target.checked })} />
+                  {color.sourceImageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={color.sourceImageUrl} alt={color.colorName} style={{ width: 32, height: 32, objectFit: 'cover', borderRadius: 4 }} />
+                  ) : (
+                    <span style={{ width: 32, height: 32 }} />
+                  )}
+                  <input value={color.colorName} onChange={(e) => updateImportColor(index, { colorName: e.target.value })} style={{ flex: 1 }} />
+                  <span className="muted" style={{ fontSize: 11 }}>{color.alreadyExists ? 'já cadastrada aqui' : color.supplierSku || 'sem SKU do fornecedor'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(importColors.length > 0 || importGalleryUrls.length > 0) && (
+            <button className="button primary" type="button" disabled={busy} style={{ justifySelf: 'start' }} onClick={handleImportAliexpress}>
+              Importar {importColors.filter((c) => c.include).length} cor(es) e {importGalleryUrls.length} foto(s) da galeria
+            </button>
+          )}
+        </div>
+      )}
 
       {showNewColor && (
         <form className="card" style={{ padding: 16, marginBottom: 16, display: 'grid', gap: 12 }} onSubmit={handleNewColor}>
