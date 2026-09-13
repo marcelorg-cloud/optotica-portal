@@ -10,6 +10,12 @@ type Product = {
   supplierItemId: string;
   lensWidthMm: number | null;
   lensHeightMm: number | null;
+  bridgeMm: number | null;
+  lensDiagonalMm: number | null;
+  templeLengthMm: number | null;
+  rimMm: number | null;
+  frameTotalWidthMm: number | null;
+  standardHeightMm: number | null;
   measurementSource: string;
   status: string;
   supplierName: string | null;
@@ -138,7 +144,15 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
           modelName: form.get('modelName'),
           skuOptotica: form.get('skuOptotica'),
           lensWidthMm: Number(form.get('lensWidthMm')),
-          lensHeightMm: Number(form.get('lensHeightMm'))
+          lensHeightMm: Number(form.get('lensHeightMm')),
+          // Medidas completas (13/09/2026, 7ª rodada) — opcionais: campo
+          // vazio manda '' (a rota interpreta como "limpar", vira null).
+          bridgeMm: form.get('bridgeMm'),
+          lensDiagonalMm: form.get('lensDiagonalMm'),
+          templeLengthMm: form.get('templeLengthMm'),
+          rimMm: form.get('rimMm'),
+          frameTotalWidthMm: form.get('frameTotalWidthMm'),
+          standardHeightMm: form.get('standardHeightMm')
         })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
@@ -392,10 +406,22 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         <div className="form-grid">
           <label>Nome do modelo<input name="modelName" defaultValue={product.modelName} required minLength={2} /></label>
           <label>SKU (Optótica)<input name="skuOptotica" defaultValue={product.skuOptotica} required /></label>
-          <label>Largura da lente (mm)<input name="lensWidthMm" type="number" step="0.1" defaultValue={product.lensWidthMm ?? ''} required /></label>
-          <label>Altura da lente (mm)<input name="lensHeightMm" type="number" step="0.1" defaultValue={product.lensHeightMm ?? ''} required /></label>
+          {/* Horizontal/Vertical maior da lente = os mesmos lens_width_mm/
+              lens_height_mm de sempre, só com rótulo novo (13/09/2026, 7ª
+              rodada, pedido do usuário via mockup) — lens_width_mm continua
+              obrigatório e usado de verdade pela Prova Online, por isso
+              continua "required"; os 6 campos novos abaixo são só de
+              referência pro laboratório, opcionais. */}
+          <label>Horizontal maior da lente (mm)<input name="lensWidthMm" type="number" step="0.1" defaultValue={product.lensWidthMm ?? ''} required /></label>
+          <label>Vertical maior da lente (mm)<input name="lensHeightMm" type="number" step="0.1" defaultValue={product.lensHeightMm ?? ''} required /></label>
+          <label>Ponte (mm)<input name="bridgeMm" type="number" step="0.1" defaultValue={product.bridgeMm ?? ''} /></label>
+          <label>Diagonal maior de lente (mm)<input name="lensDiagonalMm" type="number" step="0.1" defaultValue={product.lensDiagonalMm ?? ''} /></label>
+          <label>Hastes (mm)<input name="templeLengthMm" type="number" step="0.1" defaultValue={product.templeLengthMm ?? ''} /></label>
+          <label>Aro (mm)<input name="rimMm" type="number" step="0.1" defaultValue={product.rimMm ?? ''} /></label>
+          <label>Frente Total (mm)<input name="frameTotalWidthMm" type="number" step="0.1" defaultValue={product.frameTotalWidthMm ?? ''} /></label>
+          <label>Altura padrão (mm)<input name="standardHeightMm" type="number" step="0.1" defaultValue={product.standardHeightMm ?? ''} /></label>
         </div>
-        <p className="helper">Origem da medida: {product.measurementSource === 'manual' ? 'corrigida manualmente' : 'API do fornecedor'}. Product ID, SKU e loja ficam só neste painel — nunca aparecem para o paciente.</p>
+        <p className="helper">Origem da medida: {product.measurementSource === 'manual' ? 'corrigida manualmente' : 'API do fornecedor'}. As 6 medidas extras (Ponte, Diagonal, Hastes, Aro, Frente Total, Altura padrão) são opcionais — só referência pro laboratório, não afetam a Prova Online. Product ID, SKU e loja ficam só neste painel — nunca aparecem para o paciente.</p>
         <button className="button primary" type="submit" disabled={busy}>Salvar alterações</button>
       </form>
 

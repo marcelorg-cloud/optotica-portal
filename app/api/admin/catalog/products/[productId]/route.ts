@@ -10,7 +10,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
 
   const { data: product } = await auth.admin
     .from('catalog_products')
-    .select('id, supplier_id, supplier_item_id, model_name, sku_optotica, lens_width_mm, lens_height_mm, measurement_source, status, created_at, position_image_path, catalog_suppliers(name, store_id)')
+    .select('id, supplier_id, supplier_item_id, model_name, sku_optotica, lens_width_mm, lens_height_mm, bridge_mm, lens_diagonal_mm, temple_length_mm, rim_mm, frame_total_width_mm, standard_height_mm, measurement_source, status, created_at, position_image_path, catalog_suppliers(name, store_id)')
     .eq('id', productId)
     .maybeSingle();
   if (!product) return NextResponse.json({ message: 'Produto não encontrado.' }, { status: 404 });
@@ -65,6 +65,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       supplierItemId: product.supplier_item_id,
       lensWidthMm: product.lens_width_mm,
       lensHeightMm: product.lens_height_mm,
+      bridgeMm: product.bridge_mm,
+      lensDiagonalMm: product.lens_diagonal_mm,
+      templeLengthMm: product.temple_length_mm,
+      rimMm: product.rim_mm,
+      frameTotalWidthMm: product.frame_total_width_mm,
+      standardHeightMm: product.standard_height_mm,
       measurementSource: product.measurement_source,
       status: product.status,
       supplierName: supplier?.name || null,
@@ -107,6 +113,32 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ pr
     patch.lens_width_mm = width;
     patch.lens_height_mm = height;
     patch.measurement_source = 'manual';
+  }
+  // Medidas completas de armação (13/09/2026, 7ª rodada — migração
+  // 202609130010): campos NOVOS, opcionais, só de referência pro
+  // laboratório — não entram em nenhum cálculo do app (Prova Online, nome
+  // do arquivo processado etc. continuam usando só lens_width_mm/
+  // lens_height_mm, tratados acima). Cada um só é gravado se vier no corpo;
+  // string vazia limpa o campo (fica null).
+  const OPTIONAL_MEASUREMENTS: Record<string, string> = {
+    bridgeMm: 'bridge_mm',
+    lensDiagonalMm: 'lens_diagonal_mm',
+    templeLengthMm: 'temple_length_mm',
+    rimMm: 'rim_mm',
+    frameTotalWidthMm: 'frame_total_width_mm',
+    standardHeightMm: 'standard_height_mm'
+  };
+  for (const [key, column] of Object.entries(OPTIONAL_MEASUREMENTS)) {
+    if (body?.[key] === undefined) continue;
+    if (body[key] === null || body[key] === '') {
+      patch[column] = null;
+      continue;
+    }
+    const value = Number(body[key]);
+    if (!Number.isFinite(value) || value <= 0) {
+      return NextResponse.json({ message: 'Medidas devem ser números maiores que zero (ou deixe em branco).' }, { status: 400 });
+    }
+    patch[column] = value;
   }
   if (typeof body?.status === 'string') {
     if (!STATUSES.includes(body.status as typeof STATUSES[number])) {
