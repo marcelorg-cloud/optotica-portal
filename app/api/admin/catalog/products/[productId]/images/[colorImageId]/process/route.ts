@@ -78,10 +78,22 @@ export async function POST(
     ]);
     processedBuffer = await buildProcessedFrameImage(positionCutout, colorReferenceCutout);
   } catch (err) {
-    console.error('catalog_process_failed', { message: err instanceof Error ? err.message : String(err) });
-    const configMissing = err instanceof Error && err.message.includes('REPLICATE_API_TOKEN');
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error('catalog_process_failed', { message: detail });
+    const configMissing = detail.includes('REPLICATE_API_TOKEN');
+    // A mensagem de erro real vai pro master (tela protegida por
+    // requireMaster(), nunca chega no app do paciente) — achado em produção
+    // (13/09/2026): a mensagem genérica ("tente trocar a foto...") não dava
+    // pista nenhuma de qual das duas chamadas (posição/cor) ou qual etapa
+    // (Replicate, download do resultado, recolor/recorte) falhou, e não há
+    // acesso direto aos logs da Vercel nesta sessão — expor o detalhe aqui
+    // evita indas e vindas só pra descobrir a causa.
     return NextResponse.json(
-      { message: configMissing ? 'Configure REPLICATE_API_TOKEN na Vercel antes de processar imagens.' : 'Falha ao processar a imagem. Tente novamente — se persistir, tente trocar a foto de posição do produto ou a foto desta cor.' },
+      {
+        message: configMissing
+          ? 'Configure REPLICATE_API_TOKEN na Vercel antes de processar imagens.'
+          : `Falha ao processar a imagem: ${detail}. Tente novamente — se persistir, tente trocar a foto de posição do produto ou a foto desta cor.`
+      },
       { status: 502 }
     );
   }
