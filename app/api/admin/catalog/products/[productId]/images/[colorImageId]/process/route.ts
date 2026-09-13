@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireMaster } from '@/lib/catalog/require-master';
-import { removeBackground } from '@/lib/catalog/background-removal';
+import { extractFrameOnly } from '@/lib/catalog/frame-mask';
 import { buildProcessedFrameImage } from '@/lib/catalog/frame-recolor';
 
 const BUCKET = 'catalog-product-photos';
@@ -81,8 +81,15 @@ export async function POST(
     // as duas conseguirem passar. Rodando uma de cada vez, cada requisição
     // usa a vaga sozinha — mais lento (dobra o tempo de espera), mas não
     // briga com a outra chamada da mesma requisição.
-    const positionCutout = await removeBackground(positionSigned.signedUrl);
-    const colorReferenceCutout = await removeBackground(colorRefSigned.signedUrl);
+    //
+    // extractFrameOnly (não mais removeBackground) — achado em produção
+    // (13/09/2026, 3ª rodada): o primeiro teste real mostrou a lente ainda
+    // opaca no resultado e a cor errada (a média usada pra recolorir incluía
+    // pixels da lente). extractFrameOnly (lib/catalog/frame-mask.ts) troca o
+    // modelo genérico de remoção de fundo por uma segmentação com prompt de
+    // texto que já exclui lente e haste, resolvendo os dois problemas juntos.
+    const positionCutout = await extractFrameOnly(positionSigned.signedUrl);
+    const colorReferenceCutout = await extractFrameOnly(colorRefSigned.signedUrl);
     processedBuffer = await buildProcessedFrameImage(positionCutout, colorReferenceCutout);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
