@@ -289,29 +289,14 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
   }
 
-  // Foto de posição do produto (13/09/2026, 2ª rodada — ver migração
-  // 202609130009): escolhida de uma miniatura da galeria geral do anúncio.
-  async function handleImportProductPosition(imageUrl: string) {
-    setBusy(true);
-    setMessage(null);
-    try {
-      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/position-photo`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageUrl })
-      });
-      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-      if (ok) load();
-    } catch (err) {
-      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
-    } finally {
-      setBusy(false);
-    }
-  }
-
   // Envio manual da foto de posição do produto (mesmo padrão do "Trocar
   // foto" por cor: try/finally, arquivo lido de estado capturado no
-  // onChange).
+  // onChange). Pedido do usuário (13/09/2026, 6ª rodada): esta seção passa a
+  // ser SÓ upload manual — a opção de escolher direto da galeria do anúncio
+  // foi removida da tela, já que aquelas fotos vêm cruas (sem recorte) e não
+  // servem mais aqui desde a 4ª rodada (a foto de posição precisa vir
+  // recortada). A rota `.../position-photo` continua aceitando `imageUrl`
+  // no corpo por compatibilidade, mas não é mais chamada por nenhum botão.
   async function handleUploadProductPosition() {
     const file = selectedPositionFile;
     if (!file) { setMessage({ kind: 'error', text: 'Escolha um arquivo antes de clicar em "Salvar foto de posição".' }); return; }
@@ -431,19 +416,6 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <span className="section-label">Foto de posição — já recortada (de frente, fundo e lente transparentes, usada para todas as cores deste modelo)</span>
           <span className="helper">Envie um PNG já recortado por fora do sistema (ex.: Photoshop, remove.bg): fundo e a área da lente transparentes, só a armação visível. Esta foto define a forma final do resultado — a IA só troca a cor, não recorta mais nada.</span>
-          {product.galleryImages.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span className="helper">Fotos da galeria do anúncio (atenção: vêm CRUAS, sem recorte — normalmente é melhor recortar antes e usar o upload manual abaixo):</span>
-              <div className="catalog-gallery-thumbs">
-                {product.galleryImages.map((url) => (
-                  <button key={url} type="button" disabled={busy} onClick={() => handleImportProductPosition(url)} title="Usar esta foto (crua, sem recorte)">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url} alt="Foto do anúncio" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
           <input
             type="file"
             accept="image/png"
