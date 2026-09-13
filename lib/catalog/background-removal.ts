@@ -14,7 +14,20 @@
 
 import Replicate from 'replicate';
 
-const MODEL = '851-labs/background-remover';
+// Chamar `replicate.run('851-labs/background-remover', ...)` SEM versão faz o
+// SDK bater em POST /models/851-labs/background-remover/predictions (o atalho
+// "official models" da API do Replicate) — achado em produção (13/09/2026):
+// esse endpoint devolve 404 pra este modelo específico (ele não está habilitado
+// pra esse atalho, só pro endpoint clássico por versão). A correção é fixar a
+// versão e chamar por ela (`owner/nome:hash`), que o SDK roteia pro endpoint
+// clássico POST /predictions com `version: hash` — sempre funciona pra
+// qualquer modelo público do Replicate.
+//
+// Hash pego em replicate.com/851-labs/background-remover/versions (página
+// pública do modelo) em 13/09/2026. Se o Replicate arquivar essa versão no
+// futuro (o modelo passa a rejeitar esse hash), pegue o hash novo na mesma
+// página e troque só a constante abaixo.
+const MODEL_VERSION = '851-labs/background-remover:a029dff38972b5fda4ec5d75d7d1cd25aeff621d2cf4946a41055d7db66b80bc';
 
 /**
  * Envia a foto original (por URL assinada, temporária) pro modelo de
@@ -28,7 +41,7 @@ export async function removeBackground(imageUrl: string): Promise<Buffer> {
   }
 
   const replicate = new Replicate({ auth: token });
-  const output = await replicate.run(MODEL, { input: { image: imageUrl } });
+  const output = await replicate.run(MODEL_VERSION, { input: { image: imageUrl } });
   const fileUrl = resolveOutputUrl(output);
 
   const response = await fetch(fileUrl);
