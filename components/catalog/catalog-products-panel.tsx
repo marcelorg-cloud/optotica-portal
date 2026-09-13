@@ -57,9 +57,28 @@ export function CatalogProductsPanel() {
   const lensWidthRef = useRef<HTMLInputElement | null>(null);
   const lensHeightRef = useRef<HTMLInputElement | null>(null);
 
+  // Achado em produção (13/09/2026, incidente "painel carregando mas não
+  // abre"): quando a rota `/api/admin/catalog/products` falhava (ex.: a
+  // migração de schema ainda não tinha rodado no Supabase e as colunas novas
+  // não existiam), esta função só chamava `setProducts` no caminho de
+  // sucesso — no de erro, não fazia NADA. Como a tela só sai da tela
+  // "Carregando…" quando `products` deixa de ser `null`, o resultado era a
+  // tela travada em "Carregando…" pra sempre, sem nenhuma mensagem de erro
+  // visível. Agora, em caso de erro, `products` vira `[]` (lista vazia, tira
+  // da tela de carregando) e a mensagem de erro da API aparece no topo.
   function applyLoad([productsRes, suppliersRes]: Awaited<ReturnType<typeof loadPair>>) {
-    if (productsRes.ok) setProducts(productsRes.payload.products);
-    if (suppliersRes.ok) setSuppliers(suppliersRes.payload.suppliers.filter((s: Supplier) => s.status === 'liberado'));
+    if (productsRes.ok) {
+      setProducts(productsRes.payload.products);
+    } else {
+      setProducts([]);
+      setMessage({ kind: 'error', text: productsRes.payload.message || 'Não foi possível carregar o catálogo de produtos.' });
+    }
+    if (suppliersRes.ok) {
+      setSuppliers(suppliersRes.payload.suppliers.filter((s: Supplier) => s.status === 'liberado'));
+    } else if (productsRes.ok) {
+      // Só mostra este erro se o de produtos (mais importante) não já apareceu.
+      setMessage({ kind: 'error', text: suppliersRes.payload.message || 'Não foi possível carregar os fornecedores.' });
+    }
   }
 
   function loadPair() {
@@ -74,7 +93,10 @@ export function CatalogProductsPanel() {
   }
 
   useEffect(() => {
-    loadPair().then(applyLoad);
+    loadPair().then(applyLoad).catch((err) => {
+      setProducts([]);
+      setMessage({ kind: 'error', text: `Falha de conexão ao carregar o catálogo${err instanceof Error ? `: ${err.message}` : ''}.` });
+    });
   }, []);
 
   async function handleNewSupplier(event: React.FormEvent<HTMLFormElement>) {
