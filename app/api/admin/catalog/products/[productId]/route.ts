@@ -21,6 +21,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
     .eq('product_id', productId)
     .order('color_name', { ascending: true });
 
+  // Galeria geral de fotos do anúncio (por produto, não por cor) — usada
+  // pelo seletor de miniaturas em "Trocar foto" (ver migração
+  // 202609130006). Ordenada pela posição original no anúncio.
+  const { data: gallery } = await auth.admin
+    .from('catalog_product_gallery_images')
+    .select('image_url')
+    .eq('product_id', productId)
+    .order('position', { ascending: true });
+
   const withUrls = await Promise.all((images || []).map(async (image) => {
     const [original, processed] = await Promise.all([
       image.original_image_path ? auth.admin.storage.from('catalog-product-photos').createSignedUrl(image.original_image_path, 3600) : Promise.resolve({ data: null }),
@@ -54,7 +63,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       status: product.status,
       supplierName: supplier?.name || null,
       supplierStoreId: supplier?.store_id || null,
-      createdAt: product.created_at
+      createdAt: product.created_at,
+      galleryImages: (gallery || []).map((g) => g.image_url)
     },
     colorImages: withUrls
   });
