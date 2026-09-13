@@ -786,7 +786,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
 
                 {color.displayImages.length > 0 && (
                   <div className="catalog-color-section">
-                    <span className="section-label">Fotos de exibição desta cor ({color.displayImages.length}/4) — a 1ª é sempre a tratada; as demais são sugeridas automaticamente da galeria do anúncio por semelhança de cor ao processar</span>
+                    <span className="section-label">Fotos de exibição desta cor ({color.displayImages.length}/4) — a 1ª é sempre a tratada; as demais são recortadas automaticamente pela IA a partir da galeria do anúncio ao processar</span>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       {color.displayImages.map((img) => (
                         <div key={img.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
@@ -796,7 +796,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                           ) : (
                             <span style={{ width: 64, height: 64 }} />
                           )}
-                          <span className="muted" style={{ fontSize: 10 }}>{img.position === 1 ? 'tratada' : 'sugerida'}</span>
+                          <span className="muted" style={{ fontSize: 10 }}>{img.position === 1 ? 'tratada' : 'recortada por IA'}</span>
                           {img.position !== 1 && (
                             <button className="text-button danger" type="button" disabled={busy} style={{ fontSize: 11 }} onClick={() => handleRemoveDisplayImage(color.id, img.position)}>
                               Remover

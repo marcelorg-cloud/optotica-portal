@@ -59,7 +59,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
 
     const displayRowsForColor = displayByColor.get(image.id) || [];
     const displayImages = await Promise.all(displayRowsForColor.map(async (row) => {
-      const url = row.source === 'processada' && row.image_path
+      // 'processada' e 'aliexpress_recortada' (13/09/2026, migração
+      // 202609131300) moram no Storage (`image_path`, precisa de URL
+      // assinada); só 'aliexpress' (fotos gerais ainda não recortadas,
+      // caso legado) usa `image_url` direto.
+      const url = row.image_path
         ? (await auth.admin.storage.from('catalog-product-photos').createSignedUrl(row.image_path, 3600)).data?.signedUrl || null
         : row.image_url;
       return { id: row.id, position: row.position, source: row.source, url };

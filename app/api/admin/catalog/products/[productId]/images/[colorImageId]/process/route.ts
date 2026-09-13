@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { requireMaster } from '@/lib/catalog/require-master';
 import { recolorFrameWithReference } from '@/lib/catalog/frame-colorize';
-import { fetchSwatch, pickMatchingGalleryPhotos } from '@/lib/catalog/color-swatch';
+import { fetchSwatch, swatchFromBuffer, colorDistance, pickMatchingGalleryPhotos, MAX_MATCH_DISTANCE } from '@/lib/catalog/color-swatch';
+import { cropGalleryPhotoForColor } from '@/lib/catalog/gallery-photo-crop';
 
 const BUCKET = 'catalog-product-photos';
 
@@ -154,19 +155,37 @@ export async function POST(
 
   // Fotos de exibição por cor (13/09/2026, pedido do usuário: "deve
   // acrescentar até mais 3 fotos da mesma cor do produto"; migração
-  // 202609131200): a posição 1 é sempre a foto recém processada acima; as
-  // posições 2-4, quando existirem fotos gerais do anúncio parecidas o
-  // bastante em cor com a referência desta cor (ver lib/catalog/
-  // color-swatch.ts), são preenchidas automaticamente. Tudo aqui é só
-  // SUGESTÃO — nunca falha o processamento principal (que já terminou com
-  // sucesso acima) — e o master pode remover uma foto errada na tela do
-  // produto.
+  // 202609131200) — 2ª rodada no mesmo dia (migração 202609131300, "vao ser
+  // dois prompts diferente pra IA... para o catalogo de fotos a IA tem que
+  // identificar a cor... recortar a parte só da cor certa, gerar as
+  // sugestoes recortadas"): a posição 1 é sempre a foto recém processada
+  // acima; as posições 2-4, quando existirem fotos gerais do anúncio
+  // parecidas o bastante em cor, são recortadas pela IA (lib/catalog/
+  // gallery-photo-crop.ts) e viram fotos novas, só da armação. Passo a
+  // passo, pra ficar rápido e barato:
+  // 1) pré-filtro DETERMINÍSTICO (lib/catalog/color-swatch.ts, sem custo
+  //    nenhum de IA) escolhe até 3 fotos gerais candidatas por semelhança de
+  //    cor média — evita gastar chamada de IA em fotos claramente de outra
+  //    cor;
+  // 2) só as candidatas passam pela IA (uma de cada vez, NUNCA em
+  //    paralelo — esta conta do Replicate só aceita uma chamada por vez,
+  //    ver nota em frame-colorize.ts), que recorta a armação;
+  // 3) o resultado da IA passa de novo pelo mesmo teste de cor (agora no
+  //    recorte, não na foto crua) — só é salvo se ainda bater com a
+  //    referência, descartando qualquer recorte que a IA tenha feito errado.
+  // Um orçamento de tempo (35s) interrompe as tentativas mais cedo se
+  // estiver demorando, pra não estourar o limite da função (maxDuration
+  // acima) — o que já tiver sido salvo até lá fica valendo, o resto só fica
+  // sem sugestão (tudo aqui é sugestão, nunca falha o processamento
+  // principal, que já terminou com sucesso logo acima).
+  const GALLERY_STEP_BUDGET_MS = 35000;
+  const galleryStepStartedAt = Date.now();
   let galleryMatchWarning: string | null = null;
   try {
     const { error: position1Error } = await auth.admin
       .from('catalog_product_color_display_images')
       .upsert(
-        { color_image_id: colorImageId, position: 1, source: 'processada', image_path: processedPath, image_url: null },
+        { color_image_id: colorImageId, position: 1, source: 'processada', image_path: processedPath, image_url: null, source_gallery_url: null },
         { onConflict: 'color_image_id,position' }
       );
     if (position1Error) throw new Error(position1Error.message);
@@ -187,21 +206,50 @@ export async function POST(
       const { data: claimedRows } = colorIds.length
         ? await auth.admin
             .from('catalog_product_color_display_images')
-            .select('image_url')
+            .select('image_url, source_gallery_url')
             .in('color_image_id', colorIds)
-            .eq('source', 'aliexpress')
-        : { data: [] as { image_url: string | null }[] };
-      const claimedUrls = new Set((claimedRows || []).map((c) => c.image_url).filter((u): u is string => Boolean(u)));
+            .in('source', ['aliexpress', 'aliexpress_recortada'])
+        : { data: [] as { image_url: string | null; source_gallery_url: string | null }[] };
+      const claimedUrls = new Set(
+        (claimedRows || []).flatMap((c) => [c.image_url, c.source_gallery_url]).filter((u): u is string => Boolean(u))
+      );
 
       const referenceSwatch = await fetchSwatch(colorRefSigned.signedUrl);
       if (referenceSwatch) {
-        const matches = await pickMatchingGalleryPhotos(referenceSwatch, galleryUrls, claimedUrls, 3);
+        // Passo 1 — pré-filtro barato, sem IA (ver comentário acima).
+        const candidates = await pickMatchingGalleryPhotos(referenceSwatch, galleryUrls, claimedUrls, 3);
+
+        // Passo 2 — recorte por IA, uma foto de cada vez, com orçamento de
+        // tempo. Passo 3 (checagem de cor do resultado) acontece logo após
+        // cada chamada, antes de decidir salvar.
+        const accepted: { imageUrl: string; buffer: Buffer }[] = [];
+        for (const candidate of candidates) {
+          if (Date.now() - galleryStepStartedAt > GALLERY_STEP_BUDGET_MS) break;
+          try {
+            const croppedBuffer = await cropGalleryPhotoForColor(candidate.imageUrl, colorRefSigned.signedUrl);
+            const croppedSwatch = await swatchFromBuffer(croppedBuffer);
+            if (!croppedSwatch || colorDistance(referenceSwatch, croppedSwatch) > MAX_MATCH_DISTANCE) continue; // IA errou o recorte/cor — descarta.
+            accepted.push({ imageUrl: candidate.imageUrl, buffer: croppedBuffer });
+          } catch (cropErr) {
+            console.error('catalog_gallery_crop_failed', { message: cropErr instanceof Error ? cropErr.message : String(cropErr) });
+          }
+        }
 
         await auth.admin.from('catalog_product_color_display_images').delete().eq('color_image_id', colorImageId).neq('position', 1);
-        if (matches.length) {
-          const rows = matches.map((m, i) => ({ color_image_id: colorImageId, position: i + 2, source: 'aliexpress' as const, image_path: null, image_url: m.imageUrl }));
-          const { error: insertMatchesError } = await auth.admin.from('catalog_product_color_display_images').insert(rows);
-          if (insertMatchesError) galleryMatchWarning = 'Fotos extras não puderam ser salvas — tente processar de novo.';
+        if (accepted.length) {
+          const uploads = await Promise.all(accepted.map(async (a, i) => {
+            const path = `${productId}/display/${colorImageId}-${i + 2}.png`;
+            const { error: uploadDisplayError } = await auth.admin.storage.from(BUCKET).upload(path, a.buffer, { contentType: 'image/png', upsert: true });
+            return uploadDisplayError ? null : { path, sourceUrl: a.imageUrl };
+          }));
+          const rows = uploads
+            .map((u, i) => u && { color_image_id: colorImageId, position: i + 2, source: 'aliexpress_recortada' as const, image_path: u.path, image_url: null, source_gallery_url: u.sourceUrl })
+            .filter((r): r is NonNullable<typeof r> => Boolean(r));
+          if (rows.length) {
+            const { error: insertMatchesError } = await auth.admin.from('catalog_product_color_display_images').insert(rows);
+            if (insertMatchesError) galleryMatchWarning = 'Fotos extras não puderam ser salvas — tente processar de novo.';
+          }
+          if (rows.length < accepted.length) galleryMatchWarning = 'Algumas fotos extras não puderam ser salvas — tente processar de novo.';
         }
       }
     }
