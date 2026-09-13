@@ -10,14 +10,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
 
   const { data: product } = await auth.admin
     .from('catalog_products')
-    .select('id, supplier_id, supplier_item_id, model_name, sku_optotica, lens_width_mm, lens_height_mm, measurement_source, status, created_at, catalog_suppliers(name, store_id)')
+    .select('id, supplier_id, supplier_item_id, model_name, sku_optotica, lens_width_mm, lens_height_mm, measurement_source, status, created_at, position_image_path, catalog_suppliers(name, store_id)')
     .eq('id', productId)
     .maybeSingle();
   if (!product) return NextResponse.json({ message: 'Produto não encontrado.' }, { status: 404 });
 
   const { data: images } = await auth.admin
     .from('catalog_product_color_images')
-    .select('id, color_name, supplier_sku, original_image_path, color_reference_image_path, processed_image_path, status, missing_required_fields, rejection_reason, validated_at, created_at, source_image_url')
+    .select('id, color_name, supplier_sku, original_image_path, processed_image_path, status, missing_required_fields, rejection_reason, validated_at, created_at, source_image_url')
     .eq('product_id', productId)
     .order('color_name', { ascending: true });
 
@@ -31,9 +31,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
     .order('position', { ascending: true });
 
   const withUrls = await Promise.all((images || []).map(async (image) => {
-    const [original, colorReference, processed] = await Promise.all([
+    const [original, processed] = await Promise.all([
       image.original_image_path ? auth.admin.storage.from('catalog-product-photos').createSignedUrl(image.original_image_path, 3600) : Promise.resolve({ data: null }),
-      image.color_reference_image_path ? auth.admin.storage.from('catalog-product-photos').createSignedUrl(image.color_reference_image_path, 3600) : Promise.resolve({ data: null }),
       image.processed_image_path ? auth.admin.storage.from('catalog-product-photos').createSignedUrl(image.processed_image_path, 3600) : Promise.resolve({ data: null })
     ]);
     return {
@@ -45,13 +44,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       rejectionReason: image.rejection_reason,
       validatedAt: image.validated_at,
       originalImageUrl: original.data?.signedUrl || null,
-      colorReferenceImageUrl: colorReference.data?.signedUrl || null,
       processedImageUrl: processed.data?.signedUrl || null,
       hasSourceImageUrl: Boolean(image.source_image_url)
     };
   }));
 
   const supplier = (product as unknown as { catalog_suppliers: { name: string; store_id: string } | null }).catalog_suppliers;
+
+  // Foto de posição (13/09/2026, 2ª rodada — ver migração 202609130009): uma
+  // só por produto, compartilhada por todas as cores.
+  const positionSigned = product.position_image_path
+    ? await auth.admin.storage.from('catalog-product-photos').createSignedUrl(product.position_image_path, 3600)
+    : { data: null };
 
   return NextResponse.json({
     product: {
@@ -66,7 +70,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       supplierName: supplier?.name || null,
       supplierStoreId: supplier?.store_id || null,
       createdAt: product.created_at,
-      galleryImages: (gallery || []).map((g) => g.image_url)
+      galleryImages: (gallery || []).map((g) => g.image_url),
+      positionImageUrl: positionSigned.data?.signedUrl || null
     },
     colorImages: withUrls
   });

@@ -8,7 +8,7 @@ import { requireMaster } from '@/lib/catalog/require-master';
 // pode ser validada até alguém completar os campos que faltam — por isso o
 // action 'validar' checa status atual antes de aceitar.
 
-const ACTIONS = ['validar', 'rejeitar', 'completar', 'trocar_foto', 'definir_referencia_cor'] as const;
+const ACTIONS = ['validar', 'rejeitar', 'completar', 'trocar_foto'] as const;
 type Action = typeof ACTIONS[number];
 
 export async function PATCH(
@@ -103,36 +103,6 @@ export async function PATCH(
       .eq('id', colorImageId);
     if (error) return NextResponse.json({ message: 'Não foi possível trocar a foto.' }, { status: 500 });
     return NextResponse.json({ message: 'Foto trocada — pronta para "Processar com IA" de novo.' });
-  }
-
-  if (action === 'definir_referencia_cor') {
-    // Envio manual da foto de referência de cor (pedido do usuário,
-    // 13/09/2026 — ver migração 202609130008). Independente do status atual
-    // da posição (funciona mesmo em 'incompleto', já que as duas fotos são
-    // escolhidas em paralelo) — mas invalida qualquer processamento/
-    // validação anterior, porque a cor final depende desta foto.
-    const colorReferenceImagePath = typeof body?.colorReferenceImagePath === 'string' ? body.colorReferenceImagePath : '';
-    if (!colorReferenceImagePath || !colorReferenceImagePath.startsWith(`${productId}/`)) {
-      return NextResponse.json({ message: 'Envio inválido.' }, { status: 400 });
-    }
-    const { error: signError } = await auth.admin.storage.from('catalog-product-photos').createSignedUrl(colorReferenceImagePath, 60);
-    if (signError) return NextResponse.json({ message: 'Não encontramos a foto enviada. Tente enviar de novo.' }, { status: 400 });
-
-    const patch: Record<string, unknown> = {
-      color_reference_image_path: colorReferenceImagePath,
-      processed_image_path: null,
-      processed_at: null,
-      validated_by: null,
-      validated_at: null,
-      rejection_reason: null,
-      updated_at: now
-    };
-    if (image.status === 'validada' || image.status === 'rejeitada') {
-      patch.status = 'pendente';
-    }
-    const { error } = await auth.admin.from('catalog_product_color_images').update(patch).eq('id', colorImageId);
-    if (error) return NextResponse.json({ message: 'Não foi possível salvar a referência de cor.' }, { status: 500 });
-    return NextResponse.json({ message: 'Referência de cor salva — pronta para "Processar com IA".' });
   }
 
   if (image.status === 'incompleto') {
