@@ -100,7 +100,15 @@ export async function POST(
     if (configMissing) {
       message = 'Configure REPLICATE_API_TOKEN na Vercel antes de processar imagens.';
     } else if (rateLimited) {
-      message = 'O Replicate limitou as requisições por enquanto (conta com pouco crédito tem um limite bem baixo). Espere um minuto e tente de novo — se continuar, considere comprar mais crédito em replicate.com/account/billing.';
+      // O texto da mensagem agora inclui `detail` (achado em produção,
+      // 13/09/2026): antes essa mensagem era sempre o mesmo texto fixo, então
+      // não dava pra saber se um segundo 429 era a MESMA causa (conta ainda
+      // com crédito reduzido) ou uma causa DIFERENTE (ex.: token de uma conta
+      // errada, ou um 429 comum de limite por minuto sem relação com
+      // crédito) — o usuário reportou o mesmo aviso mesmo depois de comprar
+      // US$10 de crédito e esperar 10 minutos (bem mais que os 5 minutos que
+      // o próprio Replicate diz levar pra propagar).
+      message = `O Replicate limitou as requisições (${detail}). Espere um minuto e tente de novo — se continuar mesmo com crédito na conta, considere comprar mais em replicate.com/account/billing.`;
     } else {
       message = `Falha ao processar a imagem: ${detail}. Tente novamente — se persistir, tente trocar a foto de posição do produto ou a foto desta cor.`;
     }
