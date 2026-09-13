@@ -50,6 +50,10 @@ type ColorImage = {
   colorPrincipal: string | null;
   colorSecondary: string | null;
   supplierColorName: string | null;
+  // Tabela global de cores (14/09/2026, migração 202609140100) — só
+  // preenchida quando esta cor é uma variação de verdade (ex.: "fosco") de
+  // uma combinação já existente na tabela global.
+  colorNote: string | null;
   variantSku: string | null;
   // Fotos de exibição por cor (13/09/2026, migração 202609131200; formato
   // atual desde 202609131400): até 4, recortadas pela IA a partir das fotos
@@ -65,7 +69,9 @@ const COLOR_STATUS_LABEL: Record<string, string> = { incompleto: 'Incompleto —
 async function fetchJson(url: string, init?: RequestInit) {
   const response = await fetch(url, init);
   const payload = await response.json().catch(() => ({}));
-  return { ok: response.ok, payload };
+  // `status` (14/09/2026) — precisa pra distinguir "já existe" (409, tabela
+  // global de cores) de outras falhas na importação em lote do AliExpress.
+  return { ok: response.ok, status: response.status, payload };
 }
 
 async function uploadPhoto(productId: string, file: File): Promise<{ ok: true; path: string } | { ok: false; message: string }> {
@@ -224,6 +230,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       const form = new FormData(event.currentTarget);
       const colorPrincipal = String(form.get('colorPrincipal') || '');
       const colorSecondary = String(form.get('colorSecondary') || '') || undefined;
+      const colorNote = String(form.get('colorNote') || '') || undefined;
       const supplierColorName = String(form.get('supplierColorName') || '') || undefined;
       const supplierSku = String(form.get('supplierSku') || '') || undefined;
       const file = newColorFileRef.current;
@@ -238,7 +245,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ colorPrincipal, colorSecondary, supplierColorName, supplierSku, originalImagePath })
+        body: JSON.stringify({ colorPrincipal, colorSecondary, colorNote, supplierColorName, supplierSku, originalImagePath })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
       if (ok) { event.currentTarget.reset(); newColorFileRef.current = null; setShowNewColor(false); load(); }
@@ -256,12 +263,22 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       // Padrão de SKU/cor (13/09/2026): o nome não é mais digitado, então
       // "já cadastrada aqui" não pode mais comparar por nome — compara pelo
       // SKU do fornecedor (o identificador estável que realmente veio do
-      // anúncio) quando disponível; sem SKU, não há como saber com certeza,
-      // então entra pré-marcada para importar (o master decide na hora).
+      // anúncio) quando disponível.
+      //
+      // Tabela global de cores (14/09/2026, depois do bug real — mesmo
+      // modelo ganhou duas cores "Tartaruga" ao reimportar): agora TAMBÉM
+      // compara pela cor principal já usada neste produto (sem cor
+      // secundária) — é só uma pré-marcação (a rota de criação é quem
+      // garante de verdade que não duplica, rejeitando com 409 se a mesma
+      // combinação já existir), mas evita já entrar marcada pra importar de
+      // novo uma cor que, visivelmente, é a mesma.
       const existingSkus = new Set((colors || []).map((c) => (c.supplierSku || '').trim().toLowerCase()).filter(Boolean));
+      const existingPrincipals = new Set((colors || []).filter((c) => !c.colorSecondary).map((c) => (c.colorPrincipal || '').trim().toLowerCase()).filter(Boolean));
       const withInclude = parsed.colors.map((c) => {
-        const alreadyExists = Boolean(c.supplierSku) && existingSkus.has(c.supplierSku!.trim().toLowerCase());
-        return { ...c, alreadyExists, include: !alreadyExists, colorPrincipal: c.suggestedPrincipalColor || '' };
+        const suggested = c.suggestedPrincipalColor || '';
+        const alreadyExists = (Boolean(c.supplierSku) && existingSkus.has(c.supplierSku!.trim().toLowerCase()))
+          || (Boolean(suggested) && existingPrincipals.has(suggested.trim().toLowerCase()));
+        return { ...c, alreadyExists, include: !alreadyExists, colorPrincipal: suggested };
       });
       setImportColors(withInclude);
       setImportGalleryUrls(parsed.galleryImageUrls);
@@ -287,6 +304,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     try {
       const toCreate = importColors.filter((c) => c.include && c.colorPrincipal);
       let successCount = 0;
+      let duplicateCount = 0;
       let failCount = 0;
       for (const color of toCreate) {
         const res = await fetchJson(`/api/admin/catalog/products/${productId}/images`, {
@@ -295,6 +313,10 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
           body: JSON.stringify({ colorPrincipal: color.colorPrincipal, supplierColorName: color.supplierColorName || undefined, supplierSku: color.supplierSku || undefined, sourceImageUrl: color.sourceImageUrl || undefined })
         });
         if (res.ok) successCount += 1;
+        // 409 = já existe uma cor com esta combinação neste produto (tabela
+        // global de cores, 14/09/2026) — não é bem uma "falha", é o
+        // comportamento esperado pra evitar duplicar.
+        else if (res.status === 409) duplicateCount += 1;
         else failCount += 1;
       }
 
@@ -309,7 +331,12 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       }
 
       const parts: string[] = [];
-      if (toCreate.length) parts.push(`${successCount} cor(es) criada(s)${failCount ? ` (${failCount} falharam — tente novamente)` : ''}.`);
+      if (toCreate.length) {
+        const extras: string[] = [];
+        if (duplicateCount) extras.push(`${duplicateCount} já existia(m) neste produto, não recriada(s)`);
+        if (failCount) extras.push(`${failCount} falharam — tente novamente`);
+        parts.push(`${successCount} cor(es) criada(s)${extras.length ? ` (${extras.join('; ')})` : ''}.`);
+      }
       if (galleryMessage) parts.push(galleryMessage.trim());
       setMessage({ kind: failCount ? 'error' : 'success', text: parts.join(' ') || 'Nada novo para importar desse JSON.' });
 
@@ -566,6 +593,27 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
   }
 
+  // Remover uma foto de "Todas as fotos do anúncio" (14/09/2026) — pedido do
+  // usuário depois de descobrir que o JSON do AliExpress pode trazer, junto
+  // com as fotos de verdade do produto, banners genéricos e fotos de OUTROS
+  // modelos que a mesma loja vende (embutidos na própria descrição do
+  // anúncio) — não dá pra saber isso de antemão, então o jeito é o master
+  // apagar na mão o que não serve depois de ver na tela.
+  async function handleRemoveGalleryPhoto(galleryImageId: string) {
+    if (!confirm('Remover esta foto da galeria deste produto? Isso não pode ser desfeito.')) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/gallery/${galleryImageId}`, { method: 'DELETE' });
+      if (!ok) setMessage({ kind: 'error', text: payload.message || 'Não foi possível remover esta foto.' });
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!product || !colors) return <p className="muted">{message?.text || 'Carregando…'}</p>;
 
   return (
@@ -672,6 +720,18 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
               <div key={photo.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: 108 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={photo.url} alt="Foto do anúncio" style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 4 }} />
+                {/* "Remover" (14/09/2026): pro caso de o JSON do AliExpress ter
+                    trazido junto algo que não é foto deste produto (banner da
+                    loja, foto de outro modelo embutida na descrição do
+                    anúncio) — apaga só esta foto da galeria deste produto. */}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => handleRemoveGalleryPhoto(photo.id)}
+                  style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, border: '1px solid #c33', background: '#fff', color: '#c33', cursor: 'pointer' }}
+                >
+                  Remover
+                </button>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center' }}>
                   {colors.map((color) => {
                     const marked = photo.colorImageIds.includes(color.id);
@@ -798,9 +858,19 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
             </label>
             <label>Cor original do fornecedor (opcional, só rastreabilidade interna)<input name="supplierColorName" /></label>
             <label>SKU do fornecedor (opcional)<input name="supplierSku" /></label>
+            {/* Tabela global de cores (14/09/2026): C1, C2... agora é o
+                mesmo número em qualquer modelo — este produto NÃO pode ter
+                duas cores com a mesma combinação principal/secundária.
+                "Observação da cor" só deve ser preenchida quando esta cor é
+                uma variação de verdade da mesma combinação (ex.: "fosco"),
+                pra virar um C-número novo em vez de ser barrada como
+                repetida. */}
+            <label>Observação da cor (opcional — só se for uma variação diferente da mesma cor, ex.: &quot;fosco&quot;)<input name="colorNote" placeholder="deixe em branco na maioria das vezes" /></label>
           </div>
           <p className="helper" style={{ margin: 0 }}>
-            O nome desta cor (ex.: &quot;{product.modelName} - Cor N&quot;) e o SKU da variante são gerados automaticamente.
+            O número da cor (C1, C2...) vem de uma tabela global — a mesma cor principal/secundária sempre usa o mesmo
+            número, em qualquer modelo. O nome desta cor (ex.: &quot;{product.modelName} - Cor N&quot;) e o SKU da
+            variante são gerados automaticamente.
           </p>
           <label>Foto real da armação nessa cor (opcional agora — sem foto, a cor entra como &quot;incompleto&quot;)
             <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => { newColorFileRef.current = e.target.files?.[0] || null; }} />
@@ -826,7 +896,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
               <div className="catalog-color-body">
                 <div className="name">
                   <span className="catalog-swatch" style={{ background: colorSwatchBackground(color.colorPrincipal, color.colorSecondary) }} />
-                  {color.colorVariantNumber ? `Cor ${color.colorVariantNumber} — ${color.colorPrincipal}${color.colorSecondary ? ` / ${color.colorSecondary}` : ''}` : color.colorName}
+                  {color.colorVariantNumber ? `Cor ${color.colorVariantNumber} — ${color.colorPrincipal}${color.colorSecondary ? ` / ${color.colorSecondary}` : ''}${color.colorNote ? ` (${color.colorNote})` : ''}` : color.colorName}
                 </div>
                 {color.variantSku && <span className="muted" style={{ fontSize: 11 }}>SKU {color.variantSku}</span>}
                 {color.supplierColorName && <span className="muted" style={{ fontSize: 11 }}>Cor original do fornecedor: {color.supplierColorName}</span>}
