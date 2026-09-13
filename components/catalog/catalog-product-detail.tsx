@@ -146,6 +146,12 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const positionFileInput = useRef<HTMLInputElement | null>(null);
   const [selectedPositionFile, setSelectedPositionFile] = useState<File | null>(null);
 
+  // Seleção múltipla em "Todas as fotos do anúncio" (14/09/2026, pedido do
+  // usuário: "quando for pra remover se a gente pudesse selecionar vários e
+  // remover tudo de uma vez, fica mais prático") — junto com o "Remover"
+  // individual de cada foto (continua existindo, útil pra tirar só uma).
+  const [selectedGalleryIds, setSelectedGalleryIds] = useState<Set<string>>(new Set());
+
   function applyLoad({ ok, payload }: Awaited<ReturnType<typeof fetchJson>>) {
     if (ok) { setProduct(payload.product); setColors(payload.colorImages); }
     else setMessage({ kind: 'error', text: payload.message || 'Produto não encontrado.' });
@@ -260,6 +266,32 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     setImportParseMessage(null);
     try {
       const parsed = parseAliexpressJson(aliexpressImportText);
+
+      // Checagem de segurança (14/09/2026, pedido do usuário depois de um
+      // incidente real: colou aqui o JSON de um Product ID diferente do
+      // deste cadastro, trazendo cores e fotos de OUTRO produto AliExpress
+      // pra este). Compara o itemId que veio no JSON com o Product ID já
+      // registrado neste produto — só bloqueia quando os dois já estão
+      // preenchidos e são diferentes; um produto sem Product ID ainda (por
+      // exemplo, cadastrado à mão, sem nunca ter colado um JSON) aceita
+      // normalmente, já que aí é a primeira vez que ele é preenchido.
+      if (parsed.supplierItemId && product?.supplierItemId && parsed.supplierItemId !== product.supplierItemId) {
+        const confirmed = confirm(
+          `ATENÇÃO: este JSON é do Product ID ${parsed.supplierItemId} da AliExpress, mas este cadastro é do ` +
+          `Product ID ${product.supplierItemId} (${product.modelName}).\n\n` +
+          `Colar mesmo assim vai trazer cores e fotos de um produto DIFERENTE pra cá. Tem certeza que quer continuar?`
+        );
+        if (!confirmed) {
+          setImportColors([]);
+          setImportGalleryUrls([]);
+          setImportParseMessage({
+            kind: 'error',
+            text: `JSON não aplicado — é do Product ID ${parsed.supplierItemId}, não deste produto (${product.supplierItemId}).`
+          });
+          return;
+        }
+      }
+
       // Padrão de SKU/cor (13/09/2026): o nome não é mais digitado, então
       // "já cadastrada aqui" não pode mais comparar por nome — compara pelo
       // SKU do fornecedor (o identificador estável que realmente veio do
@@ -614,6 +646,44 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
   }
 
+  function toggleGallerySelection(galleryImageId: string) {
+    setSelectedGalleryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(galleryImageId)) next.delete(galleryImageId);
+      else next.add(galleryImageId);
+      return next;
+    });
+  }
+
+  // Remover em lote (14/09/2026, pedido do usuário) — chama a mesma rota de
+  // remoção individual uma vez por foto selecionada, uma de cada vez (só
+  // apagar linha no banco, sem chamada de IA nenhuma envolvida — não tem o
+  // limite de "uma por vez" do Replicate aqui, mas sequencial evita
+  // qualquer corrida entre remoções).
+  async function handleRemoveSelectedGalleryPhotos() {
+    const ids = Array.from(selectedGalleryIds);
+    if (!ids.length) return;
+    if (!confirm(`Remover ${ids.length} foto(s) selecionada(s) da galeria deste produto? Isso não pode ser desfeito.`)) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      let removed = 0;
+      let failed = 0;
+      for (const id of ids) {
+        const { ok } = await fetchJson(`/api/admin/catalog/products/${productId}/gallery/${id}`, { method: 'DELETE' });
+        if (ok) removed += 1;
+        else failed += 1;
+      }
+      setMessage({ kind: failed ? 'error' : 'success', text: `${removed} foto(s) removida(s).${failed ? ` ${failed} falharam — tente de novo.` : ''}` });
+      setSelectedGalleryIds(new Set());
+      load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!product || !colors) return <p className="muted">{message?.text || 'Carregando…'}</p>;
 
   return (
@@ -715,11 +785,36 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
             Clique nas bolinhas de cor abaixo de cada foto para marcar/desmarcar. Ao processar uma cor com IA, ela recorta
             só as fotos marcadas para aquela cor.
           </p>
+          {/* Remoção em lote (14/09/2026, pedido do usuário: "selecionar vários
+              e remover tudo de uma vez") — marca a caixinha de cada foto que
+              não serve (banner, foto de outro modelo) e remove todas juntas;
+              o "Remover" de cada foto continua existindo, pra tirar só uma. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <button
+              type="button"
+              className="button secondary small"
+              disabled={busy || !selectedGalleryIds.size}
+              onClick={handleRemoveSelectedGalleryPhotos}
+            >
+              Remover selecionadas ({selectedGalleryIds.size})
+            </button>
+            {selectedGalleryIds.size > 0 && (
+              <button type="button" className="button secondary small" disabled={busy} onClick={() => setSelectedGalleryIds(new Set())}>
+                Limpar seleção
+              </button>
+            )}
+          </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14 }}>
-            {product.galleryPhotos.map((photo) => (
+            {product.galleryPhotos.map((photo) => {
+              const selected = selectedGalleryIds.has(photo.id);
+              return (
               <div key={photo.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: 108 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={selected} disabled={busy} onChange={() => toggleGallerySelection(photo.id)} />
+                  selecionar
+                </label>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={photo.url} alt="Foto do anúncio" style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 4 }} />
+                <img src={photo.url} alt="Foto do anúncio" style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 4, outline: selected ? '3px solid #0af' : 'none' }} />
                 {/* "Remover" (14/09/2026): pro caso de o JSON do AliExpress ter
                     trazido junto algo que não é foto deste produto (banner da
                     loja, foto de outro modelo embutida na descrição do
@@ -741,11 +836,17 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                       : color.colorName;
                     // Bolinha colorida de acordo com a cor de verdade da variante
                     // (pedido do usuário, 13/09/2026: "colorir cada checkbox de
-                    // cor de acordo com a cor correspondente") — marcada = bolinha
-                    // preenchida com a cor (bicolor vira meio a meio); desmarcada =
-                    // só o contorno na cor, fundo branco. O "✓" garante que dá pra
-                    // ver que está marcada mesmo em cores muito claras (branco,
-                    // cristal etc.), onde o preenchimento sozinho quase não aparece.
+                    // cor de acordo com a cor correspondente"). Atualizado em
+                    // 14/09/2026 (pedido do usuário: "as bolinhas de cores serem
+                    // preenchidas com a cor e escrever o código da cor em branco
+                    // dentro, ficaria mais fácil de visualizar") — agora SEMPRE
+                    // preenchida com a cor de verdade (bicolor vira meio a meio),
+                    // marcada ou não, pra dar pra ver a cor de cada uma batendo o
+                    // olho. O texto ("C1" etc.) é branco ou escuro dependendo de a
+                    // cor ser clara ou não (nunca sempre branco — em "Branco"/
+                    // "Cristal" o texto branco ficaria ilegível). O que distingue
+                    // marcada de desmarcada agora é a borda (grossa e escura
+                    // quando marcada) e o "✓".
                     const solidHex = colorSwatchSolidHex(color.colorPrincipal);
                     const isLight = colorSwatchIsLight(color.colorPrincipal);
                     return (
@@ -760,9 +861,9 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                           lineHeight: 1,
                           padding: '4px 6px',
                           borderRadius: 999,
-                          border: `2px solid ${solidHex}`,
-                          background: marked ? colorSwatchBackground(color.colorPrincipal, color.colorSecondary) : '#fff',
-                          color: marked ? (isLight ? '#222' : '#fff') : solidHex,
+                          border: marked ? '2px solid #222' : `1px solid ${solidHex}`,
+                          background: colorSwatchBackground(color.colorPrincipal, color.colorSecondary),
+                          color: isLight ? '#222' : '#fff',
                           cursor: 'pointer',
                           fontWeight: 700
                         }}
@@ -773,7 +874,8 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                   })}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
