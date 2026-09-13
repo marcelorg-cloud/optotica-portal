@@ -11,6 +11,13 @@ import { requireMaster } from '@/lib/catalog/require-master';
 //
 // Sem foto (originalImagePath vazio): entra como 'incompleto', mesma regra
 // da migração — não passa pelo pipeline de IA até alguém completar.
+//
+// `sourceImageUrl` (13/09/2026, "colar JSON do AliExpress" na criação do
+// produto): grava `source_image_url` — a mesma coluna que antes só era
+// preenchida à mão via SQL (ver supabase/data/202609120005_...). Com ela
+// já preenchida na criação, o botão "Importar do AliExpress" (que já existia
+// pra completar cores 'incompleto') já funciona de primeira, sem precisar
+// de nenhuma migração nova.
 
 export async function POST(request: Request, { params }: { params: Promise<{ productId: string }> }) {
   const { productId } = await params;
@@ -24,6 +31,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
   const colorName = typeof body?.colorName === 'string' ? body.colorName.trim().slice(0, 80) : '';
   const supplierSku = typeof body?.supplierSku === 'string' ? body.supplierSku.trim().slice(0, 80) || null : null;
   const originalImagePath = typeof body?.originalImagePath === 'string' ? body.originalImagePath : '';
+  const sourceImageUrl = typeof body?.sourceImageUrl === 'string' && /^https:\/\//.test(body.sourceImageUrl) ? body.sourceImageUrl.slice(0, 2000) : null;
 
   if (!colorName) return NextResponse.json({ message: 'Informe o nome da cor.' }, { status: 400 });
 
@@ -43,6 +51,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
       color_name: colorName,
       supplier_sku: supplierSku,
       original_image_path: originalImagePath || null,
+      source_image_url: sourceImageUrl,
       status: originalImagePath ? 'pendente' : 'incompleto',
       missing_required_fields: originalImagePath ? [] : ['foto_real_por_cor']
     })
