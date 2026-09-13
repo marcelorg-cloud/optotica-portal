@@ -65,8 +65,19 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const [product, setProduct] = useState<Product | null>(null);
   const [colors, setColors] = useState<ColorImage[] | null>(null);
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const messageRef = useRef<HTMLParagraphElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [showNewColor, setShowNewColor] = useState(false);
+
+  // A mensagem de sucesso/erro fica perto do topo da página — mas as ações
+  // por cor (Trocar foto, Processar com IA etc.) ficam mais abaixo, na
+  // grade de cores. Sem isso, um clique num card lá embaixo produz uma
+  // mensagem que aparece fora da tela, dando a impressão de "não fez nada"
+  // (achado em produção, 13/09/2026: usuário reportou "clico em Trocar foto
+  // e não muda nada" mesmo depois da mensagem já estar aparecendo).
+  useEffect(() => {
+    if (message) messageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [message]);
   const newColorFileRef = useRef<File | null>(null);
   const fixFileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   const replaceFileInputs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -246,7 +257,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         </div>
       </div>
 
-      {message && <p className={`form-message ${message.kind}`}>{message.text}</p>}
+      {message && <p ref={messageRef} className={`form-message ${message.kind}`}>{message.text}</p>}
 
       <form className="card" style={{ padding: 20, marginBottom: 20 }} onSubmit={handleSaveProduct}>
         <div className="form-grid">
