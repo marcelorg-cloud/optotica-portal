@@ -1,7 +1,11 @@
 // Geometria da prova online (mecanismo confirmado 11/09/2026 — ver seção 0.29
 // do estado consolidado): mesma "regra de três" da Ui! Gafas/Codecia_Provaonline,
-// só que a largura real da armação vem de um campo estruturado
-// (catalog_products.lens_width_mm) em vez de escondida no nome do arquivo.
+// só que a largura real da armação vem de um campo estruturado do banco em
+// vez de escondida no nome do arquivo — hoje `catalog_products.
+// frame_total_width_mm` ("Frente Total", quando o master já preencheu, mais
+// precisa) com fallback pra `lens_width_mm` (13/09/2026, 8ª rodada); essa
+// função em si só recebe `frameWidthMm` já resolvido por quem chama, não
+// sabe de onde ele veio.
 //
 // Puro/sem DOM e sem Node — roda igual no navegador (preview ao vivo, canvas)
 // e no servidor (composição final via `sharp`, rota /api/client/tryon/compose).

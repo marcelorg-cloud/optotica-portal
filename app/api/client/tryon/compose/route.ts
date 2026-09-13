@@ -9,7 +9,7 @@ const CATALOG_BUCKET = 'catalog-product-photos';
 type ColorRow = {
   processed_image_path: string | null;
   status: string;
-  catalog_products: { id: string; lens_width_mm: number | null; status: string } | null;
+  catalog_products: { id: string; lens_width_mm: number | null; frame_total_width_mm: number | null; status: string } | null;
 };
 
 function isPoint(value: unknown): value is Point {
@@ -56,13 +56,21 @@ export async function POST(request: Request) {
 
   const { data: color } = await admin
     .from('catalog_product_color_images')
-    .select('processed_image_path, status, catalog_products!inner(id, lens_width_mm, status)')
+    .select('processed_image_path, status, catalog_products!inner(id, lens_width_mm, frame_total_width_mm, status)')
     .eq('product_id', productId)
     .eq('color_name', colorName)
     .maybeSingle();
   const row = color as unknown as ColorRow | null;
   const product = row?.catalog_products;
-  if (!row || row.status !== 'validada' || !row.processed_image_path || !product || product.status !== 'publicado' || !product.lens_width_mm) {
+  // Largura real da armação pra escalar na foto (13/09/2026, 8ª rodada,
+  // pedido do usuário): passa a preferir `frame_total_width_mm` ("Frente
+  // Total" — medida de ponta a ponta da armação, mais precisa pra prova
+  // online do que só a largura da lente) quando o master já preencheu esse
+  // campo (opcional, migração 202609130010); cai pra `lens_width_mm` quando
+  // ainda não foi preenchido, pra não quebrar a prova online de produtos já
+  // publicados antes dessa medida existir.
+  const frameWidthMm = product?.frame_total_width_mm || product?.lens_width_mm || null;
+  if (!row || row.status !== 'validada' || !row.processed_image_path || !product || product.status !== 'publicado' || !frameWidthMm) {
     return NextResponse.json({ message: 'Esta armação não está disponível para prova.' }, { status: 404 });
   }
 
@@ -94,7 +102,7 @@ export async function POST(request: Request) {
       pupilA: { x: pupilA.x * scale, y: pupilA.y * scale },
       pupilB: { x: pupilB.x * scale, y: pupilB.y * scale },
       dnpTotalMm: Number(client.dnp_od) + Number(client.dnp_oe),
-      frameWidthMm: Number(product.lens_width_mm),
+      frameWidthMm: Number(frameWidthMm),
       frameAspectRatio
     });
     if (!geometry) return NextResponse.json({ message: 'Não foi possível calcular o encaixe da armação.' }, { status: 422 });

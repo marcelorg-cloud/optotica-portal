@@ -19,7 +19,7 @@ type CatalogColorRow = {
   id: string;
   color_name: string;
   processed_image_path: string | null;
-  catalog_products: { id: string; model_name: string; lens_width_mm: number | null } | null;
+  catalog_products: { id: string; model_name: string; lens_width_mm: number | null; frame_total_width_mm: number | null } | null;
 };
 
 type QuoteRow = { id: string; total: number; quote_items: { description: string }[] | null };
@@ -81,7 +81,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     admin.from('frames').select('id, name, metadata').is('organization_id', null).eq('active', true).order('name'),
     admin
       .from('catalog_product_color_images')
-      .select('id, color_name, processed_image_path, catalog_products!inner(id, model_name, lens_width_mm, status)')
+      .select('id, color_name, processed_image_path, catalog_products!inner(id, model_name, lens_width_mm, frame_total_width_mm, status)')
       .eq('status', 'validada')
       .not('processed_image_path', 'is', null)
       .eq('catalog_products.status', 'publicado'),
@@ -130,10 +130,18 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
   // (`frames`, usado em "Escolher armação" acima) — só entram aqui cores já
   // validadas manualmente pelo master, com a foto de fundo já removido.
   const catalogColorRows = (catalogColorsData || []) as unknown as CatalogColorRow[];
+  // Largura pra escalar na prova online (13/09/2026, 8ª rodada, pedido do
+  // usuário): prefere `frame_total_width_mm` ("Frente Total" — medida de
+  // ponta a ponta da armação, mais precisa — campo novo e opcional, migração
+  // 202609130010) quando o master já preencheu; cai pra `lens_width_mm`
+  // quando ainda não foi preenchido, pra não tirar da prova online nenhum
+  // produto já publicado antes dessa medida existir.
+  const effectiveFrameWidthMm = (product: { lens_width_mm: number | null; frame_total_width_mm: number | null }) =>
+    product.frame_total_width_mm || product.lens_width_mm || null;
   const tryonProducts: TryonProduct[] = (
     await Promise.all(
       catalogColorRows
-        .filter((row) => row.processed_image_path && row.catalog_products?.lens_width_mm)
+        .filter((row) => row.processed_image_path && row.catalog_products && effectiveFrameWidthMm(row.catalog_products))
         .map(async (row) => {
           const { data: signed } = await admin.storage.from(CATALOG_PHOTOS_BUCKET).createSignedUrl(row.processed_image_path!, 3600);
           if (!signed?.signedUrl) return null;
@@ -142,7 +150,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
             productId: row.catalog_products!.id,
             modelName: row.catalog_products!.model_name,
             colorName: row.color_name,
-            lensWidthMm: Number(row.catalog_products!.lens_width_mm),
+            lensWidthMm: Number(effectiveFrameWidthMm(row.catalog_products!)),
             processedImageUrl: signed.signedUrl
           };
         })
