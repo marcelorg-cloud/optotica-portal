@@ -27,6 +27,7 @@ type ColorImage = {
   rejectionReason: string | null;
   validatedAt: string | null;
   originalImageUrl: string | null;
+  colorReferenceImageUrl: string | null;
   processedImageUrl: string | null;
   hasSourceImageUrl: boolean;
 };
@@ -92,6 +93,11 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   // "pegou" antes do usuário clicar em "Trocar foto"/"Adicionar foto".
   const [selectedFixFile, setSelectedFixFile] = useState<Record<string, File | null>>({});
   const [selectedReplaceFile, setSelectedReplaceFile] = useState<Record<string, File | null>>({});
+  // Referência de cor (13/09/2026, ver migração 202609130008): segunda foto
+  // por cor, independente da foto de posição — mesmo padrão de captura por
+  // estado (não por ref/DOM) que corrigiu o "Trocar foto".
+  const colorRefFileInputs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [selectedColorRefFile, setSelectedColorRefFile] = useState<Record<string, File | null>>({});
 
   function applyLoad({ ok, payload }: Awaited<ReturnType<typeof fetchJson>>) {
     if (ok) { setProduct(payload.product); setColors(payload.colorImages); }
@@ -217,28 +223,36 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
   }
 
-  async function handleImportPhoto(colorImageId: string) {
+  // `target`: 'position' (a foto de pose/ângulo, comportamento original) ou
+  // 'color_reference' (13/09/2026 — só pra pegar a cor real, pode ser
+  // qualquer ângulo; ver migração 202609130008). Sem `imageUrl`, importa a
+  // amostra do AliExpress já registrada (`source_image_url`) pra este alvo.
+  async function handleImportPhoto(colorImageId: string, target: 'position' | 'color_reference' = 'position') {
     setBusy(true);
     setMessage(null);
-    const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/import-photo`, { method: 'POST' });
+    const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/import-photo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target })
+    });
     setBusy(false);
     setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
     if (ok) load();
   }
 
-  // Pedido do usuário (13/09/2026): "Trocar foto" buscando outra foto do
-  // AliExpress em vez de só aceitar upload manual. As fotos oferecidas são
-  // as ~6 fotos gerais do anúncio (galeria por produto, não por cor — ver
-  // migração 202609130006): podem ser de outra cor, por isso a escolha é
-  // sempre visual (miniatura clicável), nunca automática.
-  async function handleImportFromGallery(colorImageId: string, imageUrl: string) {
+  // Pedido do usuário (13/09/2026): buscar outra foto do AliExpress em vez
+  // de só aceitar upload manual — pra posição OU pra referência de cor. As
+  // fotos oferecidas são as ~6 fotos gerais do anúncio (galeria por produto,
+  // não por cor — ver migração 202609130006): podem ser de outra cor, por
+  // isso a escolha é sempre visual (miniatura clicável), nunca automática.
+  async function handleImportFromGallery(colorImageId: string, imageUrl: string, target: 'position' | 'color_reference' = 'position') {
     setBusy(true);
     setMessage(null);
     try {
       const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/import-photo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageUrl })
+        body: JSON.stringify({ imageUrl, target })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
       if (ok) load();
@@ -246,6 +260,33 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Envio manual da foto de referência de cor (mesmo padrão do "Trocar
+  // foto": try/finally, arquivo lido de estado capturado no onChange).
+  async function handleSetColorReference(colorImageId: string) {
+    const file = selectedColorRefFile[colorImageId];
+    if (!file) { setMessage({ kind: 'error', text: 'Escolha um arquivo antes de clicar em "Definir referência de cor".' }); return; }
+    setBusy(true);
+    setMessage(null);
+    try {
+      const uploaded = await uploadPhoto(productId, file);
+      if (!uploaded.ok) { setMessage({ kind: 'error', text: uploaded.message }); return; }
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'definir_referencia_cor', colorReferenceImagePath: uploaded.path })
+      });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+      setSelectedColorRefFile((prev) => ({ ...prev, [colorImageId]: null }));
+      const input = colorRefFileInputs.current[colorImageId];
+      if (input) input.value = '';
     }
   }
 
@@ -329,9 +370,15 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
             <div key={color.id} className="catalog-color-card">
               <div className="catalog-color-photos">
                 <div className="half">
-                  {color.originalImageUrl ? <img src={color.originalImageUrl} alt="Original" /> : 'sem foto'}
+                  <span className="catalog-photo-label">Posição</span>
+                  {color.originalImageUrl ? <img src={color.originalImageUrl} alt="Posição" /> : 'sem foto'}
                 </div>
                 <div className="half">
+                  <span className="catalog-photo-label">Referência de cor</span>
+                  {color.colorReferenceImageUrl ? <img src={color.colorReferenceImageUrl} alt="Referência de cor" /> : 'sem foto'}
+                </div>
+                <div className="half">
+                  <span className="catalog-photo-label">Tratada</span>
                   {color.processedImageUrl ? <img src={color.processedImageUrl} alt="Tratada" /> : 'aguardando tratamento'}
                 </div>
               </div>
@@ -341,49 +388,70 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                 <span className={`catalog-badge ${color.status}`}>{COLOR_STATUS_LABEL[color.status] || color.status}</span>
                 {color.rejectionReason && <span className="helper">Motivo: {color.rejectionReason}</span>}
 
-                {color.status === 'incompleto' && (
+                <div className="catalog-color-section">
+                  <span className="section-label">Foto de posição (o ângulo que a prova online usa — de preferência de frente)</span>
+                  {color.status === 'incompleto' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {color.hasSourceImageUrl && (
+                        <button className="button primary small" type="button" disabled={busy} onClick={() => handleImportPhoto(color.id, 'position')}>Importar do AliExpress</button>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        ref={(el) => { fixFileInputs.current[color.id] = el; }}
+                        onChange={(e) => setSelectedFixFile((prev) => ({ ...prev, [color.id]: e.target.files?.[0] || null }))}
+                      />
+                      {selectedFixFile[color.id] && (
+                        <span className="helper">Arquivo selecionado: {selectedFixFile[color.id]!.name}</span>
+                      )}
+                      <button className="button secondary small" type="button" disabled={busy} onClick={() => handleAddMissingPhoto(color.id)}>Adicionar foto{color.hasSourceImageUrl ? ' manualmente' : ''}</button>
+                    </div>
+                  )}
+                  {(color.status === 'pendente' || color.status === 'rejeitada') && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {product.galleryImages.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span className="helper">Fotos gerais do anúncio (podem ser de outra cor — confira antes de usar):</span>
+                          <div className="catalog-gallery-thumbs">
+                            {product.galleryImages.map((url) => (
+                              <button key={url} type="button" disabled={busy} onClick={() => handleImportFromGallery(color.id, url, 'position')} title="Usar esta foto">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={url} alt="Foto do anúncio" />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        ref={(el) => { replaceFileInputs.current[color.id] = el; }}
+                        onChange={(e) => setSelectedReplaceFile((prev) => ({ ...prev, [color.id]: e.target.files?.[0] || null }))}
+                      />
+                      {selectedReplaceFile[color.id] ? (
+                        <span className="helper">Arquivo selecionado: {selectedReplaceFile[color.id]!.name}</span>
+                      ) : (
+                        <span className="helper">Nenhum arquivo selecionado ainda</span>
+                      )}
+                      <button className="button secondary small" type="button" disabled={busy} onClick={() => handleReplacePhoto(color.id)}>Trocar foto (ex.: veio de lado, preciso de frente)</button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="catalog-color-section">
+                  <span className="section-label">Referência de cor (só pra mostrar a cor real — pode ser de outro ângulo)</span>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {color.hasSourceImageUrl && (
-                      <button className="button primary small" type="button" disabled={busy} onClick={() => handleImportPhoto(color.id)}>Importar do AliExpress</button>
+                      <button className="button primary small" type="button" disabled={busy} onClick={() => handleImportPhoto(color.id, 'color_reference')}>Usar amostra do AliExpress (cor)</button>
                     )}
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      ref={(el) => { fixFileInputs.current[color.id] = el; }}
-                      onChange={(e) => setSelectedFixFile((prev) => ({ ...prev, [color.id]: e.target.files?.[0] || null }))}
-                    />
-                    {selectedFixFile[color.id] && (
-                      <span className="helper">Arquivo selecionado: {selectedFixFile[color.id]!.name}</span>
-                    )}
-                    <button className="button secondary small" type="button" disabled={busy} onClick={() => handleAddMissingPhoto(color.id)}>Adicionar foto{color.hasSourceImageUrl ? ' manualmente' : ''}</button>
-                  </div>
-                )}
-                {color.status === 'pendente' && (
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    <button className="button secondary small" type="button" disabled={busy} onClick={() => handleProcess(color.id)}>
-                      {color.processedImageUrl ? 'Reprocessar com IA' : 'Processar com IA'}
-                    </button>
-                    <button className="button primary small" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'validar')}>Validar</button>
-                    <button className="text-button danger" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'rejeitar')}>Rejeitar</button>
-                  </div>
-                )}
-                {(color.status === 'pendente' || color.status === 'rejeitada') && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
                     {product.galleryImages.length > 0 && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <span className="helper">Fotos gerais do anúncio (podem ser de outra cor — confira antes de usar):</span>
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        <span className="helper">Ou escolha uma foto da galeria do anúncio:</span>
+                        <div className="catalog-gallery-thumbs">
                           {product.galleryImages.map((url) => (
-                            <button
-                              key={url}
-                              type="button"
-                              disabled={busy}
-                              onClick={() => handleImportFromGallery(color.id, url)}
-                              title="Usar esta foto"
-                              style={{ padding: 0, border: '1px solid #ccc', borderRadius: 4, overflow: 'hidden', width: 48, height: 48, cursor: 'pointer', flexShrink: 0 }}
-                            >
+                            <button key={url} type="button" disabled={busy} onClick={() => handleImportFromGallery(color.id, url, 'color_reference')} title="Usar esta foto">
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={url} alt="Foto do anúncio" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                              <img src={url} alt="Foto do anúncio" />
                             </button>
                           ))}
                         </div>
@@ -392,15 +460,31 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                     <input
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
-                      ref={(el) => { replaceFileInputs.current[color.id] = el; }}
-                      onChange={(e) => setSelectedReplaceFile((prev) => ({ ...prev, [color.id]: e.target.files?.[0] || null }))}
+                      ref={(el) => { colorRefFileInputs.current[color.id] = el; }}
+                      onChange={(e) => setSelectedColorRefFile((prev) => ({ ...prev, [color.id]: e.target.files?.[0] || null }))}
                     />
-                    {selectedReplaceFile[color.id] ? (
-                      <span className="helper">Arquivo selecionado: {selectedReplaceFile[color.id]!.name}</span>
+                    {selectedColorRefFile[color.id] ? (
+                      <span className="helper">Arquivo selecionado: {selectedColorRefFile[color.id]!.name}</span>
                     ) : (
                       <span className="helper">Nenhum arquivo selecionado ainda</span>
                     )}
-                    <button className="button secondary small" type="button" disabled={busy} onClick={() => handleReplacePhoto(color.id)}>Trocar foto (ex.: veio de lado, preciso de frente)</button>
+                    <button className="button secondary small" type="button" disabled={busy} onClick={() => handleSetColorReference(color.id)}>Definir referência de cor</button>
+                  </div>
+                </div>
+
+                {color.status === 'pendente' && (
+                  <div className="catalog-color-section">
+                    <span className="section-label">Processamento</span>
+                    {!color.colorReferenceImageUrl && (
+                      <span className="helper">Falta a referência de cor (seção acima) antes de processar.</span>
+                    )}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button className="button secondary small" type="button" disabled={busy || !color.colorReferenceImageUrl} onClick={() => handleProcess(color.id)}>
+                        {color.processedImageUrl ? 'Reprocessar com IA' : 'Processar com IA'}
+                      </button>
+                      <button className="button primary small" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'validar')}>Validar</button>
+                      <button className="text-button danger" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'rejeitar')}>Rejeitar</button>
+                    </div>
                   </div>
                 )}
               </div>

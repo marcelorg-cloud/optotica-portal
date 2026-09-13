@@ -17,7 +17,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
 
   const { data: images } = await auth.admin
     .from('catalog_product_color_images')
-    .select('id, color_name, supplier_sku, original_image_path, processed_image_path, status, missing_required_fields, rejection_reason, validated_at, created_at, source_image_url')
+    .select('id, color_name, supplier_sku, original_image_path, color_reference_image_path, processed_image_path, status, missing_required_fields, rejection_reason, validated_at, created_at, source_image_url')
     .eq('product_id', productId)
     .order('color_name', { ascending: true });
 
@@ -31,8 +31,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
     .order('position', { ascending: true });
 
   const withUrls = await Promise.all((images || []).map(async (image) => {
-    const [original, processed] = await Promise.all([
+    const [original, colorReference, processed] = await Promise.all([
       image.original_image_path ? auth.admin.storage.from('catalog-product-photos').createSignedUrl(image.original_image_path, 3600) : Promise.resolve({ data: null }),
+      image.color_reference_image_path ? auth.admin.storage.from('catalog-product-photos').createSignedUrl(image.color_reference_image_path, 3600) : Promise.resolve({ data: null }),
       image.processed_image_path ? auth.admin.storage.from('catalog-product-photos').createSignedUrl(image.processed_image_path, 3600) : Promise.resolve({ data: null })
     ]);
     return {
@@ -44,6 +45,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       rejectionReason: image.rejection_reason,
       validatedAt: image.validated_at,
       originalImageUrl: original.data?.signedUrl || null,
+      colorReferenceImageUrl: colorReference.data?.signedUrl || null,
       processedImageUrl: processed.data?.signedUrl || null,
       hasSourceImageUrl: Boolean(image.source_image_url)
     };
