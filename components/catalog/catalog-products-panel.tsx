@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { parseAliexpressJson, type ParsedAliexpressColor } from '@/lib/catalog/parse-aliexpress-json';
+import { FORMAT_OPTIONS, MATERIAL_OPTIONS, COLOR_VOCABULARY } from '@/lib/catalog/sku-standard';
 
 type Supplier = { id: string; name: string; storeId: string; status: string };
 type Product = {
@@ -46,10 +47,13 @@ export function CatalogProductsPanel() {
   // fica em branco, exatamente como se tivesse sido criado à mão.
   const [aliexpressText, setAliexpressText] = useState('');
   const [parseMessage, setParseMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
-  const [parsedColors, setParsedColors] = useState<(ParsedAliexpressColor & { include: boolean })[]>([]);
+  // Padrão de SKU/cor (13/09/2026): a "cor" de cada variante detectada no
+  // JSON não é mais um texto livre editável — é `colorPrincipal`, escolhida
+  // de uma lista fechada (sugerida automaticamente via
+  // suggestPrincipalColor, sempre conferível/trocável antes de criar).
+  const [parsedColors, setParsedColors] = useState<(ParsedAliexpressColor & { include: boolean; colorPrincipal: string })[]>([]);
   const [parsedGalleryUrls, setParsedGalleryUrls] = useState<string[]>([]);
   const supplierItemIdRef = useRef<HTMLInputElement | null>(null);
-  const modelNameRef = useRef<HTMLInputElement | null>(null);
   const lensWidthRef = useRef<HTMLInputElement | null>(null);
   const lensHeightRef = useRef<HTMLInputElement | null>(null);
 
@@ -93,15 +97,14 @@ export function CatalogProductsPanel() {
     try {
       const parsed = parseAliexpressJson(aliexpressText);
       if (supplierItemIdRef.current) supplierItemIdRef.current.value = parsed.supplierItemId || '';
-      if (modelNameRef.current) modelNameRef.current.value = parsed.modelName || '';
       if (lensWidthRef.current) lensWidthRef.current.value = parsed.lensWidthMm ? String(parsed.lensWidthMm) : '';
       if (lensHeightRef.current) lensHeightRef.current.value = parsed.lensHeightMm ? String(parsed.lensHeightMm) : '';
-      setParsedColors(parsed.colors.map((c) => ({ ...c, include: true })));
+      setParsedColors(parsed.colors.map((c) => ({ ...c, include: true, colorPrincipal: c.suggestedPrincipalColor || '' })));
       setParsedGalleryUrls(parsed.galleryImageUrls);
       setParseMessage({
         kind: 'success',
         text: parsed.colors.length
-          ? `Encontrei ${parsed.colors.length} cor(es) e ${parsed.galleryImageUrls.length} foto(s) gerais do anúncio — confira os campos e as cores abaixo antes de criar.`
+          ? `Encontrei ${parsed.colors.length} cor(es) e ${parsed.galleryImageUrls.length} foto(s) gerais do anúncio — confira a cor principal sugerida de cada uma antes de criar (nome do modelo continua manual: escolha formato e material abaixo).`
           : `Não encontrei cores com foto de variante nesse JSON — confira os campos preenchidos e adicione as cores depois, na tela do produto.`
       });
     } catch (err) {
@@ -111,7 +114,7 @@ export function CatalogProductsPanel() {
     }
   }
 
-  function updateParsedColor(index: number, patch: Partial<ParsedAliexpressColor & { include: boolean }>) {
+  function updateParsedColor(index: number, patch: Partial<ParsedAliexpressColor & { include: boolean; colorPrincipal: string }>) {
     setParsedColors((prev) => prev.map((c, i) => (i === index ? { ...c, ...patch } : c)));
   }
 
@@ -126,8 +129,8 @@ export function CatalogProductsPanel() {
       body: JSON.stringify({
         supplierId: form.get('supplierId'),
         supplierItemId: form.get('supplierItemId'),
-        modelName: form.get('modelName'),
-        skuOptotica: form.get('skuOptotica'),
+        formatCode: form.get('formatCode'),
+        materialCode: form.get('materialCode'),
         lensWidthMm: form.get('lensWidthMm') ? Number(form.get('lensWidthMm')) : undefined,
         lensHeightMm: form.get('lensHeightMm') ? Number(form.get('lensHeightMm')) : undefined
       })
@@ -144,14 +147,19 @@ export function CatalogProductsPanel() {
     // "Adicionar cor" (catalog-product-detail.tsx), só que em lote. Falha em
     // uma cor não cancela as outras; o resumo final conta os dois lados.
     const productId = payload.id as string;
-    const colorsToCreate = parsedColors.filter((c) => c.include && c.colorName.trim());
+    const colorsToCreate = parsedColors.filter((c) => c.include && c.colorPrincipal);
     let colorSuccessCount = 0;
     let colorFailCount = 0;
     for (const color of colorsToCreate) {
       const res = await fetchJson(`/api/admin/catalog/products/${productId}/images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ colorName: color.colorName.trim(), supplierSku: color.supplierSku || undefined, sourceImageUrl: color.sourceImageUrl || undefined })
+        body: JSON.stringify({
+          colorPrincipal: color.colorPrincipal,
+          supplierColorName: color.supplierColorName,
+          supplierSku: color.supplierSku || undefined,
+          sourceImageUrl: color.sourceImageUrl || undefined
+        })
       });
       if (res.ok) colorSuccessCount += 1;
       else colorFailCount += 1;
@@ -169,7 +177,7 @@ export function CatalogProductsPanel() {
 
     setBusy(false);
     const parts = [payload.message || 'Produto criado.'];
-    if (colorsToCreate.length) parts.push(`${colorSuccessCount} cor(es) criada(s)${colorFailCount ? ` (${colorFailCount} falharam — confira nomes repetidos)` : ''}.`);
+    if (colorsToCreate.length) parts.push(`${colorSuccessCount} cor(es) criada(s)${colorFailCount ? ` (${colorFailCount} falharam)` : ''}.`);
     if (galleryMessage) parts.push(galleryMessage.trim());
     setMessage({ kind: colorFailCount ? 'error' : 'success', text: parts.join(' ') });
 
@@ -240,29 +248,44 @@ export function CatalogProductsPanel() {
               </select>
             </div>
             <div className="field"><label>Product ID (fornecedor)</label><input ref={supplierItemIdRef} name="supplierItemId" required /></div>
-            <div className="field"><label>Nome do modelo</label><input ref={modelNameRef} name="modelName" required minLength={2} /></div>
-            <div className="field"><label>SKU (Optótica)</label><input name="skuOptotica" required /></div>
+            <div className="field">
+              <label>Formato</label>
+              <select name="formatCode" required defaultValue="">
+                <option value="" disabled>Selecione</option>
+                {FORMAT_OPTIONS.map((f) => <option key={f.code} value={f.code}>{f.label}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label>Material</label>
+              <select name="materialCode" required defaultValue="">
+                <option value="" disabled>Selecione</option>
+                {MATERIAL_OPTIONS.map((m) => <option key={m.code} value={m.code}>{m.label}</option>)}
+              </select>
+            </div>
+            <p className="helper" style={{ gridColumn: '1 / -1', margin: 0 }}>
+              O nome do modelo e o SKU (Optótica) são gerados automaticamente a partir do formato, material e do
+              próximo número de modelo disponível — ver padrão de identificação de armações.
+            </p>
             <div className="field"><label>Largura (mm)</label><input ref={lensWidthRef} name="lensWidthMm" type="number" step="0.1" /></div>
             <div className="field"><label>Altura (mm)</label><input ref={lensHeightRef} name="lensHeightMm" type="number" step="0.1" /></div>
 
             {parsedColors.length > 0 && (
               <div style={{ gridColumn: '1 / -1', display: 'grid', gap: 8 }}>
-                <label style={{ fontSize: 13, fontWeight: 600 }}>Cores detectadas — desmarque ou edite o nome antes de criar</label>
+                <label style={{ fontSize: 13, fontWeight: 600 }}>Cores detectadas — confira/ajuste a cor principal sugerida antes de criar</label>
                 {parsedColors.map((color, index) => (
                   <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <input type="checkbox" checked={color.include} onChange={(e) => updateParsedColor(index, { include: e.target.checked })} />
                     {color.sourceImageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={color.sourceImageUrl} alt={color.colorName} style={{ width: 32, height: 32, objectFit: 'cover', borderRadius: 4 }} />
+                      <img src={color.sourceImageUrl} alt={color.supplierColorName} style={{ width: 32, height: 32, objectFit: 'cover', borderRadius: 4 }} />
                     ) : (
                       <span style={{ width: 32, height: 32 }} />
                     )}
-                    <input
-                      value={color.colorName}
-                      onChange={(e) => updateParsedColor(index, { colorName: e.target.value })}
-                      style={{ flex: 1 }}
-                    />
-                    <span className="muted" style={{ fontSize: 11 }}>{color.supplierSku || 'sem SKU do fornecedor'}</span>
+                    <select value={color.colorPrincipal} onChange={(e) => updateParsedColor(index, { colorPrincipal: e.target.value })} style={{ flex: 1 }}>
+                      <option value="" disabled>Escolha a cor principal</option>
+                      {COLOR_VOCABULARY.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <span className="muted" style={{ fontSize: 11 }}>{color.supplierColorName}</span>
                   </div>
                 ))}
               </div>

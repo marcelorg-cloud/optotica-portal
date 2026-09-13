@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/browser-client';
 import { parseAliexpressJson, type ParsedAliexpressColor } from '@/lib/catalog/parse-aliexpress-json';
+import { COLOR_VOCABULARY } from '@/lib/catalog/sku-standard';
 
 type Product = {
   id: string;
@@ -37,6 +38,14 @@ type ColorImage = {
   originalImageUrl: string | null;
   processedImageUrl: string | null;
   hasSourceImageUrl: boolean;
+  // Padrão de SKU/cor (13/09/2026) — ver lib/catalog/sku-standard.ts. Cores
+  // criadas antes dessa data podem ter esses campos nulos até a migração de
+  // dados rodar (202609131101).
+  colorVariantNumber: number | null;
+  colorPrincipal: string | null;
+  colorSecondary: string | null;
+  supplierColorName: string | null;
+  variantSku: string | null;
 };
 
 const STATUS_LABEL: Record<string, string> = { em_triagem: 'Em triagem', publicado: 'Publicado', arquivado: 'Arquivado' };
@@ -88,7 +97,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const [showAliexpressImport, setShowAliexpressImport] = useState(false);
   const [aliexpressImportText, setAliexpressImportText] = useState('');
   const [importParseMessage, setImportParseMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
-  const [importColors, setImportColors] = useState<(ParsedAliexpressColor & { include: boolean; alreadyExists: boolean })[]>([]);
+  const [importColors, setImportColors] = useState<(ParsedAliexpressColor & { include: boolean; alreadyExists: boolean; colorPrincipal: string })[]>([]);
   const [importGalleryUrls, setImportGalleryUrls] = useState<string[]>([]);
 
   // A mensagem de sucesso/erro fica perto do topo da página — mas as ações
@@ -202,7 +211,9 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     setMessage(null);
     try {
       const form = new FormData(event.currentTarget);
-      const colorName = String(form.get('colorName') || '');
+      const colorPrincipal = String(form.get('colorPrincipal') || '');
+      const colorSecondary = String(form.get('colorSecondary') || '') || undefined;
+      const supplierColorName = String(form.get('supplierColorName') || '') || undefined;
       const supplierSku = String(form.get('supplierSku') || '') || undefined;
       const file = newColorFileRef.current;
 
@@ -216,7 +227,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ colorName, supplierSku, originalImagePath })
+        body: JSON.stringify({ colorPrincipal, colorSecondary, supplierColorName, supplierSku, originalImagePath })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
       if (ok) { event.currentTarget.reset(); newColorFileRef.current = null; setShowNewColor(false); load(); }
@@ -231,10 +242,15 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     setImportParseMessage(null);
     try {
       const parsed = parseAliexpressJson(aliexpressImportText);
-      const existingNames = new Set((colors || []).map((c) => c.colorName.trim().toLowerCase()));
+      // Padrão de SKU/cor (13/09/2026): o nome não é mais digitado, então
+      // "já cadastrada aqui" não pode mais comparar por nome — compara pelo
+      // SKU do fornecedor (o identificador estável que realmente veio do
+      // anúncio) quando disponível; sem SKU, não há como saber com certeza,
+      // então entra pré-marcada para importar (o master decide na hora).
+      const existingSkus = new Set((colors || []).map((c) => (c.supplierSku || '').trim().toLowerCase()).filter(Boolean));
       const withInclude = parsed.colors.map((c) => {
-        const alreadyExists = existingNames.has(c.colorName.trim().toLowerCase());
-        return { ...c, alreadyExists, include: !alreadyExists };
+        const alreadyExists = Boolean(c.supplierSku) && existingSkus.has(c.supplierSku!.trim().toLowerCase());
+        return { ...c, alreadyExists, include: !alreadyExists, colorPrincipal: c.suggestedPrincipalColor || '' };
       });
       setImportColors(withInclude);
       setImportGalleryUrls(parsed.galleryImageUrls);
@@ -250,7 +266,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
   }
 
-  function updateImportColor(index: number, patch: Partial<ParsedAliexpressColor & { include: boolean }>) {
+  function updateImportColor(index: number, patch: Partial<ParsedAliexpressColor & { include: boolean; colorPrincipal: string }>) {
     setImportColors((prev) => prev.map((c, i) => (i === index ? { ...c, ...patch } : c)));
   }
 
@@ -258,14 +274,14 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     setBusy(true);
     setMessage(null);
     try {
-      const toCreate = importColors.filter((c) => c.include && c.colorName.trim());
+      const toCreate = importColors.filter((c) => c.include && c.colorPrincipal);
       let successCount = 0;
       let failCount = 0;
       for (const color of toCreate) {
         const res = await fetchJson(`/api/admin/catalog/products/${productId}/images`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ colorName: color.colorName.trim(), supplierSku: color.supplierSku || undefined, sourceImageUrl: color.sourceImageUrl || undefined })
+          body: JSON.stringify({ colorPrincipal: color.colorPrincipal, supplierColorName: color.supplierColorName || undefined, supplierSku: color.supplierSku || undefined, sourceImageUrl: color.sourceImageUrl || undefined })
         });
         if (res.ok) successCount += 1;
         else failCount += 1;
@@ -282,7 +298,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       }
 
       const parts: string[] = [];
-      if (toCreate.length) parts.push(`${successCount} cor(es) criada(s)${failCount ? ` (${failCount} falharam — confira nomes repetidos)` : ''}.`);
+      if (toCreate.length) parts.push(`${successCount} cor(es) criada(s)${failCount ? ` (${failCount} falharam — tente novamente)` : ''}.`);
       if (galleryMessage) parts.push(galleryMessage.trim());
       setMessage({ kind: failCount ? 'error' : 'success', text: parts.join(' ') || 'Nada novo para importar desse JSON.' });
 
@@ -591,17 +607,21 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
 
           {importColors.length > 0 && (
             <div style={{ display: 'grid', gap: 8 }}>
-              <label style={{ fontSize: 13, fontWeight: 600 }}>Cores detectadas — desmarque ou edite o nome antes de importar</label>
+              <label style={{ fontSize: 13, fontWeight: 600 }}>Cores detectadas — confirme a cor principal antes de importar</label>
               {importColors.map((color, index) => (
                 <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: color.alreadyExists ? 0.6 : 1 }}>
                   <input type="checkbox" checked={color.include} onChange={(e) => updateImportColor(index, { include: e.target.checked })} />
                   {color.sourceImageUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={color.sourceImageUrl} alt={color.colorName} style={{ width: 32, height: 32, objectFit: 'cover', borderRadius: 4 }} />
+                    <img src={color.sourceImageUrl} alt={color.supplierColorName} style={{ width: 32, height: 32, objectFit: 'cover', borderRadius: 4 }} />
                   ) : (
                     <span style={{ width: 32, height: 32 }} />
                   )}
-                  <input value={color.colorName} onChange={(e) => updateImportColor(index, { colorName: e.target.value })} style={{ flex: 1 }} />
+                  <select value={color.colorPrincipal} onChange={(e) => updateImportColor(index, { colorPrincipal: e.target.value })} style={{ flex: 1 }}>
+                    <option value="" disabled>Escolha a cor principal</option>
+                    {COLOR_VOCABULARY.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <span className="muted" style={{ fontSize: 11 }}>{color.supplierColorName}</span>
                   <span className="muted" style={{ fontSize: 11 }}>{color.alreadyExists ? 'já cadastrada aqui' : color.supplierSku || 'sem SKU do fornecedor'}</span>
                 </div>
               ))}
@@ -619,9 +639,24 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       {showNewColor && (
         <form className="card" style={{ padding: 16, marginBottom: 16, display: 'grid', gap: 12 }} onSubmit={handleNewColor}>
           <div className="form-grid">
-            <label>Nome da cor<input name="colorName" required /></label>
+            <label>Cor principal
+              <select name="colorPrincipal" required defaultValue="">
+                <option value="" disabled>Selecione</option>
+                {COLOR_VOCABULARY.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <label>Cor secundária (opcional — armações bicolor)
+              <select name="colorSecondary" defaultValue="">
+                <option value="">nenhuma</option>
+                {COLOR_VOCABULARY.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <label>Cor original do fornecedor (opcional, só rastreabilidade interna)<input name="supplierColorName" /></label>
             <label>SKU do fornecedor (opcional)<input name="supplierSku" /></label>
           </div>
+          <p className="helper" style={{ margin: 0 }}>
+            O nome desta cor (ex.: &quot;{product.modelName} - Cor N&quot;) e o SKU da variante são gerados automaticamente.
+          </p>
           <label>Foto real da armação nessa cor (opcional agora — sem foto, a cor entra como &quot;incompleto&quot;)
             <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => { newColorFileRef.current = e.target.files?.[0] || null; }} />
           </label>
@@ -644,8 +679,13 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                 </div>
               </div>
               <div className="catalog-color-body">
-                <div className="name"><span className="catalog-swatch" />{color.colorName}</div>
-                {color.supplierSku && <span className="muted" style={{ fontSize: 11 }}>SKU {color.supplierSku}</span>}
+                <div className="name">
+                  <span className="catalog-swatch" />
+                  {color.colorVariantNumber ? `Cor ${color.colorVariantNumber} — ${color.colorPrincipal}${color.colorSecondary ? ` / ${color.colorSecondary}` : ''}` : color.colorName}
+                </div>
+                {color.variantSku && <span className="muted" style={{ fontSize: 11 }}>SKU {color.variantSku}</span>}
+                {color.supplierColorName && <span className="muted" style={{ fontSize: 11 }}>Cor original do fornecedor: {color.supplierColorName}</span>}
+                {color.supplierSku && <span className="muted" style={{ fontSize: 11 }}>SKU do fornecedor {color.supplierSku}</span>}
                 <span className={`catalog-badge ${color.status}`}>{COLOR_STATUS_LABEL[color.status] || color.status}</span>
                 {color.rejectionReason && <span className="helper">Motivo: {color.rejectionReason}</span>}
 

@@ -11,9 +11,17 @@
 // anúncio ("Color", "Frame Color" etc. variam) — o sinal confiável é ter
 // `values[].image` (miniatura por variante). O SKU do fornecedor por cor
 // vem de `sku.base[].propMap`, cruzando "pid:vid".
+//
+// Padrão de SKU/cor (mesmo dia, migração 202609131100): o texto bruto da
+// variante ("leopard with clear") NÃO vira mais o nome da cor direto — vira
+// `supplierColorName` (só rastreabilidade interna) e uma SUGESTÃO de "cor
+// principal" padronizada (`suggestedPrincipalColor`, sempre editável pelo
+// master antes de salvar — ver lib/catalog/sku-standard.ts).
+import { suggestPrincipalColor } from './sku-standard';
 
 export type ParsedAliexpressColor = {
-  colorName: string;
+  supplierColorName: string;
+  suggestedPrincipalColor: string | null;
   supplierSku: string | null;
   sourceImageUrl: string | null;
 };
@@ -85,10 +93,11 @@ export function parseAliexpressJson(raw: string): ParsedAliexpressProduct {
       const pidVid = `${colorProp.pid}:${v.vid}`;
       const matchedSku = skuBase.find((s) => (s.propMap || '').split(';').includes(pidVid));
       const rawImage = v.image || skuImages?.[pidVid];
-      const colorName = (v.name || v.propTips || `Cor ${v.vid}`).trim().slice(0, 80);
-      if (!colorName) continue;
+      const supplierColorName = (v.name || v.propTips || `Cor ${v.vid}`).trim().slice(0, 120);
+      if (!supplierColorName) continue;
       colors.push({
-        colorName,
+        supplierColorName,
+        suggestedPrincipalColor: suggestPrincipalColor(supplierColorName),
         supplierSku: matchedSku?.skuId !== undefined && matchedSku?.skuId !== null ? String(matchedSku.skuId) : null,
         sourceImageUrl: rawImage ? normalizeUrl(rawImage) : null
       });

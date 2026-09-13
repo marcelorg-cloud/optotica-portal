@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireMaster } from '@/lib/catalog/require-master';
+import { buildVariantSku } from '@/lib/catalog/sku-standard';
 
 const STATUSES = ['em_triagem', 'publicado', 'arquivado'] as const;
 
@@ -10,16 +11,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
 
   const { data: product } = await auth.admin
     .from('catalog_products')
-    .select('id, supplier_id, supplier_item_id, model_name, sku_optotica, lens_width_mm, lens_height_mm, bridge_mm, lens_diagonal_mm, temple_length_mm, rim_mm, frame_total_width_mm, standard_height_mm, measurement_source, status, created_at, position_image_path, catalog_suppliers(name, store_id)')
+    .select('id, supplier_id, supplier_item_id, model_name, sku_optotica, format_code, material_code, model_number, lens_width_mm, lens_height_mm, bridge_mm, lens_diagonal_mm, temple_length_mm, rim_mm, frame_total_width_mm, standard_height_mm, measurement_source, status, created_at, position_image_path, catalog_suppliers(name, store_id)')
     .eq('id', productId)
     .maybeSingle();
   if (!product) return NextResponse.json({ message: 'Produto não encontrado.' }, { status: 404 });
 
   const { data: images } = await auth.admin
     .from('catalog_product_color_images')
-    .select('id, color_name, supplier_sku, original_image_path, processed_image_path, status, missing_required_fields, rejection_reason, validated_at, created_at, source_image_url')
+    .select('id, color_name, supplier_sku, original_image_path, processed_image_path, status, missing_required_fields, rejection_reason, validated_at, created_at, source_image_url, color_variant_number, color_principal, color_secondary, supplier_color_name')
     .eq('product_id', productId)
-    .order('color_name', { ascending: true });
+    .order('color_variant_number', { ascending: true, nullsFirst: false });
 
   // Galeria geral de fotos do anúncio (por produto, não por cor) — usada
   // pelo seletor de miniaturas em "Trocar foto" (ver migração
@@ -45,7 +46,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       validatedAt: image.validated_at,
       originalImageUrl: original.data?.signedUrl || null,
       processedImageUrl: processed.data?.signedUrl || null,
-      hasSourceImageUrl: Boolean(image.source_image_url)
+      hasSourceImageUrl: Boolean(image.source_image_url),
+      // Padrão de SKU/cor (13/09/2026): variante (C1, C2...) + cor
+      // padronizada num campo à parte — ver lib/catalog/sku-standard.ts.
+      // Cores criadas antes dessa data podem ter `colorVariantNumber`/
+      // `colorPrincipal` nulos até a migração de dados rodar.
+      colorVariantNumber: image.color_variant_number,
+      colorPrincipal: image.color_principal,
+      colorSecondary: image.color_secondary,
+      supplierColorName: image.supplier_color_name,
+      variantSku: image.color_variant_number ? buildVariantSku(product.sku_optotica, image.color_variant_number) : null
     };
   }));
 
@@ -62,6 +72,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       id: product.id,
       modelName: product.model_name,
       skuOptotica: product.sku_optotica,
+      formatCode: product.format_code,
+      materialCode: product.material_code,
+      modelNumber: product.model_number,
       supplierItemId: product.supplier_item_id,
       lensWidthMm: product.lens_width_mm,
       lensHeightMm: product.lens_height_mm,
