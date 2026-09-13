@@ -59,6 +59,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const [showNewColor, setShowNewColor] = useState(false);
   const newColorFileRef = useRef<File | null>(null);
   const fixFileInputs = useRef<Record<string, HTMLInputElement | null>>({});
+  const replaceFileInputs = useRef<Record<string, HTMLInputElement | null>>({});
 
   function applyLoad({ ok, payload }: Awaited<ReturnType<typeof fetchJson>>) {
     if (ok) { setProduct(payload.product); setColors(payload.colorImages); }
@@ -143,6 +144,25 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'completar', stillMissing: [], originalImagePath: uploaded.path })
+    });
+    setBusy(false);
+    setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+    if (ok) load();
+    if (input) input.value = '';
+  }
+
+  async function handleReplacePhoto(colorImageId: string) {
+    const input = replaceFileInputs.current[colorImageId];
+    const file = input?.files?.[0];
+    if (!file) return;
+    setBusy(true);
+    setMessage(null);
+    const uploaded = await uploadPhoto(productId, file);
+    if (!uploaded.ok) { setBusy(false); setMessage({ kind: 'error', text: uploaded.message }); return; }
+    const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'trocar_foto', originalImagePath: uploaded.path })
     });
     setBusy(false);
     setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
@@ -271,6 +291,16 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                     </button>
                     <button className="button primary small" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'validar')}>Validar</button>
                     <button className="text-button danger" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'rejeitar')}>Rejeitar</button>
+                  </div>
+                )}
+                {(color.status === 'pendente' || color.status === 'rejeitada') && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      ref={(el) => { replaceFileInputs.current[color.id] = el; }}
+                    />
+                    <button className="button secondary small" type="button" disabled={busy} onClick={() => handleReplacePhoto(color.id)}>Trocar foto (ex.: veio de lado, preciso de frente)</button>
                   </div>
                 )}
               </div>

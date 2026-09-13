@@ -8,7 +8,7 @@ import { requireMaster } from '@/lib/catalog/require-master';
 // pode ser validada até alguém completar os campos que faltam — por isso o
 // action 'validar' checa status atual antes de aceitar.
 
-const ACTIONS = ['validar', 'rejeitar', 'completar'] as const;
+const ACTIONS = ['validar', 'rejeitar', 'completar', 'trocar_foto'] as const;
 type Action = typeof ACTIONS[number];
 
 export async function PATCH(
@@ -68,6 +68,41 @@ export async function PATCH(
       .eq('id', colorImageId);
     if (error) return NextResponse.json({ message: 'Não foi possível atualizar a imagem.' }, { status: 500 });
     return NextResponse.json({ message: remainingFields.length ? 'Ainda faltam campos.' : 'Completo — pronto para validação.' });
+  }
+
+  if (action === 'trocar_foto') {
+    // Pedido do usuário (12/09/2026): a foto importada automaticamente do
+    // AliExpress (rota .../import-photo) às vezes é a amostra errada — de
+    // lado, por exemplo, em vez da de frente que a prova online precisa.
+    // Diferente de 'completar' (só usada pra sair de "incompleto"), esta
+    // ação troca a foto original de uma cor que JÁ tem foto (pendente,
+    // validada ou rejeitada) — sempre volta pra 'pendente' porque a foto
+    // mudou e precisa passar pela validação/reprocessamento de novo.
+    if (image.status === 'incompleto') {
+      return NextResponse.json({ message: 'Esta cor ainda não tem foto — use "Adicionar foto" ou "Importar do AliExpress".' }, { status: 409 });
+    }
+    const originalImagePath = typeof body?.originalImagePath === 'string' ? body.originalImagePath : '';
+    if (!originalImagePath || !originalImagePath.startsWith(`${productId}/`)) {
+      return NextResponse.json({ message: 'Envio inválido.' }, { status: 400 });
+    }
+    const { error: signError } = await auth.admin.storage.from('catalog-product-photos').createSignedUrl(originalImagePath, 60);
+    if (signError) return NextResponse.json({ message: 'Não encontramos a foto enviada. Tente enviar de novo.' }, { status: 400 });
+
+    const { error } = await auth.admin
+      .from('catalog_product_color_images')
+      .update({
+        status: 'pendente',
+        original_image_path: originalImagePath,
+        processed_image_path: null,
+        processed_at: null,
+        validated_by: null,
+        validated_at: null,
+        rejection_reason: null,
+        updated_at: now
+      })
+      .eq('id', colorImageId);
+    if (error) return NextResponse.json({ message: 'Não foi possível trocar a foto.' }, { status: 500 });
+    return NextResponse.json({ message: 'Foto trocada — pronta para "Processar com IA" de novo.' });
   }
 
   if (image.status === 'incompleto') {
