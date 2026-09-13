@@ -359,21 +359,29 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         <button className="button primary" type="submit" disabled={busy}>Salvar alterações</button>
       </form>
 
-      {/* Foto de posição do produto (13/09/2026, 2ª rodada): uma só, usada
-          por "Processar com IA" em TODAS as cores deste modelo — o
-          ângulo/pose é o mesmo, só a cor muda (ver migração 202609130009). */}
+      {/* Foto de posição do produto (13/09/2026, 2ª rodada — depois mudou de
+          sentido na 4ª rodada, ver lib/catalog/frame-colorize.ts): uma só,
+          usada por "Processar com IA" em TODAS as cores deste modelo — o
+          ângulo/pose é o mesmo, só a cor muda (ver migração 202609130009).
+          A partir da 4ª rodada esta foto PRECISA já vir recortada (fundo e
+          lente transparentes, feita fora do sistema) — deixou de ser uma
+          foto crua que a IA recorta sozinha: agora ela também define a
+          forma final do resultado (a IA só recolore por cima, nunca recorta
+          nada), então se ela não estiver bem recortada o resultado sai sem
+          nenhum recorte. */}
       <div className="card catalog-position-card">
         <div className="preview">
           {product.positionImageUrl ? <img src={product.positionImageUrl} alt="Foto de posição do produto" /> : 'sem foto de posição'}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <span className="section-label">Foto de posição (de frente, usada para todas as cores deste modelo)</span>
+          <span className="section-label">Foto de posição — já recortada (de frente, fundo e lente transparentes, usada para todas as cores deste modelo)</span>
+          <span className="helper">Envie um PNG já recortado por fora do sistema (ex.: Photoshop, remove.bg): fundo e a área da lente transparentes, só a armação visível. Esta foto define a forma final do resultado — a IA só troca a cor, não recorta mais nada.</span>
           {product.galleryImages.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span className="helper">Escolha uma foto da galeria do anúncio (de preferência de frente):</span>
+              <span className="helper">Fotos da galeria do anúncio (atenção: vêm CRUAS, sem recorte — normalmente é melhor recortar antes e usar o upload manual abaixo):</span>
               <div className="catalog-gallery-thumbs">
                 {product.galleryImages.map((url) => (
-                  <button key={url} type="button" disabled={busy} onClick={() => handleImportProductPosition(url)} title="Usar esta foto">
+                  <button key={url} type="button" disabled={busy} onClick={() => handleImportProductPosition(url)} title="Usar esta foto (crua, sem recorte)">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={url} alt="Foto do anúncio" />
                   </button>
@@ -383,14 +391,14 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
           )}
           <input
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            accept="image/png"
             ref={positionFileInput}
             onChange={(e) => setSelectedPositionFile(e.target.files?.[0] || null)}
           />
           {selectedPositionFile ? (
             <span className="helper">Arquivo selecionado: {selectedPositionFile.name}</span>
           ) : (
-            <span className="helper">Ou envie um arquivo manualmente</span>
+            <span className="helper">Envie aqui o PNG já recortado</span>
           )}
           <button className="button secondary small" type="button" disabled={busy} style={{ justifySelf: 'start' }} onClick={handleUploadProductPosition}>
             {product.positionImageUrl ? 'Trocar foto de posição' : 'Salvar foto de posição'}

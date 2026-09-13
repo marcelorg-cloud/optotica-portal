@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireMaster } from '@/lib/catalog/require-master';
-import { extractFrameOnly } from '@/lib/catalog/frame-mask';
-import { buildProcessedFrameImage } from '@/lib/catalog/frame-recolor';
+import { recolorFrameWithReference } from '@/lib/catalog/frame-colorize';
 
 const BUCKET = 'catalog-product-photos';
 
@@ -10,21 +9,29 @@ const BUCKET = 'catalog-product-photos';
 // automático no upload, pra não gastar chamada de API em foto que ainda
 // pode ser trocada.
 //
-// Reescrita em 13/09/2026 e simplificada ainda no mesmo dia (2ª rodada,
-// pedido do usuário) depois de ver a 1ª versão (posição + referência de cor,
-// as duas por cor — migração 202609130008): o ângulo/pose é o MESMO pra
-// todas as cores do mesmo modelo, só a cor muda. Então agora usa:
-//  * a foto de posição do PRODUTO (`catalog_products.position_image_path`,
-//    uma só, compartilhada por todas as cores — migração 202609130009);
-//  * a foto da própria COR (`catalog_product_color_images.
-//    original_image_path`, já existia antes de qualquer mudança de hoje —
-//    volta a servir de referência de cor, como já estava sendo exibida).
-// Remove o fundo das duas, troca a cor da foto de posição pela cor da foto
-// da cor (preservando reflexos/sombras) e recorta pro formato quadrado com a
-// armação de ponta a ponta (ver lib/catalog/frame-recolor.ts pro porquê e
-// como). O nome do arquivo final termina com a medida da lente (largura x
-// altura em mm) — só uma convenção de organização pro master, o app sempre
-// lê a medida do banco (catalog_products), nunca do nome do arquivo.
+// Reescrita 4 vezes em 13/09/2026 — histórico rápido pra quem chegar aqui
+// depois (detalhes completos na seção 0.41/0.42 de estado-consolidado.md):
+// 1ª rodada: posição + referência de cor separadas, as duas por cor.
+// 2ª rodada (pedido do usuário): posição vira UMA por PRODUTO (mesma
+//    pose/ângulo pra todas as cores — migração 202609130009); a foto da
+//    própria cor volta a servir de referência de cor.
+// 3ª rodada: bug real em produção mostrou a lente/haste não removidas e a
+//    cor errada — trocou a remoção de fundo genérica por segmentação com
+//    prompt (`schananas/grounded_sam`, lib/catalog/frame-mask.ts).
+// 4ª rodada (esta versão, pedido do usuário): a segmentação da 3ª rodada
+//    não saiu precisa o bastante na prática. Nova abordagem: a foto de
+//    posição do PRODUTO (`catalog_products.position_image_path`) agora
+//    PRECISA vir já recortada pelo master (fundo/lente transparentes, feita
+//    fora do sistema) — deixa de ser recortada por IA. A foto da própria
+//    COR (`catalog_product_color_images.original_image_path`) continua
+//    crua, sem nenhum recorte — só serve de referência visual de cor pra
+//    IA. A IA (`google/nano-banana`, ver lib/catalog/frame-colorize.ts) faz
+//    UM trabalho só: olhar as duas fotos e recolorir a armação já recortada
+//    pra bater com a cor/brilho/estampa da foto da cor — nunca decide mais
+//    forma/transparência (essa vem sempre do recorte manual do master).
+// O nome do arquivo final termina com a medida da lente (largura x altura
+// em mm) — só uma convenção de organização pro master, o app sempre lê a
+// medida do banco (catalog_products), nunca do nome do arquivo.
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ productId: string; colorImageId: string }> }
@@ -49,7 +56,7 @@ export async function POST(
 
   const product = (color as unknown as { catalog_products: { position_image_path: string | null; lens_width_mm: number | null; lens_height_mm: number | null } | null }).catalog_products;
   if (!product?.position_image_path) {
-    return NextResponse.json({ message: 'Defina a foto de posição do produto (seção no topo da página) antes de processar.' }, { status: 400 });
+    return NextResponse.json({ message: 'Defina a foto de posição do produto, já recortada (fundo e lente transparentes — seção no topo da página), antes de processar.' }, { status: 400 });
   }
   const widthMm = product?.lens_width_mm;
   const heightMm = product?.lens_height_mm;
@@ -72,25 +79,14 @@ export async function POST(
 
   let processedBuffer: Buffer;
   try {
-    // Uma chamada de cada vez ao Replicate, não em paralelo (achado em
-    // produção, 13/09/2026): a conta só libera 1 requisição em voo por vez
-    // ("burst de 1") enquanto o crédito estiver abaixo de US$5 — duas
-    // chamadas simultâneas (posição + referência de cor) sempre disputavam
-    // essa única vaga, e mesmo as tentativas automáticas do SDK (ele já
-    // reexecuta sozinho em 429, respeitando o Retry-After) esgotavam antes de
-    // as duas conseguirem passar. Rodando uma de cada vez, cada requisição
-    // usa a vaga sozinha — mais lento (dobra o tempo de espera), mas não
-    // briga com a outra chamada da mesma requisição.
-    //
-    // extractFrameOnly (não mais removeBackground) — achado em produção
-    // (13/09/2026, 3ª rodada): o primeiro teste real mostrou a lente ainda
-    // opaca no resultado e a cor errada (a média usada pra recolorir incluía
-    // pixels da lente). extractFrameOnly (lib/catalog/frame-mask.ts) troca o
-    // modelo genérico de remoção de fundo por uma segmentação com prompt de
-    // texto que já exclui lente e haste, resolvendo os dois problemas juntos.
-    const positionCutout = await extractFrameOnly(positionSigned.signedUrl);
-    const colorReferenceCutout = await extractFrameOnly(colorRefSigned.signedUrl);
-    processedBuffer = await buildProcessedFrameImage(positionCutout, colorReferenceCutout);
+    // 4ª rodada (13/09/2026, pedido do usuário) — ver lib/catalog/
+    // frame-colorize.ts pro porquê completo: a foto de posição já vem
+    // recortada pelo master, a foto da cor continua crua, e a IA
+    // (google/nano-banana) só recolore — não recorta mais nada. Só uma
+    // chamada ao Replicate por processamento (antes eram duas, uma pra cada
+    // foto — isso também elimina o risco de colisão de "burst de 1" das
+    // rodadas anteriores, já que não há mais duas chamadas concorrentes).
+    processedBuffer = await recolorFrameWithReference(positionSigned.signedUrl, colorRefSigned.signedUrl);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.error('catalog_process_failed', { message: detail });

@@ -90,7 +90,12 @@ async function recolorPreservingLuminance(pngBuffer: Buffer, target: { r: number
  * comprido, centralizada no lado mais curto, igual ao exemplo enviado pelo
  * usuário. Lança erro se não houver nenhum pixel visível.
  */
-async function cropToSquareEdgeToEdge(pngBuffer: Buffer): Promise<Buffer> {
+// Exportado a partir da 4ª rodada (13/09/2026 — ver lib/catalog/
+// frame-colorize.ts): o novo pipeline de recolor por IA generativa reusa só
+// este recorte final, não o resto deste arquivo (que fica sem uso direto,
+// mas não foi apagado — mesma lógica de deixar código antigo intacto já
+// aplicada a background-removal.ts).
+export async function cropToSquareEdgeToEdge(pngBuffer: Buffer): Promise<Buffer> {
   const { data, width, height } = await toRawRgba(pngBuffer);
   let minX = width;
   let maxX = -1;
