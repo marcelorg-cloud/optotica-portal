@@ -151,9 +151,24 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   // remover tudo de uma vez, fica mais prático") — junto com o "Remover"
   // individual de cada foto (continua existindo, útil pra tirar só uma).
   const [selectedGalleryIds, setSelectedGalleryIds] = useState<Set<string>>(new Set());
+  // Filtro por cor em "Todas as fotos do anúncio" (14/09/2026, pedido do
+  // usuário: "tem algum botão pra filtrar as fotos por cor do produto?") —
+  // null = mostra todas; senão, mostra só as fotos já marcadas com esta cor.
+  // É só um filtro de VISUALIZAÇÃO — não desmarca nem marca nada sozinho.
+  const [galleryColorFilter, setGalleryColorFilter] = useState<string | null>(null);
+  // Marcação de cor por foto agora é uma PRÉ-SELEÇÃO local (14/09/2026,
+  // pedido do usuário: "está lenta a seleção de cores" — antes, cada clique
+  // numa bolinha já disparava uma chamada ao servidor e recarregava a tela
+  // inteira). Agora o clique só muda este mapa localmente (sem rede
+  // nenhuma); nada é salvo de verdade até clicar em "Salvar marcações".
+  // Mapa: gallery_image_id -> lista de color_image_id marcados (a versão de
+  // TRABALHO, pode divergir do que já está salvo no servidor). Reiniciado
+  // (voltando a refletir o servidor) toda vez que uma carga nova do produto
+  // termina — ver `applyLoad` abaixo.
+  const [pendingGalleryColors, setPendingGalleryColors] = useState<Record<string, string[]>>({});
 
   function applyLoad({ ok, payload }: Awaited<ReturnType<typeof fetchJson>>) {
-    if (ok) { setProduct(payload.product); setColors(payload.colorImages); }
+    if (ok) { setProduct(payload.product); setColors(payload.colorImages); setPendingGalleryColors({}); }
     else setMessage({ kind: 'error', text: payload.message || 'Produto não encontrado.' });
   }
 
@@ -601,23 +616,54 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   // usuário + migração 202609131400 — "Substitui — só marcação manual daqui
   // pra frente"): cada bolinha de cor numa foto liga/desliga a marcação —
   // sempre manda o conjunto COMPLETO de cores já marcadas nesta foto (a rota
-  // substitui tudo, não acrescenta uma por vez).
-  async function handleToggleGalleryColor(galleryImageId: string, colorImageId: string) {
-    const photo = product?.galleryPhotos.find((p) => p.id === galleryImageId);
-    if (!photo) return;
-    const next = new Set(photo.colorImageIds);
-    if (next.has(colorImageId)) next.delete(colorImageId);
-    else next.add(colorImageId);
+  // substitui tudo, não acrescenta uma por vez). Atualizado em 14/09/2026
+  // (pedido do usuário: "está lenta a seleção de cores... pode ser uma
+  // pré-seleção e depois clica em atualizar?") — o clique agora só muda
+  // `pendingGalleryColors` (memória local, sem chamada nenhuma ao servidor);
+  // quem manda pro servidor de verdade é `handleSaveGalleryColorTags`, só
+  // quando o master clica "Salvar marcações".
+  function currentGalleryColorIds(photo: { id: string; colorImageIds: string[] }): string[] {
+    return pendingGalleryColors[photo.id] ?? photo.colorImageIds;
+  }
+
+  function togglePendingGalleryColor(galleryImageId: string, colorImageId: string, baseIds: string[]) {
+    setPendingGalleryColors((prev) => {
+      const current = new Set(prev[galleryImageId] ?? baseIds);
+      if (current.has(colorImageId)) current.delete(colorImageId);
+      else current.add(colorImageId);
+      return { ...prev, [galleryImageId]: Array.from(current) };
+    });
+  }
+
+  // Fotos com marcação diferente do que já está salvo no servidor — é isso
+  // que decide se "Salvar marcações"/"Descartar" aparecem, e quantas
+  // chamadas `handleSaveGalleryColorTags` precisa fazer.
+  const dirtyGalleryPhotos = (product?.galleryPhotos || []).filter((p) => {
+    const pending = pendingGalleryColors[p.id];
+    if (!pending) return false;
+    const a = [...p.colorImageIds].sort().join(',');
+    const b = [...pending].sort().join(',');
+    return a !== b;
+  });
+
+  async function handleSaveGalleryColorTags() {
+    if (!dirtyGalleryPhotos.length) return;
     setBusy(true);
     setMessage(null);
     try {
-      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/gallery/${galleryImageId}/colors`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ colorImageIds: Array.from(next) })
-      });
-      if (!ok) setMessage({ kind: 'error', text: payload.message || 'Não foi possível salvar a marcação de cores.' });
-      if (ok) load();
+      let okCount = 0;
+      let failCount = 0;
+      for (const photo of dirtyGalleryPhotos) {
+        const { ok } = await fetchJson(`/api/admin/catalog/products/${productId}/gallery/${photo.id}/colors`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ colorImageIds: pendingGalleryColors[photo.id] })
+        });
+        if (ok) okCount += 1;
+        else failCount += 1;
+      }
+      setMessage({ kind: failCount ? 'error' : 'success', text: `Marcação de ${okCount} foto(s) salva.${failCount ? ` ${failCount} falharam — tente de novo.` : ''}` });
+      load();
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
@@ -782,9 +828,78 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         <div className="card" style={{ padding: 16, marginBottom: 20 }}>
           <span className="section-label">Todas as fotos do anúncio — marque quais cores aparecem em cada foto</span>
           <p className="helper" style={{ margin: '4px 0 12px' }}>
-            Clique nas bolinhas de cor abaixo de cada foto para marcar/desmarcar. Ao processar uma cor com IA, ela recorta
-            só as fotos marcadas para aquela cor.
+            Clique nas bolinhas de cor abaixo de cada foto para marcar/desmarcar — é só uma pré-seleção,
+            ainda não salva nada. Clique em &quot;Salvar marcações&quot; quando terminar. Ao processar uma cor
+            com IA, ela recorta só as fotos marcadas (e já salvas) para aquela cor.
           </p>
+          {/* Salvar/descartar a pré-seleção (14/09/2026, pedido do usuário:
+              "está lenta a seleção de cores... pode ser uma pré-seleção e
+              depois clica em atualizar?") — antes, cada clique numa bolinha
+              já ia pro servidor e recarregava a tela inteira; agora só muda
+              localmente até clicar aqui. */}
+          {dirtyGalleryPhotos.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, padding: '8px 10px', background: '#fff8e1', borderRadius: 6 }}>
+              <span className="helper" style={{ margin: 0 }}>
+                {dirtyGalleryPhotos.length} foto(s) com marcação ainda não salva.
+              </span>
+              <button type="button" className="button primary small" disabled={busy} onClick={handleSaveGalleryColorTags}>
+                Salvar marcações ({dirtyGalleryPhotos.length})
+              </button>
+              <button type="button" className="button secondary small" disabled={busy} onClick={() => setPendingGalleryColors({})}>
+                Descartar
+              </button>
+            </div>
+          )}
+          {/* Filtro por cor (14/09/2026, pedido do usuário: "tem algum botão
+              pra filtrar as fotos por cor do produto?") — clica numa cor pra
+              ver só as fotos já marcadas com ela (útil quando tem muita foto
+              e quer conferir/terminar a marcação de uma cor por vez); clica
+              de novo (ou em "Todas") pra voltar a ver tudo. Só filtra o que
+              aparece na tela, não muda marcação nenhuma. */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+            <span className="helper" style={{ marginRight: 2 }}>Filtrar por cor:</span>
+            <button
+              type="button"
+              onClick={() => setGalleryColorFilter(null)}
+              style={{
+                fontSize: 11,
+                padding: '4px 10px',
+                borderRadius: 999,
+                border: `2px solid ${galleryColorFilter === null ? '#222' : '#ccc'}`,
+                background: '#fff',
+                fontWeight: galleryColorFilter === null ? 700 : 400,
+                cursor: 'pointer'
+              }}
+            >
+              Todas ({product.galleryPhotos.length})
+            </button>
+            {colors.map((color) => {
+              const count = product.galleryPhotos.filter((p) => currentGalleryColorIds(p).includes(color.id)).length;
+              const active = galleryColorFilter === color.id;
+              const label = color.colorVariantNumber ? `C${color.colorVariantNumber}` : (color.colorName || '?').slice(0, 2);
+              const isLight = colorSwatchIsLight(color.colorPrincipal);
+              return (
+                <button
+                  key={color.id}
+                  type="button"
+                  onClick={() => setGalleryColorFilter(active ? null : color.id)}
+                  title={`Mostrar só as fotos marcadas com ${color.colorPrincipal}${color.colorSecondary ? ` / ${color.colorSecondary}` : ''}`}
+                  style={{
+                    fontSize: 11,
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    border: active ? '2px solid #222' : `1px solid ${colorSwatchSolidHex(color.colorPrincipal)}`,
+                    background: colorSwatchBackground(color.colorPrincipal, color.colorSecondary),
+                    color: isLight ? '#222' : '#fff',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {label} ({count})
+                </button>
+              );
+            })}
+          </div>
           {/* Remoção em lote (14/09/2026, pedido do usuário: "selecionar vários
               e remover tudo de uma vez") — marca a caixinha de cada foto que
               não serve (banner, foto de outro modelo) e remove todas juntas;
@@ -805,7 +920,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
             )}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14 }}>
-            {product.galleryPhotos.map((photo) => {
+            {(galleryColorFilter ? product.galleryPhotos.filter((p) => currentGalleryColorIds(p).includes(galleryColorFilter)) : product.galleryPhotos).map((photo) => {
               const selected = selectedGalleryIds.has(photo.id);
               return (
               <div key={photo.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: 108 }}>
@@ -829,7 +944,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                 </button>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center' }}>
                   {colors.map((color) => {
-                    const marked = photo.colorImageIds.includes(color.id);
+                    const marked = currentGalleryColorIds(photo).includes(color.id);
                     const label = color.colorVariantNumber ? `C${color.colorVariantNumber}` : (color.colorName || '?').slice(0, 2);
                     const title = color.colorVariantNumber
                       ? `Cor ${color.colorVariantNumber} — ${color.colorPrincipal}${color.colorSecondary ? ` / ${color.colorSecondary}` : ''}`
@@ -855,7 +970,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                         type="button"
                         disabled={busy}
                         title={title}
-                        onClick={() => handleToggleGalleryColor(photo.id, color.id)}
+                        onClick={() => togglePendingGalleryColor(photo.id, color.id, photo.colorImageIds)}
                         style={{
                           fontSize: 10,
                           lineHeight: 1,
