@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireMaster } from '@/lib/catalog/require-master';
 import { recolorFrameWithReference } from '@/lib/catalog/frame-colorize';
+import { fetchSwatch, pickMatchingGalleryPhotos } from '@/lib/catalog/color-swatch';
 
 const BUCKET = 'catalog-product-photos';
 
@@ -151,5 +152,63 @@ export async function POST(
     return NextResponse.json({ message: 'Imagem processada, mas não foi possível atualizar o registro.' }, { status: 500 });
   }
 
-  return NextResponse.json({ message: 'Imagem processada — confira antes de validar.' });
+  // Fotos de exibição por cor (13/09/2026, pedido do usuário: "deve
+  // acrescentar até mais 3 fotos da mesma cor do produto"; migração
+  // 202609131200): a posição 1 é sempre a foto recém processada acima; as
+  // posições 2-4, quando existirem fotos gerais do anúncio parecidas o
+  // bastante em cor com a referência desta cor (ver lib/catalog/
+  // color-swatch.ts), são preenchidas automaticamente. Tudo aqui é só
+  // SUGESTÃO — nunca falha o processamento principal (que já terminou com
+  // sucesso acima) — e o master pode remover uma foto errada na tela do
+  // produto.
+  let galleryMatchWarning: string | null = null;
+  try {
+    const { error: position1Error } = await auth.admin
+      .from('catalog_product_color_display_images')
+      .upsert(
+        { color_image_id: colorImageId, position: 1, source: 'processada', image_path: processedPath, image_url: null },
+        { onConflict: 'color_image_id,position' }
+      );
+    if (position1Error) throw new Error(position1Error.message);
+
+    const { data: galleryRows } = await auth.admin
+      .from('catalog_product_gallery_images')
+      .select('image_url')
+      .eq('product_id', productId)
+      .order('position', { ascending: true });
+    const galleryUrls = (galleryRows || []).map((g) => g.image_url);
+
+    if (galleryUrls.length) {
+      const { data: siblingColorIds } = await auth.admin
+        .from('catalog_product_color_images')
+        .select('id')
+        .eq('product_id', productId);
+      const colorIds = (siblingColorIds || []).map((c) => c.id);
+      const { data: claimedRows } = colorIds.length
+        ? await auth.admin
+            .from('catalog_product_color_display_images')
+            .select('image_url')
+            .in('color_image_id', colorIds)
+            .eq('source', 'aliexpress')
+        : { data: [] as { image_url: string | null }[] };
+      const claimedUrls = new Set((claimedRows || []).map((c) => c.image_url).filter((u): u is string => Boolean(u)));
+
+      const referenceSwatch = await fetchSwatch(colorRefSigned.signedUrl);
+      if (referenceSwatch) {
+        const matches = await pickMatchingGalleryPhotos(referenceSwatch, galleryUrls, claimedUrls, 3);
+
+        await auth.admin.from('catalog_product_color_display_images').delete().eq('color_image_id', colorImageId).neq('position', 1);
+        if (matches.length) {
+          const rows = matches.map((m, i) => ({ color_image_id: colorImageId, position: i + 2, source: 'aliexpress' as const, image_path: null, image_url: m.imageUrl }));
+          const { error: insertMatchesError } = await auth.admin.from('catalog_product_color_display_images').insert(rows);
+          if (insertMatchesError) galleryMatchWarning = 'Fotos extras não puderam ser salvas — tente processar de novo.';
+        }
+      }
+    }
+  } catch (err) {
+    console.error('catalog_display_images_failed', { message: err instanceof Error ? err.message : String(err) });
+    galleryMatchWarning = 'A imagem principal foi processada, mas não foi possível montar as fotos extras desta cor.';
+  }
+
+  return NextResponse.json({ message: galleryMatchWarning ? `Imagem processada — confira antes de validar. ${galleryMatchWarning}` : 'Imagem processada — confira antes de validar.' });
 }

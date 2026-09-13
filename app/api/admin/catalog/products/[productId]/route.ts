@@ -31,11 +31,40 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
     .eq('product_id', productId)
     .order('position', { ascending: true });
 
+  // Fotos de exibição por cor — até 4 (posição 1 = tratada, 2-4 = sugeridas
+  // automaticamente da galeria geral por cor — ver migração 202609131200 e
+  // lib/catalog/color-swatch.ts). Buscadas de uma vez só pra todas as cores
+  // deste produto e agrupadas abaixo por `color_image_id`.
+  const colorIds = (images || []).map((image) => image.id);
+  const { data: displayRows } = colorIds.length
+    ? await auth.admin
+        .from('catalog_product_color_display_images')
+        .select('id, color_image_id, position, source, image_path, image_url')
+        .in('color_image_id', colorIds)
+        .order('position', { ascending: true })
+    : { data: [] as { id: string; color_image_id: string; position: number; source: string; image_path: string | null; image_url: string | null }[] };
+
+  const displayByColor = new Map<string, { id: string; position: number; source: string; image_path: string | null; image_url: string | null }[]>();
+  for (const row of displayRows || []) {
+    const list = displayByColor.get(row.color_image_id) || [];
+    list.push(row);
+    displayByColor.set(row.color_image_id, list);
+  }
+
   const withUrls = await Promise.all((images || []).map(async (image) => {
     const [original, processed] = await Promise.all([
       image.original_image_path ? auth.admin.storage.from('catalog-product-photos').createSignedUrl(image.original_image_path, 3600) : Promise.resolve({ data: null }),
       image.processed_image_path ? auth.admin.storage.from('catalog-product-photos').createSignedUrl(image.processed_image_path, 3600) : Promise.resolve({ data: null })
     ]);
+
+    const displayRowsForColor = displayByColor.get(image.id) || [];
+    const displayImages = await Promise.all(displayRowsForColor.map(async (row) => {
+      const url = row.source === 'processada' && row.image_path
+        ? (await auth.admin.storage.from('catalog-product-photos').createSignedUrl(row.image_path, 3600)).data?.signedUrl || null
+        : row.image_url;
+      return { id: row.id, position: row.position, source: row.source, url };
+    }));
+
     return {
       id: image.id,
       colorName: image.color_name,
@@ -55,7 +84,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       colorPrincipal: image.color_principal,
       colorSecondary: image.color_secondary,
       supplierColorName: image.supplier_color_name,
-      variantSku: image.color_variant_number ? buildVariantSku(product.sku_optotica, image.color_variant_number) : null
+      variantSku: image.color_variant_number ? buildVariantSku(product.sku_optotica, image.color_variant_number) : null,
+      // Fotos de exibição (13/09/2026, migração 202609131200): até 4,
+      // ordenadas por posição — a 1 é sempre a tratada; 2-4, quando
+      // existirem, vieram da galeria geral por semelhança de cor (só
+      // sugestão — ver botão de remover na tela).
+      displayImages
     };
   }));
 

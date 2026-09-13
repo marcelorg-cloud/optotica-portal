@@ -46,6 +46,11 @@ type ColorImage = {
   colorSecondary: string | null;
   supplierColorName: string | null;
   variantSku: string | null;
+  // Fotos de exibição por cor (13/09/2026, migração 202609131200): até 4,
+  // geradas ao clicar em "Processar com IA" — posição 1 é sempre a foto
+  // tratada; 2-4, quando existirem, vieram da galeria geral do anúncio por
+  // semelhança de cor (lib/catalog/color-swatch.ts) — só sugestão, removível.
+  displayImages: { id: string; position: number; source: string; url: string | null }[];
 };
 
 const STATUS_LABEL: Record<string, string> = { em_triagem: 'Em triagem', publicado: 'Publicado', arquivado: 'Arquivado' };
@@ -486,6 +491,27 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
   }
 
+  // Remover uma foto de exibição sugerida automaticamente (13/09/2026,
+  // migração 202609131200) — só posições 2-4 (a 1, tratada, só muda
+  // reprocessando a cor, ver botão "Processar com IA" mais abaixo).
+  async function handleRemoveDisplayImage(colorImageId: string, position: number) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/display-images`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position })
+      });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!product || !colors) return <p className="muted">{message?.text || 'Carregando…'}</p>;
 
   return (
@@ -754,6 +780,30 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                       </button>
                       <button className="button primary small" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'validar')}>Validar</button>
                       <button className="text-button danger" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'rejeitar')}>Rejeitar</button>
+                    </div>
+                  </div>
+                )}
+
+                {color.displayImages.length > 0 && (
+                  <div className="catalog-color-section">
+                    <span className="section-label">Fotos de exibição desta cor ({color.displayImages.length}/4) — a 1ª é sempre a tratada; as demais são sugeridas automaticamente da galeria do anúncio por semelhança de cor ao processar</span>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {color.displayImages.map((img) => (
+                        <div key={img.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                          {img.url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={img.url} alt={`Foto ${img.position}`} style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 4 }} />
+                          ) : (
+                            <span style={{ width: 64, height: 64 }} />
+                          )}
+                          <span className="muted" style={{ fontSize: 10 }}>{img.position === 1 ? 'tratada' : 'sugerida'}</span>
+                          {img.position !== 1 && (
+                            <button className="text-button danger" type="button" disabled={busy} style={{ fontSize: 11 }} onClick={() => handleRemoveDisplayImage(color.id, img.position)}>
+                              Remover
+                            </button>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
