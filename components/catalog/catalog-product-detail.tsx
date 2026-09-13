@@ -81,6 +81,16 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const newColorFileRef = useRef<File | null>(null);
   const fixFileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   const replaceFileInputs = useRef<Record<string, HTMLInputElement | null>>({});
+  // Selecionar o arquivo é capturado em estado (via onChange), não lido do
+  // DOM na hora do clique (via ref) — achado em produção (13/09/2026):
+  // usuário reportava "Escolha um arquivo antes de clicar em Trocar foto"
+  // mesmo depois de já ter escolhido um arquivo. Ler o arquivo pelo estado
+  // do React, capturado no exato onChange do input, remove qualquer
+  // dependência de timing entre a seleção e o clique — e mostrar o nome do
+  // arquivo na tela dá uma confirmação visual de que a seleção realmente
+  // "pegou" antes do usuário clicar em "Trocar foto"/"Adicionar foto".
+  const [selectedFixFile, setSelectedFixFile] = useState<Record<string, File | null>>({});
+  const [selectedReplaceFile, setSelectedReplaceFile] = useState<Record<string, File | null>>({});
 
   function applyLoad({ ok, payload }: Awaited<ReturnType<typeof fetchJson>>) {
     if (ok) { setProduct(payload.product); setColors(payload.colorImages); }
@@ -154,8 +164,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   }
 
   async function handleAddMissingPhoto(colorImageId: string) {
-    const input = fixFileInputs.current[colorImageId];
-    const file = input?.files?.[0];
+    const file = selectedFixFile[colorImageId];
     if (!file) { setMessage({ kind: 'error', text: 'Escolha um arquivo antes de clicar em "Adicionar foto".' }); return; }
     setBusy(true);
     setMessage(null);
@@ -176,13 +185,14 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
       setBusy(false);
+      setSelectedFixFile((prev) => ({ ...prev, [colorImageId]: null }));
+      const input = fixFileInputs.current[colorImageId];
       if (input) input.value = '';
     }
   }
 
   async function handleReplacePhoto(colorImageId: string) {
-    const input = replaceFileInputs.current[colorImageId];
-    const file = input?.files?.[0];
+    const file = selectedReplaceFile[colorImageId];
     if (!file) { setMessage({ kind: 'error', text: 'Escolha um arquivo antes de clicar em "Trocar foto".' }); return; }
     setBusy(true);
     setMessage(null);
@@ -200,9 +210,10 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
       setBusy(false);
+      setSelectedReplaceFile((prev) => ({ ...prev, [colorImageId]: null }));
+      const input = replaceFileInputs.current[colorImageId];
       if (input) input.value = '';
     }
-    if (input) input.value = '';
   }
 
   async function handleImportPhoto(colorImageId: string) {
@@ -315,7 +326,11 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
                       ref={(el) => { fixFileInputs.current[color.id] = el; }}
+                      onChange={(e) => setSelectedFixFile((prev) => ({ ...prev, [color.id]: e.target.files?.[0] || null }))}
                     />
+                    {selectedFixFile[color.id] && (
+                      <span className="helper">Arquivo selecionado: {selectedFixFile[color.id]!.name}</span>
+                    )}
                     <button className="button secondary small" type="button" disabled={busy} onClick={() => handleAddMissingPhoto(color.id)}>Adicionar foto{color.hasSourceImageUrl ? ' manualmente' : ''}</button>
                   </div>
                 )}
@@ -334,7 +349,13 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
                       ref={(el) => { replaceFileInputs.current[color.id] = el; }}
+                      onChange={(e) => setSelectedReplaceFile((prev) => ({ ...prev, [color.id]: e.target.files?.[0] || null }))}
                     />
+                    {selectedReplaceFile[color.id] ? (
+                      <span className="helper">Arquivo selecionado: {selectedReplaceFile[color.id]!.name}</span>
+                    ) : (
+                      <span className="helper">Nenhum arquivo selecionado ainda</span>
+                    )}
                     <button className="button secondary small" type="button" disabled={busy} onClick={() => handleReplacePhoto(color.id)}>Trocar foto (ex.: veio de lado, preciso de frente)</button>
                   </div>
                 )}
