@@ -40,15 +40,25 @@ async function fetchJson(url: string, init?: RequestInit) {
 }
 
 async function uploadPhoto(productId: string, file: File): Promise<{ ok: true; path: string } | { ok: false; message: string }> {
-  const signRes = await fetchJson(`/api/admin/catalog/products/${productId}/images/upload-url`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contentType: file.type, size: file.size })
-  });
-  if (!signRes.ok) return { ok: false, message: signRes.payload.message || 'Não foi possível preparar o envio.' };
-  const { error } = await getSupabaseBrowserClient().storage.from('catalog-product-photos').uploadToSignedUrl(signRes.payload.path, signRes.payload.token, file);
-  if (error) return { ok: false, message: 'Não foi possível enviar a foto. Tente novamente.' };
-  return { ok: true, path: signRes.payload.path };
+  // Tudo dentro de um try/catch: uma falha de rede (fetch ou o upload direto
+  // pro Storage) lança exceção em vez de devolver {error} — sem isso, o botão
+  // que chamou esta função ficava "travado" (busy=true pra sempre, sem
+  // nenhuma mensagem) porque o catch do handler nunca era alcançado. Achado
+  // em produção (12/09/2026): usuário reportou "clico em Trocar foto e não
+  // muda nada", mesmo já tendo escolhido um arquivo.
+  try {
+    const signRes = await fetchJson(`/api/admin/catalog/products/${productId}/images/upload-url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contentType: file.type, size: file.size })
+    });
+    if (!signRes.ok) return { ok: false, message: signRes.payload.message || 'Não foi possível preparar o envio.' };
+    const { error } = await getSupabaseBrowserClient().storage.from('catalog-product-photos').uploadToSignedUrl(signRes.payload.path, signRes.payload.token, file);
+    if (error) return { ok: false, message: `Não foi possível enviar a foto (${error.message || 'erro desconhecido'}). Tente novamente.` };
+    return { ok: true, path: signRes.payload.path };
+  } catch (err) {
+    return { ok: false, message: `Falha de conexão ao enviar a foto${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` };
+  }
 }
 
 export function CatalogProductDetail({ productId }: { productId: string }) {
@@ -135,38 +145,52 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   async function handleAddMissingPhoto(colorImageId: string) {
     const input = fixFileInputs.current[colorImageId];
     const file = input?.files?.[0];
-    if (!file) return;
+    if (!file) { setMessage({ kind: 'error', text: 'Escolha um arquivo antes de clicar em "Adicionar foto".' }); return; }
     setBusy(true);
     setMessage(null);
-    const uploaded = await uploadPhoto(productId, file);
-    if (!uploaded.ok) { setBusy(false); setMessage({ kind: 'error', text: uploaded.message }); return; }
-    const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'completar', stillMissing: [], originalImagePath: uploaded.path })
-    });
-    setBusy(false);
-    setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-    if (ok) load();
-    if (input) input.value = '';
+    // try/finally: garante que o botão nunca fique travado (busy preso em
+    // true) e que sempre apareça alguma mensagem, mesmo se algo inesperado
+    // (rede, etc.) der errado no meio do caminho.
+    try {
+      const uploaded = await uploadPhoto(productId, file);
+      if (!uploaded.ok) { setMessage({ kind: 'error', text: uploaded.message }); return; }
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'completar', stillMissing: [], originalImagePath: uploaded.path })
+      });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+      if (input) input.value = '';
+    }
   }
 
   async function handleReplacePhoto(colorImageId: string) {
     const input = replaceFileInputs.current[colorImageId];
     const file = input?.files?.[0];
-    if (!file) return;
+    if (!file) { setMessage({ kind: 'error', text: 'Escolha um arquivo antes de clicar em "Trocar foto".' }); return; }
     setBusy(true);
     setMessage(null);
-    const uploaded = await uploadPhoto(productId, file);
-    if (!uploaded.ok) { setBusy(false); setMessage({ kind: 'error', text: uploaded.message }); return; }
-    const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'trocar_foto', originalImagePath: uploaded.path })
-    });
-    setBusy(false);
-    setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-    if (ok) load();
+    try {
+      const uploaded = await uploadPhoto(productId, file);
+      if (!uploaded.ok) { setMessage({ kind: 'error', text: uploaded.message }); return; }
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'trocar_foto', originalImagePath: uploaded.path })
+      });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+      if (input) input.value = '';
+    }
     if (input) input.value = '';
   }
 
