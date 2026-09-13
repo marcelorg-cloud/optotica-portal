@@ -453,8 +453,17 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
           ) : (
             <span className="helper">Envie aqui o PNG já recortado</span>
           )}
+          {/* Rótulo único "Salvar foto de posição", sem variante "Trocar"
+              (13/09/2026, 8ª rodada, pedido do usuário): esse botão SEMPRE
+              foi só upload manual do arquivo escolhido acima em "Escolher
+              arquivo" — nunca consultou o AliExpress (isso só existe no
+              "Trocar foto" por COR, seção mais abaixo, que tem miniaturas da
+              galeria). O rótulo "Trocar" aqui só gerava confusão por
+              parecer a mesma coisa. Comportamento não muda: salva o arquivo
+              selecionado, e se já havia uma foto de posição, ela é
+              substituída. */}
           <button className="button secondary small" type="button" disabled={busy} style={{ justifySelf: 'start' }} onClick={handleUploadProductPosition}>
-            {product.positionImageUrl ? 'Trocar foto de posição' : 'Salvar foto de posição'}
+            Salvar foto de posição
           </button>
           {product.positionImageUrl && (
             <span className="helper">Trocar esta foto marca as cores já tratadas para reprocessar (a pose mudou pra todas elas).</span>
