@@ -72,15 +72,23 @@ export async function POST(
 
   let processedBuffer: Buffer;
   try {
-    const [positionCutout, colorReferenceCutout] = await Promise.all([
-      removeBackground(positionSigned.signedUrl),
-      removeBackground(colorRefSigned.signedUrl)
-    ]);
+    // Uma chamada de cada vez ao Replicate, não em paralelo (achado em
+    // produção, 13/09/2026): a conta só libera 1 requisição em voo por vez
+    // ("burst de 1") enquanto o crédito estiver abaixo de US$5 — duas
+    // chamadas simultâneas (posição + referência de cor) sempre disputavam
+    // essa única vaga, e mesmo as tentativas automáticas do SDK (ele já
+    // reexecuta sozinho em 429, respeitando o Retry-After) esgotavam antes de
+    // as duas conseguirem passar. Rodando uma de cada vez, cada requisição
+    // usa a vaga sozinha — mais lento (dobra o tempo de espera), mas não
+    // briga com a outra chamada da mesma requisição.
+    const positionCutout = await removeBackground(positionSigned.signedUrl);
+    const colorReferenceCutout = await removeBackground(colorRefSigned.signedUrl);
     processedBuffer = await buildProcessedFrameImage(positionCutout, colorReferenceCutout);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.error('catalog_process_failed', { message: detail });
     const configMissing = detail.includes('REPLICATE_API_TOKEN');
+    const rateLimited = detail.includes('429') || detail.toLowerCase().includes('throttled');
     // A mensagem de erro real vai pro master (tela protegida por
     // requireMaster(), nunca chega no app do paciente) — achado em produção
     // (13/09/2026): a mensagem genérica ("tente trocar a foto...") não dava
@@ -88,14 +96,15 @@ export async function POST(
     // (Replicate, download do resultado, recolor/recorte) falhou, e não há
     // acesso direto aos logs da Vercel nesta sessão — expor o detalhe aqui
     // evita indas e vindas só pra descobrir a causa.
-    return NextResponse.json(
-      {
-        message: configMissing
-          ? 'Configure REPLICATE_API_TOKEN na Vercel antes de processar imagens.'
-          : `Falha ao processar a imagem: ${detail}. Tente novamente — se persistir, tente trocar a foto de posição do produto ou a foto desta cor.`
-      },
-      { status: 502 }
-    );
+    let message: string;
+    if (configMissing) {
+      message = 'Configure REPLICATE_API_TOKEN na Vercel antes de processar imagens.';
+    } else if (rateLimited) {
+      message = 'O Replicate limitou as requisições por enquanto (conta com pouco crédito tem um limite bem baixo). Espere um minuto e tente de novo — se continuar, considere comprar mais crédito em replicate.com/account/billing.';
+    } else {
+      message = `Falha ao processar a imagem: ${detail}. Tente novamente — se persistir, tente trocar a foto de posição do produto ou a foto desta cor.`;
+    }
+    return NextResponse.json({ message }, { status: 502 });
   }
 
   const measurementSuffix = `${widthMm}x${heightMm}`.replace(/\s+/g, '');
