@@ -15,6 +15,7 @@ type Product = {
   supplierName: string | null;
   supplierStoreId: string | null;
   createdAt: string;
+  galleryImages: string[];
 };
 
 type ColorImage = {
@@ -225,6 +226,29 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     if (ok) load();
   }
 
+  // Pedido do usuário (13/09/2026): "Trocar foto" buscando outra foto do
+  // AliExpress em vez de só aceitar upload manual. As fotos oferecidas são
+  // as ~6 fotos gerais do anúncio (galeria por produto, não por cor — ver
+  // migração 202609130006): podem ser de outra cor, por isso a escolha é
+  // sempre visual (miniatura clicável), nunca automática.
+  async function handleImportFromGallery(colorImageId: string, imageUrl: string) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/import-photo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl })
+      });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleProcess(colorImageId: string) {
     setBusy(true);
     setMessage(null);
@@ -345,6 +369,26 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                 )}
                 {(color.status === 'pendente' || color.status === 'rejeitada') && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                    {product.galleryImages.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span className="helper">Fotos gerais do anúncio (podem ser de outra cor — confira antes de usar):</span>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {product.galleryImages.map((url) => (
+                            <button
+                              key={url}
+                              type="button"
+                              disabled={busy}
+                              onClick={() => handleImportFromGallery(color.id, url)}
+                              title="Usar esta foto"
+                              style={{ padding: 0, border: '1px solid #ccc', borderRadius: 4, overflow: 'hidden', width: 48, height: 48, cursor: 'pointer', flexShrink: 0 }}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={url} alt="Foto do anúncio" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <input
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
