@@ -1,58 +1,47 @@
-// Segundo prompt de IA do catálogo (13/09/2026, pedido do usuário depois de
-// ver a seção 0.52 funcionando): "vao ser dois prompts diferente pra IA: 1
-// para o catalogo de fotos e 2 para a foto de prova online... para o
+// Prompt de IA do catálogo de fotos (13/09/2026 — 2ª versão, depois de um
+// mockup do usuário mudar a abordagem): "vao ser dois prompts diferente pra
+// IA: 1 para o catalogo de fotos e 2 para a foto de prova online... para o
 // catalogo de fotos a IA tem que identificar a cor do óculos em questao,
-// recortar a parte só da cor certa, gerar as sugestoes recortadas." A
-// prova online (lib/catalog/frame-colorize.ts) fica INTOCADA nesta rodada —
-// usuário pediu explicitamente pra ajustar aquele prompt depois, separado.
+// recortar a parte só da cor certa". Na 1ª versão (mesmo dia, antes deste
+// mockup) a IA tinha DOIS trabalhos numa foto só: julgar se a cor batia E
+// recortar. O mockup mudou isso: agora o MASTER marca manualmente, numa
+// seção nova da tela, quais fotos gerais do anúncio pertencem a cada cor
+// (tabela `catalog_product_gallery_image_colors`, migração
+// 202609131400) — então quando esta função é chamada, a foto JÁ é sabida
+// como sendo daquela cor. A IA passa a ter UM trabalho só: recortar a
+// armação, sem mais julgar cor nenhuma — prompt mais simples e mais
+// confiável (menos coisa pra IA decidir errado).
 //
-// Diferente da seção 0.52 (que só ESCOLHIA, sem alterar, a foto geral do
-// anúncio mais parecida em cor — lib/catalog/color-swatch.ts), este prompt
-// pede pra IA (mesmo modelo, google/nano-banana, já em uso na prova online)
-// fazer o trabalho completo: olhar a foto geral do anúncio (que pode
-// mostrar a armação em qualquer ângulo, com fundo, sendo usada por alguém,
-// ou junto de embalagem) e a foto de referência desta cor, e devolver uma
-// imagem NOVA — só a armação, recortada, sem fundo/pessoa/outros objetos —
-// SE a cor bater; se não bater, devolve a foto original sem mudar nada (o
-// código que chama isso sempre confere a cor do resultado antes de salvar —
-// ver `MAX_MATCH_DISTANCE` em color-swatch.ts — então mesmo que a IA erre
-// esse julgamento, o resultado errado é descartado antes de aparecer pro
-// master).
+// A prova online (lib/catalog/frame-colorize.ts) continua com seu próprio
+// prompt, intocada — usuário pediu pra ajustar aquele separadamente depois.
 //
 // Importante sobre limite de chamadas: esta conta do Replicate só suporta
 // UMA chamada de cada vez (achado em rodadas anteriores desta sessão,
 // documentado em frame-colorize.ts — "risco de colisão de burst de 1"), por
 // isso quem chama esta função (process/route.ts) faz uma foto de cada vez,
-// nunca em paralelo, e para depois de um número pequeno de tentativas.
+// nunca em paralelo.
 //
 // IMPORTANTE — não testado nesta sessão (mesma ressalva já registrada em
 // frame-colorize.ts): sem acesso à rede de verdade pro Replicate por aqui,
-// não dá pra confirmar como o modelo reage a este prompt específico na
-// prática (ele pode recortar demais, de menos, ou não seguir a instrução de
-// "não mudar nada se a cor não bater"). Se o recorte sair ruim com
-// frequência, me manda um exemplo (a foto geral usada + o resultado) que eu
-// ajusto o texto do prompt.
+// não dá pra confirmar como o modelo reage a este prompt na prática. Se o
+// recorte sair ruim (cortando parte da armação, ou deixando fundo/pessoa),
+// me manda um exemplo (a foto usada + o resultado) que eu ajusto o texto.
 import Replicate from 'replicate';
 
 const MODEL = 'google/nano-banana';
 
-const CROP_PROMPT = `You will be given two images related to a pair of eyeglasses.
-Image 1 is a photo from an online product listing. It may show the eyeglasses frame alone, being worn by a person, next to packaging or other items, from any angle, and may include background clutter.
-Image 2 is a reference photo showing one specific color of this same eyeglasses frame model.
-First, check whether Image 1 shows this frame in the exact same color as Image 2 (same color, material and pattern — not just a similar style).
-If it does: output a new image that is Image 1 cropped tightly around just the eyeglasses frame itself — remove any person, face, hands, background, packaging or other objects, centering and zooming in on the frame. Preserve the frame's true color, material, shine and pattern exactly as shown in Image 1 — do not recolor or alter it.
-If it does NOT show the frame in that same color (a different color, or no eyeglasses frame clearly visible): output Image 1 completely unchanged, with no cropping at all.`;
+const CROP_PROMPT = `You will be given one photo of a pair of eyeglasses from an online product listing.
+The photo may show the eyeglasses frame alone, being worn by a person, next to packaging or other items, from any angle, and may include background clutter.
+Output a new image that is this photo cropped tightly around just the eyeglasses frame itself — remove any person, face, hands, background, packaging or other objects, centering and zooming in on the frame.
+Preserve the frame's true color, material, shine and pattern exactly as shown in the original photo — do not recolor, retouch or otherwise alter its appearance, only crop.`;
 
 /**
- * Manda a foto geral do anúncio (crua, pode ter fundo/pessoa/qualquer
- * ângulo) + a foto de referência desta cor pro nano-banana, pedindo pra
- * identificar se a cor bate e, se sim, recortar só a armação. Devolve o
- * PNG do resultado — quem chama decide se o resultado ficou bom o
- * suficiente pra salvar (comparando a cor do resultado com a referência,
- * ver lib/catalog/color-swatch.ts), já que a IA pode errar esse
- * julgamento.
+ * Manda uma foto geral do anúncio (crua, pode ter fundo/pessoa/qualquer
+ * ângulo) já sabida como sendo desta cor (marcada manualmente pelo master —
+ * ver migração 202609131400) pro nano-banana, pedindo só pra recortar,
+ * isolando a armação. Devolve o PNG do resultado.
  */
-export async function cropGalleryPhotoForColor(galleryImageUrl: string, colorReferenceImageUrl: string): Promise<Buffer> {
+export async function cropGalleryPhoto(galleryImageUrl: string): Promise<Buffer> {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) throw new Error('REPLICATE_API_TOKEN não configurado.');
   const replicate = new Replicate({ auth: token });
@@ -60,7 +49,7 @@ export async function cropGalleryPhotoForColor(galleryImageUrl: string, colorRef
   const output = await replicate.run(MODEL, {
     input: {
       prompt: CROP_PROMPT,
-      image_input: [galleryImageUrl, colorReferenceImageUrl]
+      image_input: [galleryImageUrl]
     }
   });
 
@@ -74,8 +63,7 @@ export async function cropGalleryPhotoForColor(galleryImageUrl: string, colorRef
 
 // Mesmo tratamento defensivo de formato de saída já usado em
 // background-removal.ts, frame-mask.ts e frame-colorize.ts (duplicado aqui
-// de propósito, não importado de lá — mesmo padrão já usado entre esses
-// arquivos, cada um cuidando da sua própria chamada ao Replicate).
+// de propósito, mesmo padrão já usado entre esses arquivos).
 function resolveOutputUrl(output: unknown): string {
   if (typeof output === 'string') return output;
   if (Array.isArray(output)) {

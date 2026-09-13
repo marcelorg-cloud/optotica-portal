@@ -23,28 +23,51 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
     .order('color_variant_number', { ascending: true, nullsFirst: false });
 
   // Galeria geral de fotos do anúncio (por produto, não por cor) — usada
-  // pelo seletor de miniaturas em "Trocar foto" (ver migração
-  // 202609130006). Ordenada pela posição original no anúncio.
+  // pelo seletor de miniaturas em "Trocar foto" (ver migração 202609130006)
+  // e, desde 13/09/2026 (migração 202609131400), pela seção "Todas as fotos
+  // do anúncio", onde o master marca manualmente quais cores aparecem em
+  // cada foto — por isso agora também expõe `id` (precisa pra marcar/
+  // desmarcar cor e pra process/route.ts encontrar as fotos marcadas).
   const { data: gallery } = await auth.admin
     .from('catalog_product_gallery_images')
-    .select('image_url')
+    .select('id, image_url')
     .eq('product_id', productId)
     .order('position', { ascending: true });
 
-  // Fotos de exibição por cor — até 4 (posição 1 = tratada, 2-4 = sugeridas
-  // automaticamente da galeria geral por cor — ver migração 202609131200 e
-  // lib/catalog/color-swatch.ts). Buscadas de uma vez só pra todas as cores
+  const galleryIds = (gallery || []).map((g) => g.id);
+  // Marcação manual de cor por foto da galeria (migração 202609131400) —
+  // uma foto pode estar marcada com mais de uma cor (foto comparativa com
+  // várias armações). Agrupado abaixo por `gallery_image_id` pra virar,
+  // pra cada foto da galeria, a lista de cores marcadas nela.
+  const { data: tagRows } = galleryIds.length
+    ? await auth.admin
+        .from('catalog_product_gallery_image_colors')
+        .select('gallery_image_id, color_image_id')
+        .in('gallery_image_id', galleryIds)
+    : { data: [] as { gallery_image_id: string; color_image_id: string }[] };
+  const tagsByGalleryImage = new Map<string, string[]>();
+  for (const row of tagRows || []) {
+    const list = tagsByGalleryImage.get(row.gallery_image_id) || [];
+    list.push(row.color_image_id);
+    tagsByGalleryImage.set(row.gallery_image_id, list);
+  }
+
+  // Fotos de exibição por cor — até 4, recortadas pela IA a partir das
+  // fotos da galeria que o master marcou pra esta cor (migração
+  // 202609131400 — substitui a combinação automática das rodadas
+  // anteriores). "position" aqui não tem mais significado especial, é só a
+  // ordem das fotos marcadas. Buscadas de uma vez só pra todas as cores
   // deste produto e agrupadas abaixo por `color_image_id`.
   const colorIds = (images || []).map((image) => image.id);
   const { data: displayRows } = colorIds.length
     ? await auth.admin
         .from('catalog_product_color_display_images')
-        .select('id, color_image_id, position, source, image_path, image_url')
+        .select('id, color_image_id, position, image_path, validated_at')
         .in('color_image_id', colorIds)
         .order('position', { ascending: true })
-    : { data: [] as { id: string; color_image_id: string; position: number; source: string; image_path: string | null; image_url: string | null }[] };
+    : { data: [] as { id: string; color_image_id: string; position: number; image_path: string | null; validated_at: string | null }[] };
 
-  const displayByColor = new Map<string, { id: string; position: number; source: string; image_path: string | null; image_url: string | null }[]>();
+  const displayByColor = new Map<string, { id: string; position: number; image_path: string | null; validated_at: string | null }[]>();
   for (const row of displayRows || []) {
     const list = displayByColor.get(row.color_image_id) || [];
     list.push(row);
@@ -59,14 +82,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
 
     const displayRowsForColor = displayByColor.get(image.id) || [];
     const displayImages = await Promise.all(displayRowsForColor.map(async (row) => {
-      // 'processada' e 'aliexpress_recortada' (13/09/2026, migração
-      // 202609131300) moram no Storage (`image_path`, precisa de URL
-      // assinada); só 'aliexpress' (fotos gerais ainda não recortadas,
-      // caso legado) usa `image_url` direto.
+      // Sempre `image_path` (recorte da IA salvo no Storage) desde a
+      // migração 202609131400 — precisa de URL assinada.
       const url = row.image_path
         ? (await auth.admin.storage.from('catalog-product-photos').createSignedUrl(row.image_path, 3600)).data?.signedUrl || null
-        : row.image_url;
-      return { id: row.id, position: row.position, source: row.source, url };
+        : null;
+      return { id: row.id, position: row.position, validatedAt: row.validated_at, url };
     }));
 
     return {
@@ -89,10 +110,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       colorSecondary: image.color_secondary,
       supplierColorName: image.supplier_color_name,
       variantSku: image.color_variant_number ? buildVariantSku(product.sku_optotica, image.color_variant_number) : null,
-      // Fotos de exibição (13/09/2026, migração 202609131200): até 4,
-      // ordenadas por posição — a 1 é sempre a tratada; 2-4, quando
-      // existirem, vieram da galeria geral por semelhança de cor (só
-      // sugestão — ver botão de remover na tela).
+      // Fotos de exibição (13/09/2026, migração 202609131200; formato
+      // atual desde 202609131400): até 4, recortadas pela IA a partir das
+      // fotos da galeria marcadas manualmente pelo master pra esta cor —
+      // ver botões de remover/validar na tela.
       displayImages
     };
   }));
@@ -127,7 +148,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       supplierName: supplier?.name || null,
       supplierStoreId: supplier?.store_id || null,
       createdAt: product.created_at,
+      // Lista simples de URLs — usada pelo seletor de miniaturas em "Trocar
+      // foto" (mantida como estava, ninguém mais mexe nesse formato).
       galleryImages: (gallery || []).map((g) => g.image_url),
+      // Fotos da galeria com `id` + cores já marcadas nelas (13/09/2026,
+      // migração 202609131400) — alimenta a seção nova "Todas as fotos do
+      // anúncio", onde o master marca/desmarca cor por foto.
+      galleryPhotos: (gallery || []).map((g) => ({ id: g.id, url: g.image_url, colorImageIds: tagsByGalleryImage.get(g.id) || [] })),
       positionImageUrl: positionSigned.data?.signedUrl || null
     },
     colorImages: withUrls

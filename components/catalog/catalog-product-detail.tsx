@@ -24,6 +24,10 @@ type Product = {
   supplierStoreId: string | null;
   createdAt: string;
   galleryImages: string[];
+  // Fotos da galeria com marcação manual de cor (13/09/2026, migração
+  // 202609131400 — "Substitui — só marcação manual daqui pra frente") —
+  // alimenta a seção "Todas as fotos do anúncio".
+  galleryPhotos: { id: string; url: string; colorImageIds: string[] }[];
   positionImageUrl: string | null;
 };
 
@@ -46,11 +50,12 @@ type ColorImage = {
   colorSecondary: string | null;
   supplierColorName: string | null;
   variantSku: string | null;
-  // Fotos de exibição por cor (13/09/2026, migração 202609131200): até 4,
-  // geradas ao clicar em "Processar com IA" — posição 1 é sempre a foto
-  // tratada; 2-4, quando existirem, vieram da galeria geral do anúncio por
-  // semelhança de cor (lib/catalog/color-swatch.ts) — só sugestão, removível.
-  displayImages: { id: string; position: number; source: string; url: string | null }[];
+  // Fotos de exibição por cor (13/09/2026, migração 202609131200; formato
+  // atual desde 202609131400): até 4, recortadas pela IA a partir das fotos
+  // da galeria marcadas manualmente pra esta cor em "Todas as fotos do
+  // anúncio" — sem significado especial de posição, todas removíveis e
+  // validáveis.
+  displayImages: { id: string; position: number; url: string | null; validatedAt: string | null }[];
 };
 
 const STATUS_LABEL: Record<string, string> = { em_triagem: 'Em triagem', publicado: 'Publicado', arquivado: 'Arquivado' };
@@ -491,9 +496,9 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
   }
 
-  // Remover uma foto de exibição sugerida automaticamente (13/09/2026,
-  // migração 202609131200) — só posições 2-4 (a 1, tratada, só muda
-  // reprocessando a cor, ver botão "Processar com IA" mais abaixo).
+  // Remover uma foto de exibição já recortada (13/09/2026, migração
+  // 202609131200; qualquer posição desde a 202609131400 — não há mais
+  // posição especial, ver comentário no DELETE da rota).
   async function handleRemoveDisplayImage(colorImageId: string, position: number) {
     setBusy(true);
     setMessage(null);
@@ -504,6 +509,54 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         body: JSON.stringify({ position })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Validar uma foto de exibição (13/09/2026, migração 202609131400 — botão
+  // "Validar" do mockup): registro de que o master já conferiu esta foto.
+  async function handleValidateDisplayImage(colorImageId: string, position: number) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/display-images`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position })
+      });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Marcação manual de cor por foto geral do anúncio (13/09/2026, mockup do
+  // usuário + migração 202609131400 — "Substitui — só marcação manual daqui
+  // pra frente"): cada bolinha de cor numa foto liga/desliga a marcação —
+  // sempre manda o conjunto COMPLETO de cores já marcadas nesta foto (a rota
+  // substitui tudo, não acrescenta uma por vez).
+  async function handleToggleGalleryColor(galleryImageId: string, colorImageId: string) {
+    const photo = product?.galleryPhotos.find((p) => p.id === galleryImageId);
+    if (!photo) return;
+    const next = new Set(photo.colorImageIds);
+    if (next.has(colorImageId)) next.delete(colorImageId);
+    else next.add(colorImageId);
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/gallery/${galleryImageId}/colors`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ colorImageIds: Array.from(next) })
+      });
+      if (!ok) setMessage({ kind: 'error', text: payload.message || 'Não foi possível salvar a marcação de cores.' });
       if (ok) load();
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
@@ -598,6 +651,61 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
           )}
         </div>
       </div>
+
+      {/* "Todas as fotos do anúncio" (13/09/2026, mockup do usuário +
+          migração 202609131400 — "Substitui — só marcação manual daqui pra
+          frente"): o master marca aqui, foto a foto, quais cores aparecem em
+          cada uma (uma foto pode ter mais de uma cor — ex.: foto
+          comparativa). Essa marcação é o que "Processar com IA", em cada
+          cor mais abaixo, usa como fonte das fotos a recortar — nada aqui
+          recorta nada sozinho, é só a marcação. */}
+      {product.galleryPhotos.length > 0 && colors.length > 0 && (
+        <div className="card" style={{ padding: 16, marginBottom: 20 }}>
+          <span className="section-label">Todas as fotos do anúncio — marque quais cores aparecem em cada foto</span>
+          <p className="helper" style={{ margin: '4px 0 12px' }}>
+            Clique nas bolinhas de cor abaixo de cada foto para marcar/desmarcar. Ao processar uma cor com IA, ela recorta
+            só as fotos marcadas para aquela cor.
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14 }}>
+            {product.galleryPhotos.map((photo) => (
+              <div key={photo.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: 108 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photo.url} alt="Foto do anúncio" style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 4 }} />
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center' }}>
+                  {colors.map((color) => {
+                    const marked = photo.colorImageIds.includes(color.id);
+                    const label = color.colorVariantNumber ? `C${color.colorVariantNumber}` : (color.colorName || '?').slice(0, 2);
+                    const title = color.colorVariantNumber
+                      ? `Cor ${color.colorVariantNumber} — ${color.colorPrincipal}${color.colorSecondary ? ` / ${color.colorSecondary}` : ''}`
+                      : color.colorName;
+                    return (
+                      <button
+                        key={color.id}
+                        type="button"
+                        disabled={busy}
+                        title={title}
+                        onClick={() => handleToggleGalleryColor(photo.id, color.id)}
+                        style={{
+                          fontSize: 10,
+                          lineHeight: 1,
+                          padding: '4px 6px',
+                          borderRadius: 999,
+                          border: marked ? '2px solid #1a73e8' : '1px solid #ccc',
+                          background: marked ? '#1a73e8' : '#fff',
+                          color: marked ? '#fff' : '#333',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="catalog-toolbar">
         <h2 style={{ margin: 0, fontSize: 18 }}>Cores e fotos de prova</h2>
@@ -774,6 +882,22 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                     {!color.originalImageUrl && (
                       <span className="helper">Falta a foto desta cor (seção acima).</span>
                     )}
+                    {(() => {
+                      const taggedPhotos = product.galleryPhotos.filter((p) => p.colorImageIds.includes(color.id));
+                      return taggedPhotos.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span className="helper">{taggedPhotos.length} foto(s) marcada(s) para esta cor em &quot;Todas as fotos do anúncio&quot; — serão recortadas ao processar:</span>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {taggedPhotos.map((p) => (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img key={p.id} src={p.url} alt="Marcada para esta cor" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="helper">Nenhuma foto marcada para esta cor ainda — marque em &quot;Todas as fotos do anúncio&quot; acima antes de processar, se quiser fotos de exibição extras.</span>
+                      );
+                    })()}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <button className="button secondary small" type="button" disabled={busy || !product.positionImageUrl || !color.originalImageUrl} onClick={() => handleProcess(color.id)}>
                         {color.processedImageUrl ? 'Reprocessar com IA' : 'Processar com IA'}
@@ -786,7 +910,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
 
                 {color.displayImages.length > 0 && (
                   <div className="catalog-color-section">
-                    <span className="section-label">Fotos de exibição desta cor ({color.displayImages.length}/4) — a 1ª é sempre a tratada; as demais são recortadas automaticamente pela IA a partir da galeria do anúncio ao processar</span>
+                    <span className="section-label">Fotos de exibição desta cor ({color.displayImages.length}/4) — recortadas pela IA a partir das fotos marcadas para esta cor em &quot;Todas as fotos do anúncio&quot;</span>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       {color.displayImages.map((img) => (
                         <div key={img.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
@@ -796,12 +920,17 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                           ) : (
                             <span style={{ width: 64, height: 64 }} />
                           )}
-                          <span className="muted" style={{ fontSize: 10 }}>{img.position === 1 ? 'tratada' : 'recortada por IA'}</span>
-                          {img.position !== 1 && (
+                          <span className="muted" style={{ fontSize: 10 }}>{img.validatedAt ? 'validada' : 'recortada por IA'}</span>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            {!img.validatedAt && (
+                              <button className="text-button" type="button" disabled={busy} style={{ fontSize: 11 }} onClick={() => handleValidateDisplayImage(color.id, img.position)}>
+                                Validar
+                              </button>
+                            )}
                             <button className="text-button danger" type="button" disabled={busy} style={{ fontSize: 11 }} onClick={() => handleRemoveDisplayImage(color.id, img.position)}>
                               Remover
                             </button>
-                          )}
+                          </div>
                         </div>
                       ))}
                     </div>
