@@ -4,6 +4,18 @@ import { recolorFrameWithReference } from '@/lib/catalog/frame-colorize';
 
 const BUCKET = 'catalog-product-photos';
 
+// Aumenta o tempo limite da função (padrão da Vercel costuma ser curto
+// demais — 10s no plano Hobby) — achado em produção (13/09/2026, 5ª
+// rodada): uma chamada de IA generativa (google/nano-banana) pode demorar
+// mais que isso, e se a função da Vercel for encerrada no meio, a conexão
+// cai de um jeito que o navegador não recebe uma resposta HTTP normal (nem
+// sucesso nem erro) — vira uma exceção de rede no fetch() do navegador. Sem
+// isso, e sem o try/finally que também foi adicionado nesta rodada no
+// componente da tela, essa exceção deixava o botão (e todos os outros da
+// página) travados sem nenhuma mensagem. Se a Vercel não permitir 60s neste
+// plano, ela ignora/reduz sozinha — não quebra o deploy.
+export const maxDuration = 60;
+
 // Passo de "IA" da Fila de Aprovação IA. Disparado manualmente pelo master
 // (botão "Processar com IA" na tela de detalhe do produto) em vez de
 // automático no upload, pra não gastar chamada de API em foto que ainda

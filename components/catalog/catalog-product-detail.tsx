@@ -117,58 +117,86 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     event.preventDefault();
     setBusy(true);
     setMessage(null);
-    const form = new FormData(event.currentTarget);
-    const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        modelName: form.get('modelName'),
-        skuOptotica: form.get('skuOptotica'),
-        lensWidthMm: Number(form.get('lensWidthMm')),
-        lensHeightMm: Number(form.get('lensHeightMm'))
-      })
-    });
-    setBusy(false);
-    setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-    if (ok) load();
+    // try/finally (13/09/2026, 5ª rodada — achado em produção: "clico pra
+    // enviar e não acontece nada" no botão de foto de posição, sem nenhuma
+    // mensagem). Causa real: `busy` é um estado ÚNICO que desabilita TODOS os
+    // botões da página — se qualquer chamada aqui lançar uma exceção (rede
+    // caiu, a função da Vercel truncou a resposta no meio por demorar demais,
+    // etc.) sem passar por um catch/finally, `setBusy(false)` nunca roda, e a
+    // página inteira fica travada com todo botão desabilitado, silenciosamente
+    // (clicar num botão desabilitado não faz nada, nem chama a função — por
+    // isso "não acontece nada"). Só um F5 destravava. Esse mesmo padrão
+    // (try/finally garantindo `setBusy(false)` sempre) já existia em alguns
+    // handlers (ex.: handleReplacePhoto) mas não em todos — agora está em
+    // todos os que usam `busy`.
+    try {
+      const form = new FormData(event.currentTarget);
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          modelName: form.get('modelName'),
+          skuOptotica: form.get('skuOptotica'),
+          lensWidthMm: Number(form.get('lensWidthMm')),
+          lensHeightMm: Number(form.get('lensHeightMm'))
+        })
+      });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handlePublish(status: 'publicado' | 'arquivado') {
     setBusy(true);
-    const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status })
-    });
-    setBusy(false);
-    setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-    if (ok) load();
+    setMessage(null);
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleNewColor(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setMessage(null);
-    const form = new FormData(event.currentTarget);
-    const colorName = String(form.get('colorName') || '');
-    const supplierSku = String(form.get('supplierSku') || '') || undefined;
-    const file = newColorFileRef.current;
+    try {
+      const form = new FormData(event.currentTarget);
+      const colorName = String(form.get('colorName') || '');
+      const supplierSku = String(form.get('supplierSku') || '') || undefined;
+      const file = newColorFileRef.current;
 
-    let originalImagePath: string | undefined;
-    if (file) {
-      const uploaded = await uploadPhoto(productId, file);
-      if (!uploaded.ok) { setBusy(false); setMessage({ kind: 'error', text: uploaded.message }); return; }
-      originalImagePath = uploaded.path;
+      let originalImagePath: string | undefined;
+      if (file) {
+        const uploaded = await uploadPhoto(productId, file);
+        if (!uploaded.ok) { setMessage({ kind: 'error', text: uploaded.message }); return; }
+        originalImagePath = uploaded.path;
+      }
+
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ colorName, supplierSku, originalImagePath })
+      });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) { event.currentTarget.reset(); newColorFileRef.current = null; setShowNewColor(false); load(); }
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
     }
-
-    const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ colorName, supplierSku, originalImagePath })
-    });
-    setBusy(false);
-    setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-    if (ok) { event.currentTarget.reset(); newColorFileRef.current = null; setShowNewColor(false); load(); }
   }
 
   async function handleAddMissingPhoto(colorImageId: string) {
@@ -227,10 +255,15 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   async function handleImportPhoto(colorImageId: string) {
     setBusy(true);
     setMessage(null);
-    const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/import-photo`, { method: 'POST' });
-    setBusy(false);
-    setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-    if (ok) load();
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/import-photo`, { method: 'POST' });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
   }
 
   // Pedido do usuário (13/09/2026): buscar outra foto do AliExpress em vez
@@ -306,10 +339,27 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   async function handleProcess(colorImageId: string) {
     setBusy(true);
     setMessage(null);
-    const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/process`, { method: 'POST' });
-    setBusy(false);
-    setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-    if (ok) load();
+    // try/finally (13/09/2026, 5ª rodada — achado em produção): esta é a
+    // chamada mais demorada da tela (chega a chamar uma IA generativa) e por
+    // isso a mais fácil de esbarrar num erro de REDE de verdade (não um erro
+    // "normal" com resposta HTTP, mas a conexão cair no meio — ex.: a função
+    // da Vercel estourar o tempo limite antes de terminar). Sem try/finally
+    // aqui, uma falha dessas deixava `busy` travado em `true` pra sempre —
+    // como `busy` desabilita TODOS os botões da página (não só este), o
+    // sintoma reportado foi "clico em Trocar foto de posição [um botão sem
+    // nenhuma relação] e não acontece nada", sem nenhuma mensagem — porque um
+    // botão desabilitado nem chama a função ao ser clicado. Um F5 destravava
+    // (recarregava o estado do zero), mas o clique em si nunca fazia nada até
+    // isso.
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/process`, { method: 'POST' });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleValidate(colorImageId: string, action: 'validar' | 'rejeitar') {
@@ -320,14 +370,19 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
     setBusy(true);
     setMessage(null);
-    const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, reason })
-    });
-    setBusy(false);
-    setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-    if (ok) load();
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, reason })
+      });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (!product || !colors) return <p className="muted">{message?.text || 'Carregando…'}</p>;
