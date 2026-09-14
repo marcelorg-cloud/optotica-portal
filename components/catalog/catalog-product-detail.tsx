@@ -114,8 +114,21 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const [showAliexpressImport, setShowAliexpressImport] = useState(false);
   const [aliexpressImportText, setAliexpressImportText] = useState('');
   const [importParseMessage, setImportParseMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
-  const [importColors, setImportColors] = useState<(ParsedAliexpressColor & { include: boolean; alreadyExists: boolean; colorPrincipal: string })[]>([]);
+  // `existingColorImageId` (14/09/2026, pedido do usuário — "trocasse todas
+  // as fotos do produto, tipo um reset das imagens... inclusive a foto da
+  // cor"): quando uma cor do JSON já bate com uma cor cadastrada aqui (por
+  // SKU do fornecedor, ou por cor principal sem cor secundária — mesmo
+  // critério que já decidia `alreadyExists`), guarda o id dela também, pra
+  // dar pra "Resetar foto(s)" saber qual linha atualizar.
+  const [importColors, setImportColors] = useState<(ParsedAliexpressColor & { include: boolean; alreadyExists: boolean; colorPrincipal: string; existingColorImageId: string | null })[]>([]);
   const [importGalleryUrls, setImportGalleryUrls] = useState<string[]>([]);
+  // Lembrar o último JSON usado (14/09/2026, pedido do usuário — "seria bom
+  // que aparecesse o Json usado pela ultima vez"): busca no servidor só na
+  // PRIMEIRA vez que o painel é aberto nesta sessão da tela (o ref evita
+  // buscar de novo se o master fechar e abrir o painel várias vezes) —
+  // ver handleOpenAliexpressImport.
+  const hasFetchedLastJson = useRef(false);
+  const [loadingLastJson, setLoadingLastJson] = useState(false);
 
   // A mensagem de sucesso/erro fica perto do topo da página — mas as ações
   // por cor (Trocar foto, Processar com IA etc.) ficam mais abaixo, na
@@ -277,10 +290,17 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
   }
 
-  function handleParseAliexpressImport() {
+  // Aceita um texto opcional (`textOverride`) em vez de sempre ler de
+  // `aliexpressImportText` — necessário pra "abrir o painel já pré-
+  // preenchido e analisado" (handleOpenAliexpressImport): `setState` é
+  // assíncrono, então chamar esta função logo depois de
+  // `setAliexpressImportText(json)` leria o valor ANTIGO (vazio) do estado
+  // se não houvesse essa saída.
+  function handleParseAliexpressImport(textOverride?: string) {
+    const text = textOverride ?? aliexpressImportText;
     setImportParseMessage(null);
     try {
-      const parsed = parseAliexpressJson(aliexpressImportText);
+      const parsed = parseAliexpressJson(text);
 
       // Checagem de segurança (14/09/2026, pedido do usuário depois de um
       // incidente real: colou aqui o JSON de um Product ID diferente do
@@ -319,25 +339,63 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       // garante de verdade que não duplica, rejeitando com 409 se a mesma
       // combinação já existir), mas evita já entrar marcada pra importar de
       // novo uma cor que, visivelmente, é a mesma.
-      const existingSkus = new Set((colors || []).map((c) => (c.supplierSku || '').trim().toLowerCase()).filter(Boolean));
-      const existingPrincipals = new Set((colors || []).filter((c) => !c.colorSecondary).map((c) => (c.colorPrincipal || '').trim().toLowerCase()).filter(Boolean));
+      const existingBySku = new Map((colors || []).filter((c) => c.supplierSku).map((c) => [c.supplierSku!.trim().toLowerCase(), c.id] as const));
+      const existingByPrincipal = new Map((colors || []).filter((c) => !c.colorSecondary && c.colorPrincipal).map((c) => [c.colorPrincipal!.trim().toLowerCase(), c.id] as const));
       const withInclude = parsed.colors.map((c) => {
         const suggested = c.suggestedPrincipalColor || '';
-        const alreadyExists = (Boolean(c.supplierSku) && existingSkus.has(c.supplierSku!.trim().toLowerCase()))
-          || (Boolean(suggested) && existingPrincipals.has(suggested.trim().toLowerCase()));
-        return { ...c, alreadyExists, include: !alreadyExists, colorPrincipal: suggested };
+        const matchedBySku = c.supplierSku ? existingBySku.get(c.supplierSku.trim().toLowerCase()) : undefined;
+        const matchedByPrincipal = suggested ? existingByPrincipal.get(suggested.trim().toLowerCase()) : undefined;
+        const existingColorImageId = matchedBySku || matchedByPrincipal || null;
+        const alreadyExists = Boolean(existingColorImageId);
+        return { ...c, alreadyExists, include: !alreadyExists, colorPrincipal: suggested, existingColorImageId };
       });
       setImportColors(withInclude);
       setImportGalleryUrls(parsed.galleryImageUrls);
       const existingCount = withInclude.filter((c) => c.alreadyExists).length;
       setImportParseMessage({
         kind: 'success',
-        text: `Encontrei ${parsed.colors.length} cor(es)${existingCount ? ` (${existingCount} já cadastrada(s) aqui, desmarcada(s))` : ''} e ${parsed.galleryImageUrls.length} foto(s) gerais do anúncio.`
+        text: `Encontrei ${parsed.colors.length} cor(es)${existingCount ? ` (${existingCount} já cadastrada(s) aqui, desmarcada(s) — dá pra atualizar a foto delas em "Resetar foto(s)" abaixo)` : ''} e ${parsed.galleryImageUrls.length} foto(s) gerais do anúncio.`
       });
+
+      // Lembrar o último JSON usado (14/09/2026): salva em segundo plano,
+      // sem bloquear a tela nem mostrar erro se falhar — é só uma
+      // conveniência pra da próxima vez já vir preenchido, nunca faz parte
+      // do fluxo obrigatório de analisar/importar.
+      fetchJson(`/api/admin/catalog/products/${productId}/aliexpress-json`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: text })
+      }).catch(() => {});
     } catch (err) {
       setImportColors([]);
       setImportGalleryUrls([]);
       setImportParseMessage({ kind: 'error', text: err instanceof Error ? err.message : 'Não foi possível ler esse JSON.' });
+    }
+  }
+
+  // Abre (ou fecha) o painel de importar/atualizar. Ao abrir pela primeira
+  // vez nesta tela (`hasFetchedLastJson`), busca o último JSON salvo pra
+  // este produto e, se encontrar algo, já preenche a caixa E analisa
+  // sozinho — pedido do usuário: "seria bom que aparecesse o Json usado
+  // pela ultima vez". Se o master já tiver digitado/colado algo na caixa
+  // nesta sessão da tela, não sobrescreve nada.
+  async function handleOpenAliexpressImport() {
+    const next = !showAliexpressImport;
+    setShowAliexpressImport(next);
+    if (!next || hasFetchedLastJson.current || aliexpressImportText.trim()) return;
+    hasFetchedLastJson.current = true;
+    setLoadingLastJson(true);
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/aliexpress-json`, { method: 'GET' });
+      if (ok && typeof payload.json === 'string' && payload.json.trim()) {
+        setAliexpressImportText(payload.json);
+        handleParseAliexpressImport(payload.json);
+      }
+    } catch {
+      // Silencioso de propósito — só uma conveniência; se falhar, a caixa
+      // fica vazia do jeito que já era antes desta funcionalidade existir.
+    } finally {
+      setLoadingLastJson(false);
     }
   }
 
@@ -393,6 +451,55 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       setImportGalleryUrls([]);
       setImportParseMessage(null);
       load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // "Resetar foto(s)" (14/09/2026, pedido do usuário): "trocasse todas as
+  // fotos do produto, tipo um reset das imagens... inclusive a foto da
+  // cor". Diferente de "Importar X cor(es)" acima (que só CRIA cor nova),
+  // este botão pega as cores do JSON que já batem com uma cor cadastrada
+  // aqui (`existingColorImageId`, calculado em handleParseAliexpressImport)
+  // e baixa de novo a foto de referência de cada uma, substituindo a que
+  // estava salva — junto com as fotos gerais do anúncio (galeria), que só
+  // são conferidas/adicionadas (nunca removidas). Nunca mexe em nome do
+  // modelo, medidas ou qualquer outro dado do produto.
+  async function handleResetExistingPhotos() {
+    const matched = importColors.filter((c) => c.alreadyExists && c.existingColorImageId && c.sourceImageUrl);
+    if (!matched.length && !importGalleryUrls.length) {
+      setImportParseMessage({ kind: 'error', text: 'Nenhuma cor já cadastrada (com foto de referência) nem foto de galeria encontrada nesse JSON para resetar.' });
+      return;
+    }
+    const confirmed = confirm(
+      `Isso vai baixar de novo, direto do AliExpress, a foto de ${matched.length} cor(es) já cadastradas neste produto — substituindo a foto atual de cada uma.\n\n` +
+      `Cores que já estavam "Validada" voltam para "Pendente" e precisam ser processadas/validadas de novo (a foto mudou). Descrição e medidas do produto NÃO são alteradas — só as fotos.\n\n` +
+      `Tem certeza que quer continuar?`
+    );
+    if (!confirmed) return;
+
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/reset-photos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          colors: matched.map((c) => ({ colorImageId: c.existingColorImageId, sourceImageUrl: c.sourceImageUrl })),
+          galleryImageUrls: importGalleryUrls
+        })
+      });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) {
+        setShowAliexpressImport(false);
+        setAliexpressImportText('');
+        setImportColors([]);
+        setImportGalleryUrls([]);
+        setImportParseMessage(null);
+        load();
+      }
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
@@ -998,7 +1105,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       <div className="catalog-toolbar">
         <h2 style={{ margin: 0, fontSize: 18 }}>Cores e fotos de prova</h2>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="button secondary" type="button" onClick={() => setShowAliexpressImport((v) => !v)}>Importar/atualizar do AliExpress</button>
+          <button className="button secondary" type="button" onClick={handleOpenAliexpressImport}>Importar/atualizar do AliExpress</button>
           <button className="button secondary" type="button" onClick={() => setShowNewColor((v) => !v)}>+ Adicionar cor</button>
         </div>
       </div>
@@ -1009,8 +1116,12 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
             <label style={{ fontSize: 13, fontWeight: 600 }}>Colar JSON do AliExpress</label>
             <p className="helper" style={{ margin: 0 }}>
               Cole a resposta da API &quot;Item Detail&quot; deste produto — cria as cores que ainda não existem aqui
-              (com a foto de referência já associada) e adiciona as fotos gerais na galeria. Nada do que já está
-              cadastrado neste produto é alterado.
+              (com a foto de referência já associada) e adiciona as fotos gerais na galeria. &quot;Importar&quot; nunca
+              mexe no que já está cadastrado; para cores que já existem, use &quot;Resetar foto(s)&quot; abaixo, que baixa
+              a foto de novo da fonte (inclusive a foto da própria cor) sem alterar descrição/medidas do produto.
+              {loadingLastJson
+                ? ' Buscando o último JSON usado neste produto...'
+                : ' O último JSON analisado com sucesso aqui fica salvo e já vem preenchido da próxima vez que este painel é aberto.'}
             </p>
             <textarea
               rows={4}
@@ -1020,7 +1131,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
               style={{ fontFamily: 'monospace', fontSize: 12 }}
             />
             <div>
-              <button className="button secondary small" type="button" onClick={handleParseAliexpressImport} disabled={!aliexpressImportText.trim()}>
+              <button className="button secondary small" type="button" onClick={() => handleParseAliexpressImport()} disabled={!aliexpressImportText.trim()}>
                 Analisar JSON
               </button>
             </div>
@@ -1044,17 +1155,24 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                     {COLOR_VOCABULARY.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                   <span className="muted" style={{ fontSize: 11 }}>{color.supplierColorName}</span>
-                  <span className="muted" style={{ fontSize: 11 }}>{color.alreadyExists ? 'já cadastrada aqui' : color.supplierSku || 'sem SKU do fornecedor'}</span>
+                  <span className="muted" style={{ fontSize: 11 }}>{color.alreadyExists ? 'já cadastrada aqui — foto pode ser atualizada em "Resetar foto(s)"' : color.supplierSku || 'sem SKU do fornecedor'}</span>
                 </div>
               ))}
             </div>
           )}
 
-          {(importColors.length > 0 || importGalleryUrls.length > 0) && (
-            <button className="button primary" type="button" disabled={busy} style={{ justifySelf: 'start' }} onClick={handleImportAliexpress}>
-              Importar {importColors.filter((c) => c.include).length} cor(es) e {importGalleryUrls.length} foto(s) da galeria
-            </button>
-          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {(importColors.length > 0 || importGalleryUrls.length > 0) && (
+              <button className="button primary" type="button" disabled={busy} onClick={handleImportAliexpress}>
+                Importar {importColors.filter((c) => c.include).length} cor(es) e {importGalleryUrls.length} foto(s) da galeria
+              </button>
+            )}
+            {(importColors.some((c) => c.alreadyExists && c.existingColorImageId && c.sourceImageUrl) || importGalleryUrls.length > 0) && (
+              <button className="button secondary" type="button" disabled={busy} onClick={handleResetExistingPhotos}>
+                Resetar foto(s) de {importColors.filter((c) => c.alreadyExists && c.existingColorImageId && c.sourceImageUrl).length} cor(es) já cadastradas
+              </button>
+            )}
+          </div>
         </div>
       )}
 
