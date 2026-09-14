@@ -1140,7 +1140,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                       <button className="button secondary small" type="button" disabled={busy} onClick={() => handleAddMissingPhoto(color.id)}>Adicionar foto{color.hasSourceImageUrl ? ' manualmente' : ''}</button>
                     </div>
                   )}
-                  {(color.status === 'pendente' || color.status === 'rejeitada') && (
+                  {color.status !== 'incompleto' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {product.galleryImages.length > 0 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -1171,9 +1171,12 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                   )}
                 </div>
 
-                {color.status === 'pendente' && (
+                {color.status !== 'incompleto' && (
                   <div className="catalog-color-section">
                     <span className="section-label">Processamento</span>
+                    {color.status === 'validada' && (
+                      <span className="helper">Esta cor já está validada. Você ainda pode reprocessar, trocar a foto marcada ou rejeitar — o painel continua editável mesmo depois de validar.</span>
+                    )}
                     {!product.positionImageUrl && (
                       <span className="helper">Falta a foto de posição do produto (seção no topo da página).</span>
                     )}
@@ -1200,7 +1203,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                       <button className="button secondary small" type="button" disabled={busy || !product.positionImageUrl || !color.originalImageUrl} onClick={() => handleProcess(color.id)}>
                         {color.processedImageUrl ? 'Reprocessar com IA' : 'Processar com IA'}
                       </button>
-                      <button className="button primary small" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'validar')}>Validar</button>
+                      <button className="button primary small" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'validar')}>{color.status === 'validada' ? 'Validar novamente' : 'Validar'}</button>
                       <button className="text-button danger" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'rejeitar')}>Rejeitar</button>
                     </div>
                   </div>
