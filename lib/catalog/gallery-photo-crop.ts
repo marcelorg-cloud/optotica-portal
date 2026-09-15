@@ -1,5 +1,12 @@
-// Prompt de IA do catálogo de fotos — 5ª versão (15/09/2026, 4ª rodada do
-// dia — ver estado-consolidado.md seção 0.70): pedido do usuário, depois de
+// Prompt de IA do catálogo de fotos — 6ª versão (15/09/2026, 5ª rodada do
+// dia — ver estado-consolidado.md seção 0.73): usuário mandou 2 prints reais
+// de um resultado processado onde a armação saiu pequena, com margem branca
+// enorme dos dois lados, e pediu pra IA deixar a foto maior (margem pequena
+// nas laterais). Corrigido com `sharp().trim()` em `standardizeDisplayImage`
+// (recorta a sobra de fundo branco antes de encaixar no tamanho fixo, não
+// depende só da IA obedecer o prompt) — ver comentário dessa função.
+//
+// Histórico anterior (5ª versão): pedido do usuário, depois de
 // várias rodadas revisando o texto do prompt em português antes de colocar
 // no sistema (ver spec-ajustes-fotos-cor.md e a conversa registrada):
 //
@@ -85,7 +92,7 @@ Output a new image that is the first photo cropped, following these rules:
 - Do not change the frame's color, material, shine, pattern, proportions, or shape/design — keep it exactly faithful to how it looks in the first photo. Only crop and clean; never redraw, resize/distort, retouch, or repaint the frame's appearance.
 - Remove any person, face, hands, background, packaging or other objects completely.
 - Fill the entire background with solid pure white (#FFFFFF), studio product-photo style.
-- The frame should occupy as much of the final image as possible, with only a small margin on top and on the sides — do not let the frame touch the edges, but keep the margin as small as possible.
+- The frame should occupy as much of the final image as possible — crop in tightly, leaving only a thin margin (a few percent of the image size) between the frame and the top/left/right edges. Do not leave large empty white areas around the frame. Do not let the frame touch the edges, but err on the side of cropping too tight rather than leaving extra empty space.
 - The final image must have the fixed wide, short rectangular proportion already defined (1040×320 pixels — much wider than tall).
 - If there is a sticker, label, or printed text stuck on top of a lens (common in supplier photos), remove it and restore that lens to look clear/transparent like the rest of the lens.
 - If the first image shows more than one frame color, use the second image (reference) to identify which one matches the correct color/pattern, and use ONLY that one — completely ignore and discard any frame with a different color/pattern.`;
@@ -215,10 +222,36 @@ async function detectMatchingFrameCount(referenceUrl: string, candidateUrl: stri
  * pós-processamento previsível por cima do resultado da IA generativa).
  * Devolve sempre JPEG, tentando qualidades decrescentes até caber no teto
  * de `MAX_JPEG_BYTES`.
+ *
+ * Correção (15/09/2026 — usuário reportou com print real: "a foto processada
+ * por IA ficou com a imagem do óculos muito pequena... seria bom que a IA
+ * deixasse a foto maior, com uma pequena margem aos lados"): o problema não
+ * era só o texto do prompt pedindo "margem pequena" — o passo determinístico
+ * de encaixar no tamanho fixo (1040×320, `fit: 'contain'`) preserva qualquer
+ * sobra de fundo branco que a IA deixou ao redor da armação, então mesmo uma
+ * margem "pequena" da IA virava uma faixa branca enorme dos dois lados ao
+ * encaixar numa proporção bem mais larga (3.25:1) do que a foto recortada
+ * pela IA costuma sair. Corrigido com `sharp().trim()` ANTES do resize —
+ * corta automaticamente toda a borda branca ao redor da armação (não importa
+ * quanto a IA deixou), garantindo a armação sempre do tamanho máximo possível
+ * dentro do retângulo final — não depende mais só da IA "obedecer" o prompt.
  */
 async function standardizeDisplayImage(buffer: Buffer): Promise<Buffer> {
-  const pipeline = sharp(buffer)
-    .flatten({ background: { r: 255, g: 255, b: 255 } })
+  const flattened = await sharp(buffer).flatten({ background: { r: 255, g: 255, b: 255 } }).toBuffer();
+
+  // threshold mais alto que o padrão do sharp (10) pra tolerar ruído de
+  // compressão JPEG perto da borda da armação sem cortar o resultado inteiro
+  // à toa; se por algum motivo não sobrar nada pra recortar (imagem já sem
+  // nenhuma borda, ou alguma falha de decodificação), usa a imagem original
+  // sem recorte em vez de derrubar o processamento desta foto.
+  let trimmed = flattened;
+  try {
+    trimmed = await sharp(flattened).trim({ background: '#ffffff', threshold: 15 }).toBuffer();
+  } catch (err) {
+    console.error('catalog_standardize_trim_failed', { message: err instanceof Error ? err.message : String(err) });
+  }
+
+  const pipeline = sharp(trimmed)
     .resize(OUTPUT_WIDTH, OUTPUT_HEIGHT, { fit: 'contain', background: { r: 255, g: 255, b: 255 } });
 
   let smallest: Buffer | null = null;
