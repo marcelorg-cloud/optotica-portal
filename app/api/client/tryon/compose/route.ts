@@ -9,6 +9,7 @@ const CATALOG_BUCKET = 'catalog-product-photos';
 type ColorRow = {
   processed_image_path: string | null;
   status: string;
+  is_active: boolean;
   catalog_products: { id: string; lens_width_mm: number | null; frame_total_width_mm: number | null; status: string } | null;
 };
 
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
 
   const { data: color } = await admin
     .from('catalog_product_color_images')
-    .select('processed_image_path, status, catalog_products!inner(id, lens_width_mm, frame_total_width_mm, status)')
+    .select('processed_image_path, status, is_active, catalog_products!inner(id, lens_width_mm, frame_total_width_mm, status)')
     .eq('product_id', productId)
     .eq('color_name', colorName)
     .maybeSingle();
@@ -70,7 +71,12 @@ export async function POST(request: Request) {
   // ainda não foi preenchido, pra não quebrar a prova online de produtos já
   // publicados antes dessa medida existir.
   const frameWidthMm = product?.frame_total_width_mm || product?.lens_width_mm || null;
-  if (!row || row.status !== 'validada' || !row.processed_image_path || !product || product.status !== 'publicado' || !frameWidthMm) {
+  // ATIVAR/OCULTAR por cor (15/09/2026, migração 202609151700) — mesmo
+  // controle usado na lista de escolha (acima, na página do pedido); aqui
+  // também bloqueia a COMPOSIÇÃO em si, não só a listagem, pra cobrir
+  // qualquer chamada direta a esta rota com um productId/colorName ocultado
+  // depois que a lista já tinha carregado.
+  if (!row || row.status !== 'validada' || !row.is_active || !row.processed_image_path || !product || product.status !== 'publicado' || !frameWidthMm) {
     return NextResponse.json({ message: 'Esta armação não está disponível para prova.' }, { status: 404 });
   }
 

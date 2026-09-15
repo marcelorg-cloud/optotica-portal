@@ -26,7 +26,7 @@ type QuoteRow = { id: string; total: number; quote_items: { description: string;
 type DisplayImageRow = { image_path: string | null; position: number; validated_at: string | null };
 type ColorImageRow = {
   id: string; color_name: string; color_principal: string | null; color_secondary: string | null;
-  color_variant_number: number | null; processed_image_path: string | null; status: string;
+  color_variant_number: number | null; processed_image_path: string | null; status: string; is_active: boolean;
   catalog_product_color_display_images: DisplayImageRow[] | null;
 };
 type CatalogProductRow = { id: string; model_name: string; sku_optotica: string; catalog_product_color_images: ColorImageRow[] | null };
@@ -87,7 +87,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
     // Escolha da armação (15/09/2026) — catálogo novo em vez de `frames`.
     admin
       .from('catalog_products')
-      .select('id, model_name, sku_optotica, catalog_product_color_images(id, color_name, color_principal, color_secondary, color_variant_number, processed_image_path, status, catalog_product_color_display_images(image_path, position, validated_at))')
+      .select('id, model_name, sku_optotica, catalog_product_color_images(id, color_name, color_principal, color_secondary, color_variant_number, processed_image_path, status, is_active, catalog_product_color_display_images(image_path, position, validated_at))')
       .eq('status', 'publicado')
       .order('model_name'),
     admin.from('order_frame_reactions').select('catalog_color_image_id, status').eq('order_id', orderId),
@@ -152,10 +152,14 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   // de cada cor, e assina as duas de uma vez só (bucket privado
   // 'catalog-product-photos', 1h de validade — tempo de sobra pra uma
   // sessão de atendimento).
+  // ATIVAR/OCULTAR por cor (15/09/2026, migração 202609151700): só cores
+  // com is_active=true entram aqui — nasce `false` em toda cor (nova ou já
+  // existente), então nenhuma aparece até o master clicar ATIVAR no painel
+  // de catálogo.
   const catalogProducts = (catalogProductsData || []) as unknown as CatalogProductRow[];
   const pathsToSign = new Set<string>();
   for (const product of catalogProducts) {
-    for (const color of product.catalog_product_color_images || []) {
+    for (const color of (product.catalog_product_color_images || []).filter((c) => c.is_active)) {
       if (color.processed_image_path) pathsToSign.add(color.processed_image_path);
       const bestDisplay = (color.catalog_product_color_display_images || [])
         .filter((d) => d.validated_at && d.image_path)
@@ -174,12 +178,13 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   const confirmedColorImageId = (orderFrame as { catalog_color_image_id?: string | null } | null)?.catalog_color_image_id || null;
 
   const armacaoModels = catalogProducts
-    .filter((product) => (product.catalog_product_color_images || []).length > 0)
+    .map((product) => ({ ...product, catalog_product_color_images: (product.catalog_product_color_images || []).filter((c) => c.is_active) }))
+    .filter((product) => product.catalog_product_color_images.length > 0)
     .map((product) => ({
       id: product.id,
       modelName: product.model_name,
       skuOptotica: product.sku_optotica,
-      colors: (product.catalog_product_color_images || []).map((color) => {
+      colors: product.catalog_product_color_images.map((color) => {
         const bestDisplay = (color.catalog_product_color_display_images || [])
           .filter((d) => d.validated_at && d.image_path)
           .sort((a, b) => a.position - b.position)[0];

@@ -62,6 +62,10 @@ type ColorImage = {
   // preenchida quando esta cor é uma variação de verdade (ex.: "fosco") de
   // uma combinação já existente na tabela global.
   colorNote: string | null;
+  // ATIVAR/OCULTAR (15/09/2026): controla se esta cor pode aparecer nos
+  // fronts do profissional/paciente — independente do `status` de
+  // processamento/validação da foto. Nasce `false` em toda cor.
+  isActive: boolean;
   variantSku: string | null;
   // Fotos de exibição por cor (13/09/2026, migração 202609131200; formato
   // atual desde 202609131400): até 4, recortadas pela IA a partir das fotos
@@ -95,6 +99,7 @@ type ColorSnapshot = {
   rejectionReason: string | null;
   validatedAt: string | null;
   missingRequiredFields: string[];
+  isActive: boolean;
 };
 
 function snapshotColor(color: ColorImage): ColorSnapshot {
@@ -104,7 +109,8 @@ function snapshotColor(color: ColorImage): ColorSnapshot {
     processedImagePath: color.processedImagePath,
     rejectionReason: color.rejectionReason,
     validatedAt: color.validatedAt,
-    missingRequiredFields: color.missingRequiredFields
+    missingRequiredFields: color.missingRequiredFields,
+    isActive: color.isActive
   };
 }
 
@@ -1078,6 +1084,58 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
   }
 
+  // ATIVAR/OCULTAR (15/09/2026, pedido do usuário a partir de um print
+  // anotado): liga/desliga se esta cor aparece nos fronts do
+  // profissional (Etapa 3 "Escolha da armação") e do paciente (prova
+  // online) — independente do status de processamento da foto. Suporta
+  // "Desfazer última ação" como as demais ações desta tela.
+  async function handleSetActive(colorImageId: string, active: boolean) {
+    const before = (colors || []).find((c) => c.id === colorImageId);
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: active ? 'ativar' : 'ocultar' })
+      });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) {
+        if (before) {
+          setLastAction({ label: active ? 'ativar cor' : 'ocultar cor', undo: () => restoreColorSnapshot(colorImageId, snapshotColor(before)) });
+        }
+        load();
+      }
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Apagar uma cor de vez (15/09/2026, botão de lixeira — pedido do
+  // usuário): a rota já existia (usada internamente pelo "Desfazer última
+  // ação"), agora também fica exposta aqui como ação normal da tela.
+  // Irreversível — sem suporte a "Desfazer" (os dados já foram apagados do
+  // banco), por isso pede confirmação explícita antes de chamar a rota.
+  async function handleDeleteColor(colorImageId: string, label: string) {
+    const confirmed = window.confirm(
+      `Apagar de vez a cor "${label}"?\n\nIsso remove o cadastro desta cor, as fotos de exibição associadas e as marcações em "Todas as fotos do anúncio". Os arquivos de imagem no Storage NÃO são apagados. Esta ação NÃO pode ser desfeita.`
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}`, { method: 'DELETE' });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) { setLastAction(null); load(); }
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Remover uma foto de exibição (13/09/2026, migração 202609131200; sem
   // limite de posição desde 15/09/2026 — ver comentário no DELETE da rota).
   // Chamado a partir do popup de ampliar (tanto pendentes quanto já
@@ -1797,14 +1855,22 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                 </div>
               </div>
               <div className="catalog-color-body">
-                <div className="name">
-                  <span className="catalog-swatch" style={{ background: colorSwatchBackground(color.colorPrincipal, color.colorSecondary) }} />
-                  {color.colorVariantNumber ? `Cor ${color.colorVariantNumber} — ${color.colorPrincipal}${color.colorSecondary ? ` / ${color.colorSecondary}` : ''}${color.colorNote ? ` (${color.colorNote})` : ''}` : color.colorName}
+                <div className="catalog-color-toolbar">
+                  <div className="name">
+                    <span className="catalog-swatch" style={{ background: colorSwatchBackground(color.colorPrincipal, color.colorSecondary) }} />
+                    {color.colorVariantNumber ? `Cor ${color.colorVariantNumber} — ${color.colorPrincipal}${color.colorSecondary ? ` / ${color.colorSecondary}` : ''}${color.colorNote ? ` (${color.colorNote})` : ''}` : color.colorName}
+                  </div>
+                  <div className="catalog-color-toolbar-actions">
+                    <button type="button" className="button danger small" disabled={busy || color.isActive} onClick={() => handleSetActive(color.id, true)} title="Deixar esta cor apta a aparecer nos fronts do profissional e do paciente">ATIVAR</button>
+                    <button type="button" className="button danger small" disabled={busy || !color.isActive} onClick={() => handleSetActive(color.id, false)} title="Manter o cadastro, sem aparecer em nenhum front">OCULTAR</button>
+                    <button type="button" className="icon-button danger" disabled={busy} onClick={() => handleDeleteColor(color.id, color.colorVariantNumber ? `Cor ${color.colorVariantNumber} — ${color.colorPrincipal}` : color.colorName)} title="Apagar de vez o cadastro desta cor">🗑</button>
+                  </div>
                 </div>
                 {color.variantSku && <span className="muted" style={{ fontSize: 11 }}>SKU {color.variantSku}</span>}
                 {color.supplierColorName && <span className="muted" style={{ fontSize: 11 }}>Cor original do fornecedor: {color.supplierColorName}</span>}
                 {color.supplierSku && <span className="muted" style={{ fontSize: 11 }}>SKU do fornecedor {color.supplierSku}</span>}
                 <span className={`catalog-badge ${color.status}`}>{COLOR_STATUS_LABEL[color.status] || color.status}</span>
+                <span className={`catalog-badge ${color.isActive ? 'validada' : 'rejeitada'}`}>{color.isActive ? 'Ativa — aparece nos fronts' : 'Oculta — não aparece em nenhum front'}</span>
                 {color.rejectionReason && <span className="helper">Motivo: {color.rejectionReason}</span>}
 
                 <div className="catalog-color-section">

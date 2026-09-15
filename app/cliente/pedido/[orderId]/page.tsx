@@ -83,6 +83,9 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
       .from('catalog_product_color_images')
       .select('id, color_name, processed_image_path, catalog_products!inner(id, model_name, lens_width_mm, frame_total_width_mm, status)')
       .eq('status', 'validada')
+      // ATIVAR/OCULTAR por cor (15/09/2026, migração 202609151700) — só
+      // cores que o master ativou explicitamente aparecem pro paciente.
+      .eq('is_active', true)
       .not('processed_image_path', 'is', null)
       .eq('catalog_products.status', 'publicado'),
     order.professional_id

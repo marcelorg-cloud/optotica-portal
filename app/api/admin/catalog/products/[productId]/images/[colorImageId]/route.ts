@@ -17,7 +17,13 @@ import { requireMaster } from '@/lib/catalog/require-master';
 // SEM as regras de negócio das outras ações, os valores exatos que a linha
 // tinha antes da última ação (capturados no navegador antes de cada ação
 // mudar algo). Nunca chamada com dado vindo de fora do próprio "desfazer".
-const ACTIONS = ['validar', 'rejeitar', 'completar', 'trocar_foto', 'enviar_oculos', 'restaurar'] as const;
+// 'ativar'/'ocultar' (15/09/2026, pedido do usuário a partir de um print
+// anotado): controla se esta cor pode aparecer nos fronts do profissional
+// (Etapa 3 "Escolha da armação", seção 0.71) e do paciente (lista de prova
+// online) — independente do `status` de processamento/validação da foto.
+// Ver migração 202609151700 (coluna `is_active`, nasce `false` em TODAS as
+// cores, novas e já existentes).
+const ACTIONS = ['validar', 'rejeitar', 'completar', 'trocar_foto', 'enviar_oculos', 'ativar', 'ocultar', 'restaurar'] as const;
 type Action = typeof ACTIONS[number];
 const BUCKET = 'catalog-product-photos';
 
@@ -32,7 +38,8 @@ const RESTORABLE_FIELDS = [
   'validatedBy',
   'validatedAt',
   'rejectionReason',
-  'missingRequiredFields'
+  'missingRequiredFields',
+  'isActive'
 ] as const;
 const RESTORABLE_COLUMN_BY_FIELD: Record<typeof RESTORABLE_FIELDS[number], string> = {
   status: 'status',
@@ -42,7 +49,8 @@ const RESTORABLE_COLUMN_BY_FIELD: Record<typeof RESTORABLE_FIELDS[number], strin
   validatedBy: 'validated_by',
   validatedAt: 'validated_at',
   rejectionReason: 'rejection_reason',
-  missingRequiredFields: 'missing_required_fields'
+  missingRequiredFields: 'missing_required_fields',
+  isActive: 'is_active'
 };
 
 export async function PATCH(
@@ -170,6 +178,19 @@ export async function PATCH(
     return NextResponse.json({ message: 'Óculos da prova online salvo.' });
   }
 
+  if (action === 'ativar' || action === 'ocultar') {
+    // Sem exigência de status — mesmo uma cor 'incompleto' ou 'pendente'
+    // pode ser ativada/ocultada (o front que consome `is_active` também
+    // confere se tem foto de verdade antes de mostrar algo útil; aqui é só
+    // a "chave geral" de aparecer ou não).
+    const { error } = await auth.admin
+      .from('catalog_product_color_images')
+      .update({ is_active: action === 'ativar', updated_at: now })
+      .eq('id', colorImageId);
+    if (error) return NextResponse.json({ message: `Não foi possível ${action === 'ativar' ? 'ativar' : 'ocultar'} esta cor.` }, { status: 500 });
+    return NextResponse.json({ message: action === 'ativar' ? 'Cor ativada — já pode aparecer nos fronts.' : 'Cor ocultada — não aparece mais em nenhum front.' });
+  }
+
   if (action === 'restaurar') {
     const snapshot = body?.snapshot && typeof body.snapshot === 'object' ? body.snapshot : null;
     if (!snapshot) return NextResponse.json({ message: 'Nada para restaurar.' }, { status: 400 });
@@ -212,14 +233,19 @@ export async function PATCH(
   return NextResponse.json({ message: 'Imagem rejeitada.' });
 }
 
-// Apagar uma cor (15/09/2026, botão "Desfazer última ação"): só usada pelo
-// "desfazer" logo depois de criar uma cor por engano ("+ Adicionar cor" ou
-// "Importar do AliExpress") — nunca exposta como botão de apagar cor normal
-// na tela (apagar uma cor de verdade, já em uso, continua sendo só via SQL,
-// de propósito, pelo tanto de coisa que depende dela — fotos de exibição,
-// marcação em "Todas as fotos do anúncio" etc., tudo removido em cascata
-// pelo banco). ON DELETE CASCADE cuida de catalog_product_color_display_images
-// e catalog_product_gallery_image_colors desta cor.
+// Apagar uma cor. Existia desde 15/09/2026 só como uso interno do "Desfazer
+// última ação" (logo depois de criar uma cor por engano) — a partir de
+// 15/09/2026 (2ª rodada do dia, seção 0.74) passou a ser exposta também como
+// o botão de lixeira normal da tela (pedido do usuário), pra apagar de vez o
+// cadastro de uma cor específica, mesmo já em uso. Apaga só o REGISTRO no
+// banco — os arquivos de imagem no Storage NÃO são apagados (decisão
+// explícita do usuário: mais seguro, sem risco de perder foto por engano).
+// ON DELETE CASCADE cuida de catalog_product_color_display_images e
+// catalog_product_gallery_image_colors desta cor; order_frames/
+// order_frame_reactions que já apontavam pra esta cor (migração
+// 202609151600) ficam com a referência zerada (ON DELETE SET NULL /
+// CASCADE), sem apagar o texto já congelado da escolha de armação de
+// pedidos existentes (frame_name/color continuam gravados como texto).
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ productId: string; colorImageId: string }> }

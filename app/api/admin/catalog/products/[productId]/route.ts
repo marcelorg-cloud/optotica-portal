@@ -18,7 +18,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
 
   const { data: images } = await auth.admin
     .from('catalog_product_color_images')
-    .select('id, color_name, supplier_sku, original_image_path, processed_image_path, status, missing_required_fields, rejection_reason, validated_at, created_at, source_image_url, color_variant_number, color_principal, color_secondary, supplier_color_name, color_note')
+    .select('id, color_name, supplier_sku, original_image_path, processed_image_path, status, missing_required_fields, rejection_reason, validated_at, created_at, source_image_url, color_variant_number, color_principal, color_secondary, supplier_color_name, color_note, is_active')
     .eq('product_id', productId)
     .order('color_variant_number', { ascending: true, nullsFirst: false });
 
@@ -137,6 +137,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       // verdade (ex.: "fosco") de uma combinação principal/secundária que
       // já existe na tabela global.
       colorNote: image.color_note,
+      // ATIVAR/OCULTAR (15/09/2026 — ver migração 202609151700): controla se
+      // esta cor pode aparecer nos fronts do profissional/paciente,
+      // independente do `status` de processamento. Nasce `false` em toda
+      // cor, nova ou já existente.
+      isActive: image.is_active,
       variantSku: image.color_variant_number ? buildVariantSku(product.sku_optotica, image.color_variant_number) : null,
       // Fotos de exibição (13/09/2026, migração 202609131200; sem limite de
       // 4 desde 15/09/2026 — ver estado-consolidado.md seção 0.67):
