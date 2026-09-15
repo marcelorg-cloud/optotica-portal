@@ -48,9 +48,22 @@ export async function composeTryonImage(
     processedImagePath, frameWidthMm, pupilA, pupilB, nasalCenter, photoWidth
   } = params;
 
+  // 15/09/2026 — bug real encontrado ao gerar várias cores em sequência
+  // (Etapa 3): `.list()` só enxerga um nível da pasta, então depois da
+  // PRIMEIRA composição criar a subpasta "display/" (onde os resultados
+  // ficam), o próprio `.list()` passa a devolver também um item-pasta
+  // chamado exatamente "display" (sem barra). O filtro antigo comparava
+  // com 'display/' (COM barra) — "display" não começa com "display/", ou
+  // seja, esse item-pasta passava no filtro e, por ordem alfabética
+  // ("display" vem antes de "prova.jpg"), virava "a foto do cliente"
+  // escolhida por engano, e o download falhava (pasta não é arquivo) com
+  // "Não foi possível carregar as imagens para a prova." Sem essa barra
+  // (mesmo padrão já usado em
+  // app/api/professional/orders/[orderId]/client/face-photo/route.ts), o
+  // item-pasta "display" é excluído corretamente também.
   const photoFolder = `${organizationId}/${clientId}`;
   const { data: photoFiles } = await admin.storage.from(TRYON_BUCKET).list(photoFolder);
-  const photoFile = photoFiles?.find((f) => !f.name.startsWith('display/'));
+  const photoFile = photoFiles?.find((f) => !f.name.startsWith('display'));
   if (!photoFile) return { ok: false, status: 409, message: 'Envie a foto de prova online do paciente antes de continuar.' };
 
   const [{ data: baseBlob, error: baseError }, { data: frameBlob, error: frameError }] = await Promise.all([

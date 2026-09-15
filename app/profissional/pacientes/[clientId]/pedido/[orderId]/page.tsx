@@ -151,7 +151,10 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   if (client?.organization_id) {
     const tryonFolder = `${client.organization_id}/${clientId}`;
     const { data: tryonFiles } = await admin.storage.from('try-on-photos').list(tryonFolder);
-    const baseFile = tryonFiles?.find((f) => !f.name.startsWith('display/'));
+    // Sem barra (ver comentário em lib/tryon/compose-server.ts) — evita
+    // pegar o item-pasta "display" por engano depois que a primeira prova
+    // gerada já tiver criado essa subpasta.
+    const baseFile = tryonFiles?.find((f) => !f.name.startsWith('display'));
     if (baseFile) {
       const { data: signedBase } = await admin.storage.from('try-on-photos').createSignedUrl(`${tryonFolder}/${baseFile.name}`, 3600);
       tryonClientPhotoUrl = signedBase?.signedUrl || null;
