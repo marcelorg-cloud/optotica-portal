@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireMaster } from '@/lib/catalog/require-master';
 import { buildVariantName, isValidColor } from '@/lib/catalog/sku-standard';
+import { findOrCreateColorRegistryEntry, productAlreadyHasColorRegistryEntry } from '@/lib/catalog/color-registry';
 
 // Cria uma cor nova para um produto (ex.: "Adicionar foto" na tela de
 // detalhe, ou uma cor que a Fila de Importação ainda não cobre — ver nota
@@ -25,9 +26,21 @@ import { buildVariantName, isValidColor } from '@/lib/catalog/sku-standard';
 // obrigatório) e opcionalmente `colorSecondary`; `colorName` (a coluna de
 // sempre, usada como identificador único por produto em outras tabelas —
 // fila de compras, imagens de exibição da prova online) passa a ser GERADO
-// automaticamente ("<nome do modelo> - Cor N"), nunca mais digitado. O
-// número da variante (C1, C2...) é sempre o maior já usado neste produto +1
-// — nunca reaproveitado, mesmo se uma cor for apagada depois.
+// automaticamente ("<nome do modelo> - Cor N"), nunca mais digitado.
+//
+// Tabela global de cores (14/09/2026, migração 202609140100 — pedido do
+// usuário depois de um bug real: o mesmo modelo ganhou duas cores
+// "Tartaruga", C6 e C11, ao reimportar o JSON do AliExpress): o número da
+// variante (C1, C2...) NÃO é mais "o maior já usado neste produto + 1" —
+// agora vem de `catalog_color_registry`, uma tabela ÚNICA pro catálogo
+// inteiro (C1 é sempre a mesma cor real, em qualquer modelo). Criar uma cor
+// busca (ou cria) a linha correspondente nessa tabela global
+// (`findOrCreateColorRegistryEntry`) e REJEITA a criação se este MESMO
+// produto já tiver uma cor usando essa mesma linha — isso é o que corrige o
+// bug na raiz. `colorNote` (opcional, ex.: "fosco") existe só pra permitir
+// uma variação de verdade da mesma cor principal/secundária virar uma linha
+// NOVA na tabela global (um C-número novo), em vez de barrar como
+// duplicata.
 export async function POST(request: Request, { params }: { params: Promise<{ productId: string }> }) {
   const { productId } = await params;
   const auth = await requireMaster();
@@ -43,6 +56,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
   const supplierSku = typeof body?.supplierSku === 'string' ? body.supplierSku.trim().slice(0, 80) || null : null;
   const originalImagePath = typeof body?.originalImagePath === 'string' ? body.originalImagePath : '';
   const sourceImageUrl = typeof body?.sourceImageUrl === 'string' && /^https:\/\//.test(body.sourceImageUrl) ? body.sourceImageUrl.slice(0, 2000) : null;
+  // "Observação da cor" (14/09/2026) — só quando esta cor é uma variação de
+  // verdade (ex.: "fosco") de uma combinação principal/secundária que já
+  // existe na tabela global; deixado em branco na grande maioria das vezes.
+  const colorNote = typeof body?.colorNote === 'string' ? body.colorNote.trim().slice(0, 60) || null : null;
 
   if (!colorPrincipal || !isValidColor(colorPrincipal)) {
     return NextResponse.json({ message: 'Escolha uma cor principal válida da lista.' }, { status: 400 });
@@ -60,21 +77,36 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     if (signError) return NextResponse.json({ message: 'Não encontramos a foto enviada. Tente enviar de novo.' }, { status: 400 });
   }
 
-  const { data: existingVariants } = await auth.admin
-    .from('catalog_product_color_images')
-    .select('color_variant_number')
-    .eq('product_id', productId);
-  const nextVariantNumber = Math.max(0, ...(existingVariants || []).map((v) => v.color_variant_number || 0)) + 1;
-  const colorName = buildVariantName(product.model_name, nextVariantNumber);
+  const registryResult = await findOrCreateColorRegistryEntry(auth.admin, colorPrincipal, colorSecondary || null, colorNote);
+  if (!registryResult.ok) {
+    return NextResponse.json({ message: registryResult.message }, { status: 500 });
+  }
+  const registryEntry = registryResult.entry;
+
+  // Correção do bug relatado (14/09/2026 — mesmo modelo ganhou duas cores
+  // "Tartaruga" ao reimportar o JSON): antes disso, nada impedia duas linhas
+  // com a mesma cor real no mesmo produto. Agora, se este produto já tiver
+  // uma cor usando exatamente esta linha da tabela global, a criação é
+  // rejeitada — se for uma variação de verdade (ex.: fosco), o master
+  // preenche "Observação da cor" pra virar um C-número novo, não este erro.
+  if (await productAlreadyHasColorRegistryEntry(auth.admin, productId, registryEntry.id)) {
+    return NextResponse.json({
+      message: `Este produto já tem uma cor "Cor ${registryEntry.colorNumber} — ${colorPrincipal}${colorSecondary ? ` / ${colorSecondary}` : ''}". Se for uma variação diferente (ex.: fosco), preencha "Observação da cor".`
+    }, { status: 409 });
+  }
+
+  const colorName = buildVariantName(product.model_name, registryEntry.colorNumber);
 
   const { data, error } = await auth.admin
     .from('catalog_product_color_images')
     .insert({
       product_id: productId,
       color_name: colorName,
-      color_variant_number: nextVariantNumber,
+      color_variant_number: registryEntry.colorNumber,
+      color_registry_id: registryEntry.id,
       color_principal: colorPrincipal,
       color_secondary: colorSecondary || null,
+      color_note: colorNote,
       supplier_color_name: supplierColorName,
       supplier_sku: supplierSku,
       original_image_path: originalImagePath || null,
@@ -86,8 +118,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     .single();
   if (error) {
     const duplicate = error.code === '23505';
-    return NextResponse.json({ message: duplicate ? 'Conflito ao gerar a variante — tente novamente.' : 'Não foi possível criar a cor.' }, { status: duplicate ? 409 : 500 });
+    return NextResponse.json({ message: duplicate ? 'Esta cor já existe neste produto.' : 'Não foi possível criar a cor.' }, { status: duplicate ? 409 : 500 });
   }
 
-  return NextResponse.json({ message: `Cor adicionada (Cor ${nextVariantNumber} — ${colorPrincipal}).`, id: data.id });
+  return NextResponse.json({ message: `Cor adicionada (Cor ${registryEntry.colorNumber} — ${colorPrincipal}).`, id: data.id });
 }
