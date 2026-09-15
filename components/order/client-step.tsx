@@ -12,7 +12,8 @@ import { formatCpfCnpj, onlyDigits } from '@/lib/br-documents';
 const DnpPhotoTool = dynamic(() => import('./dnp-photo-tool').then((m) => m.DnpPhotoTool), { ssr: false });
 
 export function ClientStep({
-  orderId, clientName, whatsapp, initialDnpOd, initialDnpOe, initialDnpPhotoUrl, initialBirthDate, initialCpf, frameName, locked
+  orderId, clientName, whatsapp, initialDnpOd, initialDnpOe, initialDnpPhotoUrl, initialBirthDate, initialCpf, frameName, locked,
+  initialFacePhotoStatus, initialFacePhotoUrl
 }: {
   orderId: string;
   clientName: string;
@@ -24,6 +25,8 @@ export function ClientStep({
   initialCpf: string;
   frameName: string;
   locked: boolean;
+  initialFacePhotoStatus: 'pendente' | 'validada' | null;
+  initialFacePhotoUrl: string | null;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -35,6 +38,19 @@ export function ClientStep({
   const [dnpPhotoUrl, setDnpPhotoUrl] = useState(initialDnpPhotoUrl);
   const [birthDate, setBirthDate] = useState(initialBirthDate);
   const [cpf, setCpf] = useState(formatCpfCnpj(initialCpf));
+
+  // "Foto de rosto para Prova Online" (15/09/2026) — separada da foto de
+  // DNP acima (pedido explícito do usuário). `facePhotoStatus` null = ainda
+  // nenhuma foto enviada nesta ficha; 'pendente' = já processada por IA,
+  // aguardando o profissional validar; 'validada' = já é a foto oficial de
+  // prova online do paciente (pode ter vindo de um atendimento anterior).
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const [facePhotoStatus, setFacePhotoStatus] = useState(initialFacePhotoStatus);
+  const [facePhotoUrl, setFacePhotoUrl] = useState(initialFacePhotoUrl);
+  const [faceBusy, setFaceBusy] = useState<'idle' | 'uploading' | 'validating'>('idle');
+  const [faceMessage, setFaceMessage] = useState('');
+  const [faceMessageKind, setFaceMessageKind] = useState<'success' | 'error' | ''>('');
 
   function onMeasured(odMm: number, oeMm: number, photoUrl: string | null) {
     setDnpOd(String(odMm));
@@ -61,6 +77,49 @@ export function ClientStep({
     const payload = await response.json().catch(() => ({}));
     if (response.ok) { setState('success'); setMessage('Dados atualizados.'); router.refresh(); }
     else { setState('error'); setMessage(payload.message || 'Não foi possível salvar.'); }
+  }
+
+  async function onFacePhotoSelected(file: File | undefined | null) {
+    if (!file) return;
+    setFaceBusy('uploading');
+    setFaceMessage('Processando com IA — pode levar alguns segundos…');
+    setFaceMessageKind('');
+    const form = new FormData();
+    form.append('photo', file);
+    const response = await fetch(`/api/professional/orders/${orderId}/client/face-photo`, { method: 'POST', body: form });
+    const payload = await response.json().catch(() => ({}));
+    setFaceBusy('idle');
+    if (response.ok) {
+      setFacePhotoStatus('pendente');
+      setFacePhotoUrl(payload.processedUrl || null);
+      setFaceMessage(payload.message || 'Foto processada — confira e valide abaixo.');
+      setFaceMessageKind('success');
+    } else {
+      setFaceMessage(payload.message || 'Não foi possível processar a foto.');
+      setFaceMessageKind('error');
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
+  }
+
+  async function validateFacePhoto() {
+    setFaceBusy('validating');
+    setFaceMessage('');
+    setFaceMessageKind('');
+    const response = await fetch(`/api/professional/orders/${orderId}/client/face-photo`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'validar' })
+    });
+    const payload = await response.json().catch(() => ({}));
+    setFaceBusy('idle');
+    if (response.ok) {
+      setFacePhotoStatus('validada');
+      setFaceMessage(payload.message || 'Foto validada.');
+      setFaceMessageKind('success');
+    } else {
+      setFaceMessage(payload.message || 'Não foi possível validar a foto.');
+      setFaceMessageKind('error');
+    }
   }
 
   return (
@@ -90,6 +149,44 @@ export function ClientStep({
       ) : (
         <div className="photo-box">Foto para DNP ainda não registrada — use &quot;Medir com foto&quot; acima.</div>
       )}
+      <div className="field face-photo-card">
+        <label>Foto de rosto para Prova Online</label>
+        <p className="helper">
+          Foto separada da foto de DNP acima — vai ser usada pelo script de prova virtual para sobrepor os óculos.
+          A IA deixa o fundo neutro e equaliza a iluminação do rosto (sem sombras de lado).
+        </p>
+        <div className="face-photo-body">
+          <div className="face-photo-preview">
+            {facePhotoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- foto assinada do Storage, não passa pelo otimizador de imagens do Next
+              <img src={facePhotoUrl} alt="Foto de rosto para prova online" />
+            ) : (
+              <span>Nenhuma foto de rosto enviada ainda</span>
+            )}
+            {facePhotoStatus === 'pendente' && <span className="pending-tag">Pendente de validação</span>}
+            {facePhotoStatus === 'validada' && <span className="complete-tag">Oficial da prova online</span>}
+          </div>
+          {!locked && (
+            <div className="actions">
+              <button className="button secondary" type="button" disabled={faceBusy !== 'idle'} onClick={() => fileInputRef.current?.click()}>
+                🖼️ {facePhotoUrl ? 'Trocar foto (escolher arquivo)' : 'Escolher arquivo'}
+              </button>
+              <button className="button secondary" type="button" disabled={faceBusy !== 'idle'} onClick={() => cameraInputRef.current?.click()}>
+                📷 {facePhotoUrl ? 'Tirar outra foto' : 'Usar câmera'}
+              </button>
+              {facePhotoStatus === 'pendente' && (
+                <button className="button primary" type="button" disabled={faceBusy !== 'idle'} onClick={validateFacePhoto}>
+                  {faceBusy === 'validating' ? 'Validando…' : '✓ Validar foto'}
+                </button>
+              )}
+              <input ref={fileInputRef} className="upload" type="file" accept="image/*" onChange={(e) => onFacePhotoSelected(e.target.files?.[0])} disabled={faceBusy !== 'idle'} />
+              <input ref={cameraInputRef} className="upload" type="file" accept="image/*" capture="user" onChange={(e) => onFacePhotoSelected(e.target.files?.[0])} disabled={faceBusy !== 'idle'} />
+            </div>
+          )}
+        </div>
+        {faceMessage && <p className={`form-message ${faceMessageKind}`}>{faceMessage}</p>}
+      </div>
+
       {!locked && (
         <div className="actions">
           <button className="button primary" type="submit" disabled={state === 'loading'}>{state === 'loading' ? 'Salvando…' : 'Salvar dados'}</button>

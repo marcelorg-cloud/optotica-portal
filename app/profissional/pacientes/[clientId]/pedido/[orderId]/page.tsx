@@ -79,7 +79,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   if (!order || order.client_id !== clientId) redirect('/profissional/pacientes');
 
   const [{ data: client }, { data: prescription }, { data: quotesData }, { data: orderFrame }, { data: fulfillment }, { data: catalogProductsData }, { data: reactionsData }, { data: menuTiersData }, { data: laboratoriesData }] = await Promise.all([
-    admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe, dnp_photo_path, birth_date, cpf').eq('id', clientId).maybeSingle(),
+    admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe, dnp_photo_path, birth_date, cpf, tryon_face_status, tryon_face_processed_path').eq('id', clientId).maybeSingle(),
     admin.from('prescriptions').select('prescription_data').eq('order_id', orderId).maybeSingle(),
     admin.from('quotes').select('id, total, quote_items(description, metadata)').eq('order_id', orderId),
     admin.from('order_frames').select('frame_name, sku, color, catalog_color_image_id').eq('order_id', orderId).maybeSingle(),
@@ -122,6 +122,17 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   if (client?.dnp_photo_path) {
     const { data: signed } = await admin.storage.from('dnp-photos').createSignedUrl(client.dnp_photo_path, 3600);
     dnpPhotoUrl = signed?.signedUrl || null;
+  }
+
+  // "Foto de rosto para Prova Online" (15/09/2026) — mesma foto processada
+  // (bucket 'tryon-face-source-photos') serve de preview aqui esteja ela
+  // 'pendente' (ainda não validada) ou 'validada' (já é a oficial, só que a
+  // cópia que virou "prova.<ext>" em 'try-on-photos' não guarda a extensão
+  // aqui — mais simples reusar sempre este preview, que nunca é apagado).
+  let facePhotoUrl: string | null = null;
+  if (client?.tryon_face_processed_path) {
+    const { data: signed } = await admin.storage.from('tryon-face-source-photos').createSignedUrl(client.tryon_face_processed_path, 3600);
+    facePhotoUrl = signed?.signedUrl || null;
   }
 
   const rx = (prescription?.prescription_data || null) as { od?: Record<string, unknown>; oe?: Record<string, unknown> } | null;
@@ -288,6 +299,8 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                 initialCpf={str(client?.cpf)}
                 frameName={orderFrame?.frame_name || ''}
                 locked={comandaDone}
+                initialFacePhotoStatus={(client?.tryon_face_status as 'pendente' | 'validada' | null) || null}
+                initialFacePhotoUrl={facePhotoUrl}
               />
             </div>
           </section>
