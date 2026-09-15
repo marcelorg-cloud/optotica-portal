@@ -20,6 +20,11 @@ import { colorSwatchBackground, colorSwatchIsLight } from '@/lib/catalog/color-s
 //   separada, disponível só para cores já marcadas com GOSTEI — feita aqui
 //   como um botão "Confirmar esta cor" que aparece dentro do próprio card
 //   quando a cor ativa da linha está com reação "gostei".
+//
+// Layout (15/09/2026, 3ª rodada — pedido do usuário a partir de um print):
+// nome do modelo/SKU e os círculos de cor ficam FORA do card cinza, numa
+// linha só (`.frame-row-top`); só as duas fotos e os 3 botões de reação
+// entram no card (`.frame-card`) — ver app/globals.css.
 type ColorOption = {
   id: string;
   colorName: string;
@@ -102,63 +107,69 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
             if (!active) return null;
             const isHidden = active.reaction === 'oculto';
             return (
-              <div className={`frame-row${isHidden ? ' is-hidden' : ''}`} key={model.id}>
-                <div className="frame-row-head">
-                  <strong>{model.modelName}</strong>
-                  <span className="helper">MODELO {model.skuOptotica}</span>
-                  {active.confirmed && <span className="complete-tag">Confirmada</span>}
+              <div className="frame-row" key={model.id}>
+                {/* Cabeçalho (nome + SKU) e círculos de cor ficam FORA do
+                    card cinza — só as fotos e os botões de reação entram
+                    nele (layout pedido pelo usuário a partir de um print,
+                    15/09/2026, 3ª rodada). */}
+                <div className="frame-row-top">
+                  <div className="frame-row-head">
+                    <strong>{model.modelName}</strong>
+                    <span className="helper">MODELO {model.skuOptotica}</span>
+                    {active.confirmed && <span className="complete-tag">Confirmada</span>}
+                  </div>
+
+                  <div className="frame-swatches" role="group" aria-label={`Cores de ${model.modelName}`}>
+                    {model.colors.map((color) => {
+                      const isActive = color.id === active.id;
+                      return (
+                        <button
+                          key={color.id}
+                          type="button"
+                          className={`frame-swatch${isActive ? ' is-active' : ''}${color.reaction === 'oculto' ? ' is-hidden' : ''}`}
+                          style={{ background: colorSwatchBackground(color.colorPrincipal, color.colorSecondary) }}
+                          title={`Cor ${color.colorVariantNumber ?? ''} — ${color.colorName}`}
+                          aria-pressed={isActive}
+                          onClick={() => setActiveColorByModel((prev) => ({ ...prev, [model.id]: color.id }))}
+                        >
+                          <span className={colorSwatchIsLight(color.colorPrincipal) ? 'dark-label' : 'light-label'}>
+                            C{color.colorVariantNumber ?? '?'}
+                          </span>
+                          {color.reaction === 'gostei' && <span className="frame-swatch-reaction">♥</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div className="frame-swatches" role="group" aria-label={`Cores de ${model.modelName}`}>
-                  {model.colors.map((color) => {
-                    const isActive = color.id === active.id;
-                    return (
+                <div className={`frame-card${isHidden ? ' is-hidden' : ''}`}>
+                  <div className="frame-photos">
+                    <div className="frame-photo-box frame-photo-prova">
+                      {active.provaUrl ? <img src={active.provaUrl} alt="Foto de Prova" /> : <span>Foto de<br />Prova</span>}
+                    </div>
+                    <div className="frame-photo-box frame-photo-oculos">
+                      {active.fotoOculosUrl ? <img src={active.fotoOculosUrl} alt="Foto do óculos" /> : <span>Foto do óculos ainda sem foto</span>}
+                    </div>
+                  </div>
+
+                  <div className="frame-actions">
+                    {REACTIONS.map((r) => (
                       <button
-                        key={color.id}
+                        key={r.key}
                         type="button"
-                        className={`frame-swatch${isActive ? ' is-active' : ''}${color.reaction === 'oculto' ? ' is-hidden' : ''}`}
-                        style={{ background: colorSwatchBackground(color.colorPrincipal, color.colorSecondary) }}
-                        title={`Cor ${color.colorVariantNumber ?? ''} — ${color.colorName}`}
-                        aria-pressed={isActive}
-                        onClick={() => setActiveColorByModel((prev) => ({ ...prev, [model.id]: color.id }))}
+                        className={`frame-action-pill${active.reaction === r.key ? ' is-active' : ''}`}
+                        disabled={busyKey === `react-${active.id}`}
+                        onClick={() => react(active, r.key)}
                       >
-                        <span className={colorSwatchIsLight(color.colorPrincipal) ? 'dark-label' : 'light-label'}>
-                          C{color.colorVariantNumber ?? '?'}
-                        </span>
-                        {color.reaction === 'gostei' && <span className="frame-swatch-reaction">♥</span>}
+                        {r.label}
                       </button>
-                    );
-                  })}
-                </div>
-
-                <div className="frame-photos">
-                  <div className="frame-photo-box frame-photo-prova">
-                    <span className="catalog-photo-label">Foto de Prova</span>
-                    {active.provaUrl ? <img src={active.provaUrl} alt="Foto de Prova" /> : <span className="helper">ainda sem foto</span>}
+                    ))}
+                    {active.reaction === 'gostei' && !active.confirmed && (
+                      <button type="button" className="button primary small" disabled={busyKey === `confirm-${active.id}`} onClick={() => confirm(active)}>
+                        {busyKey === `confirm-${active.id}` ? 'Confirmando…' : 'Confirmar esta cor'}
+                      </button>
+                    )}
                   </div>
-                  <div className="frame-photo-box frame-photo-oculos">
-                    <span className="catalog-photo-label">Foto do óculos</span>
-                    {active.fotoOculosUrl ? <img src={active.fotoOculosUrl} alt="Foto do óculos" /> : <span className="helper">ainda sem foto</span>}
-                  </div>
-                </div>
-
-                <div className="frame-actions">
-                  {REACTIONS.map((r) => (
-                    <button
-                      key={r.key}
-                      type="button"
-                      className={`button${active.reaction === r.key ? ' primary' : ''} frame-action-${r.key}`}
-                      disabled={busyKey === `react-${active.id}`}
-                      onClick={() => react(active, r.key)}
-                    >
-                      {r.label}
-                    </button>
-                  ))}
-                  {active.reaction === 'gostei' && !active.confirmed && (
-                    <button type="button" className="button primary" disabled={busyKey === `confirm-${active.id}`} onClick={() => confirm(active)}>
-                      {busyKey === `confirm-${active.id}` ? 'Confirmando…' : 'Confirmar esta cor'}
-                    </button>
-                  )}
                 </div>
               </div>
             );

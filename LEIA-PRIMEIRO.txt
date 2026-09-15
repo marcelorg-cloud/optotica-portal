@@ -1,93 +1,122 @@
-OPTÓTICA PORTAL — Nova Etapa 3 "Escolha da armação" no painel de atendimento (15/09/2026)
+OPTÓTICA PORTAL — PACOTE COMBINADO "TUDO DE UMA VEZ" (15/09/2026)
 ================================================================================
 
-O QUE MUDOU
-------------
-A tela "Escolha da armação" (Etapa 3, painel do profissional) foi redesenhada
-seguindo o modelo que você mandou (wireframe com campos vermelhos):
+O QUE É ESTE ZIP
+------------------
+Este pacote junta TUDO que foi entregue nesta conversa hoje, em 5 rodadas
+separadas, num só lugar — pra você poder subir de uma vez só no GitHub em
+vez de aplicar 5 zips diferentes.
 
-- Trocou o grid de cards "Modelo 01..05" por UMA LINHA por modelo.
-- Cada modelo mostra um círculo colorido clicável por cor (C1, C3, C4...).
-  Clicar num círculo troca qual foto aparece na linha, sem recarregar nada.
-- Cada linha mostra 2 fotos: "Foto de Prova" (a foto tratada usada na prova
-  online) e "Foto do óculos" (a melhor foto de exibição já validada dessa
-  cor no catálogo).
-- O dropdown de cor + botão único "Selecionar" saíram. No lugar, 3 botões:
-  GOSTEI / TALVEZ / OCULTAR — clicar de novo no mesmo botão desmarca
-  (funciona como liga/desliga, não como escolha única).
-- OCULTAR só deixa a linha/círculo com opacidade reduzida — não faz a cor
-  sumir de verdade da lista (você pediu especificamente isso).
-- Quando uma cor está marcada GOSTEI, aparece um botão extra "Confirmar
-  esta cor" — só esse botão grava a escolha FINAL do pedido (equivalente ao
-  antigo "Selecionar"). Sem confirmar, GOSTEI/TALVEZ/OCULTAR são só
-  preferências registradas, não fecham a etapa.
+É SEGURO subir por cima do que você já aplicou: boa parte destes arquivos
+(rodadas 1 a 4) você já subiu antes ("já fiz o upload do zip" / "já rodei o
+sql, modifiquei os arquivos"). Subir de novo não quebra nada — é
+exatamente o mesmo conteúdo. Só a rodada 5 (ajuste de layout da Etapa 3)
+ainda não tinha sido aplicada até agora.
 
-MUDANÇA DE FONTE DE DADOS (importante)
------------------------------------------
-Essa tela usava a tabela antiga `frames` (fotos hotlinkadas do AliExpress,
-sem nenhuma ligação com o catálogo novo que fizemos nas últimas entregas).
-Ela passou a usar o CATÁLOGO NOVO — os mesmos `catalog_products` /
-`catalog_product_color_images` / fotos de exibição validadas que você edita
-no painel de catálogo (`/admin/catalogo`). Ou seja: só aparece aqui um
-modelo se ele estiver PUBLICADO no catálogo, e as cores/fotos são as
-mesmas que você já vê e valida lá.
+Este zip contém a versão MAIS RECENTE de cada arquivo (já com todas as
+rodadas aplicadas em cima), não uma pilha de patches — então você não
+precisa se preocupar com ordem de arquivo nenhuma, só com a ordem das
+migrações de SQL abaixo.
 
-A tabela antiga `frames` continua existindo (não apaguei nada) — ela só
-não é mais usada por ESTA tela. A tela equivalente do lado do PACIENTE
-(`/cliente/pedido/[orderId]`, quando ele escolhe a armação sozinho) NÃO foi
-mexida nesta entrega — combinamos que seu pedido era especificamente sobre
-o "painel de atendimento" (o profissional). Se quiser espelhar lá também,
-é só pedir.
+Build verificado do zero (clone limpo do repositório + todos os 19
+arquivos sobrepostos): `npm ci`, `next lint` e `next build` completos sem
+nenhum erro (só os avisos de sempre sobre `<img>`, que já existiam antes).
 
-`order_frames` (onde a escolha final é gravada) manteve exatamente o mesmo
-formato de sempre — só ganhou 2 colunas novas (nullable) pra saber que a
-escolha veio do catálogo novo. Nenhuma outra tela que já lê essa tabela
-(resumo do pedido, Comanda) precisou mudar.
 
-GOSTEI/TALVEZ/OCULTAR ficam guardados numa tabela nova,
-`order_frame_reactions` (uma linha por pedido + cor).
+RESUMO DAS 5 RODADAS INCLUÍDAS
+--------------------------------
+1. Fotos de exibição sem limite de 4 (ajuste de schema que já veio de uma
+   conversa anterior — incluído aqui só porque é pré-requisito das rodadas
+   seguintes).
+2. Redesenho da Etapa 3 "Escolha da armação" do painel de atendimento:
+   1 linha por modelo do catálogo, círculos de cor clicáveis, botões
+   GOSTEI / TALVEZ / OCULTAR (reação por cor) + "Confirmar esta cor".
+   Fonte de dados migrada da tabela antiga `frames` pro catálogo novo.
+3. Correção do recorte de fotos processadas por IA: a foto do óculos saía
+   muito pequena com margens brancas enormes — agora a imagem é recortada
+   (`sharp().trim()`) antes de redimensionar, deixando a armação maior e
+   com margem pequena.
+4. ATIVAR / OCULTAR / apagar por cor no cadastro de produto: cor só aparece
+   no front do profissional/paciente depois de ATIVAR; todas as cores
+   (novas e já existentes) nascem OCULTAS; a lixeira apaga só o registro no
+   banco (não mexe nos arquivos de imagem no Storage).
+5. "Ordem de exibição das cores": card novo no final da página de cadastro
+   do produto, com as cores ativas em bolinhas arrastáveis + botão
+   "Salvar ordem de exibição". Essa ordem passa a valer em todo lugar que
+   lista cores (Etapa 3 do profissional, prova online do paciente).
+   AJUSTE DE LAYOUT (rodada mais nova, ainda não aplicada por você): na
+   Etapa 3, nome do modelo + círculos de cor saem do card cinza e ficam
+   numa linha acima; a "Foto de Prova" fica maior; os botões GOSTEI/TALVEZ/
+   OCULTAR viram pill buttons claros. A primeira cor confirmada (ou, se
+   nenhuma, a primeira cor da lista) já vem pré-selecionada ao abrir a
+   tela — isso já funcionava desde a rodada 2, sem mudança de código
+   necessária pra esse ponto específico.
+
 
 ORDEM PARA SUBIR
 -----------------
-1. Rode a migração `supabase/migrations/202609151600_atendimento_escolha_armacao_catalogo.sql`
-   no SQL Editor do Supabase (cola e roda — só adiciona colunas/tabela nova,
-   não apaga nem altera nada existente). O SQL completo também está colado
-   ao final desta mensagem no chat, caso prefira copiar de lá.
+1. Rode as 4 migrações de SQL abaixo, NESTA ORDEM, no SQL Editor do
+   Supabase (SQL completo colado depois desta lista de instruções, no chat
+   — não só no arquivo). Todas são seguras de rodar de novo mesmo se você
+   já rodou antes (usam `if not exists` / `if not exists column`):
 
-2. Suba os 6 arquivos deste pacote, cada um no seu caminho exato:
+   a. 202609151500_fotos_exibicao_sem_limite.sql
+   b. 202609151600_atendimento_escolha_armacao_catalogo.sql
+   c. 202609151700_catalog_color_ativar_ocultar_apagar.sql
+   d. 202609151800_catalog_color_ordem_exibicao.sql
+
+   ATENÇÃO: a migração (c) faz TODAS as cores (novas e já existentes)
+   nascerem OCULTAS (is_active = false). Depois de rodar, NENHUMA cor
+   aparece na Etapa 3 do profissional nem na prova online do paciente até
+   você entrar em cada produto e clicar ATIVAR nas cores que quer que
+   apareçam. Isso é esperado, não é bug — é a decisão que você tomou nesta
+   conversa.
+
+2. Suba os 15 arquivos de código abaixo, cada um no seu caminho exato
+   (sobrescrevendo o que já existir):
+
+   - components/catalog/catalog-product-detail.tsx
+   - app/globals.css
    - components/order/frame-step.tsx
+   - lib/catalog/gallery-photo-crop.ts
+   - app/api/admin/catalog/products/[productId]/route.ts
+   - app/api/admin/catalog/products/[productId]/images/[colorImageId]/route.ts
+   - app/api/admin/catalog/products/[productId]/images/[colorImageId]/display-images/route.ts
+   - app/api/admin/catalog/products/[productId]/images/[colorImageId]/process/route.ts
+   - app/api/admin/catalog/products/[productId]/position-photo/route.ts
+   - app/api/admin/catalog/products/[productId]/images/reorder/route.ts   (rota nova)
    - app/api/professional/orders/[orderId]/frame/route.ts
-   - app/api/professional/orders/[orderId]/frame-reactions/route.ts
+   - app/api/professional/orders/[orderId]/frame-reactions/route.ts   (rota nova)
    - app/profissional/pacientes/[clientId]/pedido/[orderId]/page.tsx
-   - app/globals.css (só ganhou uma regra nova de CSS pro layout da Etapa 3
-     — não mexe em mais nada do resto do CSS do site)
-   - supabase/migrations/202609151600_atendimento_escolha_armacao_catalogo.sql
-     (pode subir junto, é só o registro da migração já rodada no passo 1)
+   - app/cliente/pedido/[orderId]/page.tsx
+   - app/api/client/tryon/compose/route.ts
 
-3. Depois que a Vercel publicar (1–2 min), teste um pedido em que pelo
-   menos 1 produto do catálogo esteja PUBLICADO e com pelo menos 1 cor com
-   foto (Foto de Prova e/ou foto de exibição validada):
-   a. Abra "Etapa 3 — Escolha da armação" — confira que aparece 1 linha por
-      modelo publicado, com os círculos de cor.
-   b. Clique em círculos de cores diferentes — confira que a "Foto de
-      Prova" e a "Foto do óculos" trocam junto.
-   c. Clique GOSTEI numa cor — confira que o botão fica destacado e aparece
-      "Confirmar esta cor".
-   d. Clique GOSTEI de novo — confira que desmarca (o botão "Confirmar
-      esta cor" some).
-   e. Marque GOSTEI de novo e clique "Confirmar esta cor" — confira que
-      aparece o aviso "Armação confirmada" no topo da etapa e a etiqueta da
-      etapa muda pra "Completo".
-   f. Clique OCULTAR numa cor — confira que só esmaece (não some da lista).
-   g. Se um modelo do catálogo ainda não tiver nenhuma foto pronta pra
-      alguma cor, confira que aparece "ainda sem foto" no lugar da imagem,
-      sem quebrar a tela.
+3. Depois que a Vercel publicar, teste (roteiro combinado das 5 rodadas):
 
-AVISO — SEM ACESSO AO SUPABASE DE VERDADE NESTA SESSÃO
----------------------------------------------------------
-Como de costume, não pude testar contra dados reais (só rodei o build de
-produção completo — TypeScript, lint, todas as páginas — numa cópia limpa
-do repositório, sem erros). Se algo não aparecer do jeito esperado com
-produtos/cores reais, me manda um print que eu ajusto rápido.
+   a. No cadastro de um produto do catálogo: confira que cada card de cor
+      tem os botões ATIVAR/OCULTAR e a lixeira, e o selo "Ativa"/"Oculta".
+      Clique ATIVAR em pelo menos 2 cores de um produto publicado.
+   b. Role até o final da página do produto: confira o card "Ordem de
+      exibição das cores" com as bolinhas das cores ativas. Arraste uma
+      pra outra posição, confira que "Salvar ordem de exibição" habilita,
+      e salve.
+   c. No painel de atendimento, abra a Etapa 3 "Escolha da armação" de um
+      pedido: confira o layout novo (nome + círculos de cor fora do card
+      cinza, "Foto de Prova" maior, botões GOSTEI/TALVEZ/OCULTAR como pill
+      buttons claros), que a primeira cor já vem selecionada, e que a
+      ordem dos círculos bate com o que você salvou no passo (b).
+   d. Clique GOSTEI numa cor e depois "Confirmar esta cor" — confira que
+      vira "Armação confirmada" no topo. Clique OCULTAR numa cor — confira
+      que o card dela esmaece (mas continua na lista).
+   e. Processe uma foto nova com IA ("Processar com IA") — confira que a
+      armação sai maior na foto, com margem pequena (não mais aquela
+      margem branca enorme).
+   f. Na prova online do paciente (se tiver alguma cor ativa com foto
+      processada validada), confira que só aparecem as cores ativas, na
+      ordem salva.
 
-Sem SQL nova além do passo 1 acima.
+
+ARQUIVOS DESTE PACOTE (19 no total)
+-------------------------------------
+4 migrações SQL (pasta supabase/migrations/) + 15 arquivos de código
+listados no passo 2 acima.

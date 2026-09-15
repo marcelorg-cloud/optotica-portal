@@ -110,28 +110,34 @@ button,input,select,textarea{font:inherit}
 .catalog-inline-form{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
 .catalog-inline-form .field{min-width:140px;flex:1}
 
-/* Etapa 3 "Escolha da armação" — redesenho 15/09/2026 (1 linha por modelo,
-   círculos de cor clicáveis, Foto de Prova + foto do óculos, botões
-   GOSTEI/TALVEZ/OCULTAR). Ver components/order/frame-step.tsx. */
-.frame-row{display:grid;grid-template-columns:180px auto 1fr auto;gap:16px;align-items:center;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--soft);transition:opacity .15s}
-.frame-row.is-hidden{opacity:.45}
+/* Etapa 3 "Escolha da armação" — redesenho 15/09/2026, layout ajustado numa
+   3ª rodada a partir de um print (nome/SKU + círculos de cor FORA do card
+   cinza; só fotos + botões de reação dentro dele). Ver
+   components/order/frame-step.tsx. */
+.frame-row{display:flex;flex-direction:column;gap:12px}
+.frame-row-top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .frame-row-head{display:flex;flex-direction:column;gap:4px}
 .frame-row-head .helper{font-size:10px;letter-spacing:.03em;text-transform:uppercase}
-.frame-swatches{display:flex;flex-wrap:wrap;gap:6px;max-width:150px}
-.frame-swatch{position:relative;width:30px;height:30px;border-radius:50%;border:2px solid var(--line);cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center}
+.frame-swatches{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.frame-swatch{position:relative;width:32px;height:32px;border-radius:50%;border:2px solid var(--line);cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;flex:none}
 .frame-swatch.is-active{border-color:#1c1c1c;box-shadow:0 0 0 2px #fff,0 0 0 4px #1c1c1c}
 .frame-swatch.is-hidden{opacity:.4}
 .frame-swatch .light-label{color:#fff;font-size:9px;font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.5)}
 .frame-swatch .dark-label{color:#1c1c1c;font-size:9px;font-weight:800}
 .frame-swatch-reaction{position:absolute;top:-4px;right:-4px;font-size:11px;color:#d64545;background:#fff;border-radius:50%;line-height:1;padding:1px}
-.frame-photos{display:flex;gap:10px}
-.frame-photo-box{position:relative;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px}
+.frame-card{display:flex;gap:14px;align-items:stretch;padding:16px;border:1px solid var(--line);border-radius:16px;background:var(--soft);transition:opacity .15s}
+.frame-card.is-hidden{opacity:.45}
+.frame-photos{display:flex;gap:12px;height:200px;flex:1;min-width:0}
+.frame-photo-box{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;text-align:center;padding:10px}
 .frame-photo-box img{width:100%;height:100%;object-fit:contain;display:block}
-.frame-photo-prova{width:90px;aspect-ratio:1}
-.frame-photo-oculos{flex:1;min-width:160px;aspect-ratio:2.2}
-.frame-actions{display:flex;flex-direction:column;gap:6px}
-.frame-actions .button{padding:8px 14px;font-size:11px;white-space:nowrap}
-@media(max-width:800px){.frame-row{grid-template-columns:1fr}.frame-photos{flex-direction:column}.frame-photo-oculos{width:100%}.frame-actions{flex-direction:row;flex-wrap:wrap}}
+.frame-photo-prova{width:200px;flex:none}
+.frame-photo-oculos{flex:1;min-width:200px}
+.frame-actions{display:flex;flex-direction:column;justify-content:center;gap:10px;width:150px;flex:none}
+.frame-action-pill{appearance:none;border:none;border-radius:999px;padding:14px 18px;font-weight:800;font-size:11px;letter-spacing:.02em;cursor:pointer;background:#eae8e0;color:var(--ink);text-align:center}
+.frame-action-pill.is-active{background:var(--ink);color:#fff}
+.frame-action-pill:disabled{opacity:.5;cursor:not-allowed}
+.frame-actions .button.small{padding:10px 14px;font-size:11px;white-space:normal}
+@media(max-width:800px){.frame-row-top{flex-direction:column;align-items:flex-start}.frame-swatches{justify-content:flex-start}.frame-card{flex-direction:column}.frame-photos{height:auto;flex-direction:column}.frame-photo-prova{width:100%;height:160px}.frame-photo-oculos{width:100%;height:160px}.frame-actions{width:100%;flex-direction:row;flex-wrap:wrap}}
 
 /* ATIVAR/OCULTAR/apagar por cor no painel de catálogo (15/09/2026) — ver
    components/catalog/catalog-product-detail.tsx. */
