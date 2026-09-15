@@ -175,15 +175,16 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const hasFetchedLastJson = useRef(false);
   const [loadingLastJson, setLoadingLastJson] = useState(false);
 
-  // A mensagem de sucesso/erro fica perto do topo da página — mas as ações
-  // por cor (Trocar foto, Processar com IA, Enviar Óculos da Prova Online
-  // etc.) ficam mais abaixo, na grade de cores. Sem isso, um clique num card lá embaixo produz uma
-  // mensagem que aparece fora da tela, dando a impressão de "não fez nada"
-  // (achado em produção, 13/09/2026: usuário reportou "clico em Trocar foto
-  // e não muda nada" mesmo depois da mensagem já estar aparecendo).
-  useEffect(() => {
-    if (message) messageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [message]);
+  // Rolagem automática até a mensagem REMOVIDA (15/09/2026 — 2ª rodada do
+  // "Desfazer última ação", ver comentário junto do JSX do bloco fixo no
+  // topo): a mensagem de sucesso/erro (e a faixa "Última ação") agora ficam
+  // num bloco `position: sticky` no topo da página (`.catalog-sticky-status`
+  // em `app/globals.css`), sempre visível mesmo com a página rolada — não
+  // precisa mais forçar um scroll pra mostrar a mensagem, e forçar um scroll
+  // num elemento sticky causava saltos estranhos na página (o navegador
+  // tenta centralizar um elemento que já está fixo no topo). O motivo
+  // original de existir (mensagem de ação numa cor lá embaixo saía da tela)
+  // continua resolvido, só que pela posição fixa em vez de rolar a página.
   const newColorFileRef = useRef<File | null>(null);
   const fixFileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   const replaceFileInputs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -1368,21 +1369,31 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         </div>
       </div>
 
-      {/* "Desfazer última ação" (15/09/2026, pedido do usuário depois do
-          incidente de cores sumindo/duplicando): só aparece quando há algo
-          pra desfazer nesta visita à página — some depois de usado, depois
-          de qualquer F5/saída da página (é só em memória), ou assim que
-          outra ação nova acontecer (substitui a anterior, um nível só). */}
-      {lastAction && (
-        <div className="card" style={{ padding: '10px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: '#fff8e6' }}>
-          <span>Última ação: <strong>{lastAction.label}</strong></span>
-          <button className="button secondary" type="button" disabled={busy || undoing} onClick={handleUndo}>
-            {undoing ? 'Desfazendo…' : 'Desfazer última ação'}
-          </button>
+      {/* "Desfazer última ação" + mensagem de resultado (15/09/2026, pedido
+          do usuário depois do incidente de cores sumindo/duplicando; ficou
+          FIXO no topo em 15/09/2026 — 2ª rodada, depois do usuário mandar
+          print mostrando que precisava rolar a página pra cima toda vez pra
+          ver o resultado de uma ação feita lá embaixo, num card de cor):
+          este bloco vira `position: sticky` a partir daqui, então continua
+          visível mesmo com a página rolada — mesmo padrão já usado no
+          `.flow-wrap` da tela de atendimento. `lastAction` só aparece
+          quando há algo pra desfazer nesta visita à página (some depois de
+          usado, depois de qualquer F5/saída da página — é só em memória —,
+          ou assim que outra ação nova acontecer, substituindo a anterior,
+          um nível só). */}
+      {(lastAction || message) && (
+        <div className="catalog-sticky-status">
+          {lastAction && (
+            <div className="card" style={{ padding: '10px 16px', marginBottom: message ? 8 : 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: '#fff8e6' }}>
+              <span>Última ação: <strong>{lastAction.label}</strong></span>
+              <button className="button secondary" type="button" disabled={busy || undoing} onClick={handleUndo}>
+                {undoing ? 'Desfazendo…' : 'Desfazer última ação'}
+              </button>
+            </div>
+          )}
+          {message && <p ref={messageRef} className={`form-message ${message.kind}`} style={{ margin: 0 }}>{message.text}</p>}
         </div>
       )}
-
-      {message && <p ref={messageRef} className={`form-message ${message.kind}`}>{message.text}</p>}
 
       <form className="card" style={{ padding: 20, marginBottom: 20 }} onSubmit={handleSaveProduct}>
         <div className="form-grid">

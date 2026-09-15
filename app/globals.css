@@ -69,6 +69,13 @@ button,input,select,textarea{font:inherit}
 .catalog-badge.pendente{background:#f6f0e7;color:#9a6512}
 .catalog-badge.validada{background:#edf7f1;color:var(--success)}
 .catalog-badge.rejeitada,.catalog-badge.incompleto{background:#fff0f0;color:var(--danger)}
+/* "Última ação"/mensagem de resultado sempre visível ao rolar a página
+   (15/09/2026, 2ª rodada do "Desfazer última ação" — pedido do usuário
+   depois de precisar rolar pra cima toda vez pra ver o resultado de uma
+   ação feita lá embaixo, num card de cor) — mesmo padrão já usado no
+   `.flow-wrap` da tela de atendimento (sticky no topo, com leve
+   desfoque atrás pra não ficar ilegível por cima do conteúdo rolando). */
+.catalog-sticky-status{position:sticky;top:0;z-index:30;background:rgba(251,251,248,.97);backdrop-filter:blur(12px);padding:10px 0;margin-bottom:16px}
 /* Pedido do usuário (13/09/2026): "um produto por linha" — cada cor ocupa a
    linha inteira, card maior, fotos e ações lado a lado em vez de empilhadas
    numa coluna estreita. Colapsa pra uma coluna só em telas estreitas (ver
