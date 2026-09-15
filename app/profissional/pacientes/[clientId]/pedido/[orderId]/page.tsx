@@ -26,7 +26,7 @@ type QuoteRow = { id: string; total: number; quote_items: { description: string;
 type DisplayImageRow = { image_path: string | null; position: number; validated_at: string | null };
 type ColorImageRow = {
   id: string; color_name: string; color_principal: string | null; color_secondary: string | null;
-  color_variant_number: number | null; processed_image_path: string | null; status: string; is_active: boolean;
+  color_variant_number: number | null; processed_image_path: string | null; status: string; is_active: boolean; display_order: number | null;
   catalog_product_color_display_images: DisplayImageRow[] | null;
 };
 type CatalogProductRow = { id: string; model_name: string; sku_optotica: string; catalog_product_color_images: ColorImageRow[] | null };
@@ -87,7 +87,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
     // Escolha da armação (15/09/2026) — catálogo novo em vez de `frames`.
     admin
       .from('catalog_products')
-      .select('id, model_name, sku_optotica, catalog_product_color_images(id, color_name, color_principal, color_secondary, color_variant_number, processed_image_path, status, is_active, catalog_product_color_display_images(image_path, position, validated_at))')
+      .select('id, model_name, sku_optotica, catalog_product_color_images(id, color_name, color_principal, color_secondary, color_variant_number, processed_image_path, status, is_active, display_order, catalog_product_color_display_images(image_path, position, validated_at))')
       .eq('status', 'publicado')
       .order('model_name'),
     admin.from('order_frame_reactions').select('catalog_color_image_id, status').eq('order_id', orderId),
@@ -177,8 +177,19 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   const reactionByColorImageId = new Map((reactionsData || []).map((r) => [r.catalog_color_image_id as string, r.status as string]));
   const confirmedColorImageId = (orderFrame as { catalog_color_image_id?: string | null } | null)?.catalog_color_image_id || null;
 
+  // Ordem de exibição (15/09/2026, migração 202609151800): cores sem
+  // `display_order` (nunca reordenadas no card "Ordem de exibição das
+  // cores") ficam no fim, por `color_variant_number` — mesmo critério do
+  // backfill da migração, pra bater com o que o master vê no painel de
+  // catálogo.
+  const sortColorsByDisplayOrder = (a: ColorImageRow, b: ColorImageRow) => {
+    const ao = a.display_order ?? Number.MAX_SAFE_INTEGER;
+    const bo = b.display_order ?? Number.MAX_SAFE_INTEGER;
+    if (ao !== bo) return ao - bo;
+    return (a.color_variant_number ?? 0) - (b.color_variant_number ?? 0);
+  };
   const armacaoModels = catalogProducts
-    .map((product) => ({ ...product, catalog_product_color_images: (product.catalog_product_color_images || []).filter((c) => c.is_active) }))
+    .map((product) => ({ ...product, catalog_product_color_images: (product.catalog_product_color_images || []).filter((c) => c.is_active).sort(sortColorsByDisplayOrder) }))
     .filter((product) => product.catalog_product_color_images.length > 0)
     .map((product) => ({
       id: product.id,

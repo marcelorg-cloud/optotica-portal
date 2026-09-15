@@ -66,6 +66,9 @@ type ColorImage = {
   // fronts do profissional/paciente — independente do `status` de
   // processamento/validação da foto. Nasce `false` em toda cor.
   isActive: boolean;
+  // Ordem de exibição no front (15/09/2026) — null = nunca reordenada
+  // manualmente, fica no fim (ordenada por colorVariantNumber).
+  displayOrder: number | null;
   variantSku: string | null;
   // Fotos de exibição por cor (13/09/2026, migração 202609131200; formato
   // atual desde 202609131400): até 4, recortadas pela IA a partir das fotos
@@ -259,6 +262,19 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   // popup, em vez de botões pequenos ao lado de cada miniatura.
   const [openDisplayImage, setOpenDisplayImage] = useState<{ colorImageId: string; position: number; url: string | null; validatedAt: string | null } | null>(null);
 
+  // "Ordem de exibição das cores" (15/09/2026, card no final da página —
+  // pedido do usuário a partir de um print: arrastar as cores ATIVAS pra
+  // definir a ordem no front, com um botão "Salvar" próprio). `null` = sem
+  // mudança pendente (a ordem mostrada é derivada direto de `colors`,
+  // por `displayOrder`); um array = ordem de trabalho local, só enviada ao
+  // servidor quando "Salvar" é clicado (mesmo padrão de pré-seleção local
+  // já usado em "Todas as fotos do anúncio", pedido do usuário lá por
+  // "está lenta"). Resetado (voltando a refletir o servidor) toda vez que
+  // uma carga nova do produto termina — ver `applyLoad`.
+  const [colorOrderDraft, setColorOrderDraft] = useState<string[] | null>(null);
+  const [draggingColorId, setDraggingColorId] = useState<string | null>(null);
+  const [savingColorOrder, setSavingColorOrder] = useState(false);
+
   // "Desfazer última ação" (15/09/2026, pedido do usuário depois do
   // incidente de 15/09 — cores sumindo/duplicando sem um jeito fácil de
   // voltar atrás): guarda só a ÚLTIMA ação que mudou algo no banco nesta
@@ -273,7 +289,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const [undoing, setUndoing] = useState(false);
 
   function applyLoad({ ok, payload }: Awaited<ReturnType<typeof fetchJson>>) {
-    if (ok) { setProduct(payload.product); setColors(payload.colorImages); setPendingGalleryColors({}); }
+    if (ok) { setProduct(payload.product); setColors(payload.colorImages); setPendingGalleryColors({}); setColorOrderDraft(null); }
     else setMessage({ kind: 'error', text: payload.message || 'Produto não encontrado.' });
   }
 
@@ -1133,6 +1149,44 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
       setBusy(false);
+    }
+  }
+
+  // "Ordem de exibição das cores" — arrastar (drag-and-drop nativo do
+  // navegador, sem biblioteca) reordena só o estado local (`colorOrderDraft`);
+  // nada é salvo até clicar "Salvar" (handleSaveColorOrder).
+  function reorderColorDraftTo(activeColorIds: string[], targetId: string) {
+    if (!draggingColorId || draggingColorId === targetId) return;
+    const base = colorOrderDraft || activeColorIds;
+    const from = base.indexOf(draggingColorId);
+    const to = base.indexOf(targetId);
+    if (from === -1 || to === -1) return;
+    const next = [...base];
+    next.splice(from, 1);
+    next.splice(to, 0, draggingColorId);
+    setColorOrderDraft(next);
+  }
+
+  async function handleSaveColorOrder() {
+    if (!colorOrderDraft) return;
+    setSavingColorOrder(true);
+    setMessage(null);
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/reorder`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderedColorImageIds: colorOrderDraft })
+      });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      // Em erro, mantém o rascunho local (não descarta o arraste do
+      // usuário) pra dar pra clicar "Salvar" de novo sem reordenar tudo de
+      // novo na mão; em sucesso, `load()` -> `applyLoad` já reseta o
+      // rascunho pra refletir o servidor.
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setSavingColorOrder(false);
     }
   }
 
@@ -2016,6 +2070,66 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       ) : (
         <div className="catalog-empty">Nenhuma cor cadastrada ainda.</div>
       )}
+
+      {/* "Ordem de exibição das cores" (15/09/2026, card no final da página
+          — pedido do usuário): só cores ATIVAS entram aqui (cores ocultas
+          não têm ordem de exibição relevante, já que não aparecem em
+          nenhum front). Arrastar reordena localmente; "Salvar" grava. */}
+      {(() => {
+        const activeColorsSorted = (colors || [])
+          .filter((c) => c.isActive)
+          .sort((a, b) => {
+            const ao = a.displayOrder ?? Number.MAX_SAFE_INTEGER;
+            const bo = b.displayOrder ?? Number.MAX_SAFE_INTEGER;
+            if (ao !== bo) return ao - bo;
+            return (a.colorVariantNumber ?? 0) - (b.colorVariantNumber ?? 0);
+          });
+        const activeColorIds = activeColorsSorted.map((c) => c.id);
+        const orderedIds = colorOrderDraft || activeColorIds;
+        const orderedColors = orderedIds
+          .map((id) => activeColorsSorted.find((c) => c.id === id))
+          .filter((c): c is ColorImage => Boolean(c));
+        const hasPendingOrder = Boolean(colorOrderDraft) && JSON.stringify(colorOrderDraft) !== JSON.stringify(activeColorIds);
+
+        return (
+          <section className="catalog-color-order-card">
+            <h3>Ordem de exibição das cores</h3>
+            {orderedColors.length ? (
+              <>
+                <p className="helper">Arraste uma cor pra esquerda ou direita pra definir a ordem em que ela aparece nos fronts do profissional e do paciente. Só cores ATIVAS aparecem aqui.</p>
+                <div className="catalog-color-order-row">
+                  {orderedColors.map((color) => {
+                    const label = color.colorVariantNumber ? `C${color.colorVariantNumber}` : (color.colorName || '?').slice(0, 2);
+                    return (
+                      <button
+                        key={color.id}
+                        type="button"
+                        draggable
+                        className={`catalog-color-order-chip${draggingColorId === color.id ? ' is-dragging' : ''}`}
+                        style={{ background: colorSwatchBackground(color.colorPrincipal, color.colorSecondary) }}
+                        title={color.colorVariantNumber ? `Cor ${color.colorVariantNumber} — ${color.colorPrincipal}${color.colorSecondary ? ` / ${color.colorSecondary}` : ''}` : color.colorName}
+                        onDragStart={() => setDraggingColorId(color.id)}
+                        onDragEnd={() => setDraggingColorId(null)}
+                        onDragOver={(e) => { e.preventDefault(); reorderColorDraftTo(activeColorIds, color.id); }}
+                      >
+                        <span className={colorSwatchIsLight(color.colorPrincipal) ? 'dark-label' : 'light-label'}>{label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="actions">
+                  <button type="button" className="button primary" disabled={!hasPendingOrder || savingColorOrder} onClick={handleSaveColorOrder}>
+                    {savingColorOrder ? 'Salvando…' : 'Salvar ordem de exibição'}
+                  </button>
+                  {hasPendingOrder && !savingColorOrder && <span className="helper">Ordem alterada — clique em Salvar pra valer no front.</span>}
+                </div>
+              </>
+            ) : (
+              <p className="helper">Nenhuma cor ativa ainda — clique ATIVAR numa cor acima pra ela aparecer aqui.</p>
+            )}
+          </section>
+        );
+      })()}
 
       {/* Popup de ampliar foto de exibição (15/09/2026) — abre tanto pra
           fotos pendentes (Validar + Remover) quanto já validadas (só

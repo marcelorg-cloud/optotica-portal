@@ -19,6 +19,7 @@ type CatalogColorRow = {
   id: string;
   color_name: string;
   processed_image_path: string | null;
+  display_order: number | null;
   catalog_products: { id: string; model_name: string; lens_width_mm: number | null; frame_total_width_mm: number | null } | null;
 };
 
@@ -81,7 +82,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     admin.from('frames').select('id, name, metadata').is('organization_id', null).eq('active', true).order('name'),
     admin
       .from('catalog_product_color_images')
-      .select('id, color_name, processed_image_path, catalog_products!inner(id, model_name, lens_width_mm, frame_total_width_mm, status)')
+      .select('id, color_name, processed_image_path, display_order, catalog_products!inner(id, model_name, lens_width_mm, frame_total_width_mm, status)')
       .eq('status', 'validada')
       // ATIVAR/OCULTAR por cor (15/09/2026, migração 202609151700) — só
       // cores que o master ativou explicitamente aparecem pro paciente.
@@ -141,10 +142,14 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
   // produto já publicado antes dessa medida existir.
   const effectiveFrameWidthMm = (product: { lens_width_mm: number | null; frame_total_width_mm: number | null }) =>
     product.frame_total_width_mm || product.lens_width_mm || null;
+  // Ordem de exibição (15/09/2026, migração 202609151800) — mesmo critério
+  // usado no painel de catálogo e na Etapa 3 "Escolha da armação": sem
+  // `display_order` (nunca reordenada) fica no fim.
   const tryonProducts: TryonProduct[] = (
     await Promise.all(
       catalogColorRows
         .filter((row) => row.processed_image_path && row.catalog_products && effectiveFrameWidthMm(row.catalog_products))
+        .sort((a, b) => (a.display_order ?? Number.MAX_SAFE_INTEGER) - (b.display_order ?? Number.MAX_SAFE_INTEGER))
         .map(async (row) => {
           const { data: signed } = await admin.storage.from(CATALOG_PHOTOS_BUCKET).createSignedUrl(row.processed_image_path!, 3600);
           if (!signed?.signedUrl) return null;

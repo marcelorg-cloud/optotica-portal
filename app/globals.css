@@ -141,3 +141,14 @@ button,input,select,textarea{font:inherit}
 .icon-button.danger{border-color:var(--danger);color:var(--danger)}
 .catalog-color-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .catalog-color-toolbar-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+
+/* "Ordem de exibição das cores" (15/09/2026) — card no final da página de
+   cadastro do produto, ver components/catalog/catalog-product-detail.tsx. */
+.catalog-color-order-card{margin-top:24px;padding:20px;border:1px solid var(--line);border-radius:16px;background:var(--soft)}
+.catalog-color-order-card h3{margin:0 0 6px;font-size:15px}
+.catalog-color-order-row{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}
+.catalog-color-order-chip{appearance:none;width:56px;height:56px;border-radius:50%;border:2px solid var(--line);cursor:grab;padding:0;display:flex;align-items:center;justify-content:center;flex:none}
+.catalog-color-order-chip:active{cursor:grabbing}
+.catalog-color-order-chip.is-dragging{opacity:.5;border-color:#1c1c1c;box-shadow:0 0 0 2px #fff,0 0 0 4px #1c1c1c}
+.catalog-color-order-chip .light-label{color:#fff;font-size:11px;font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+.catalog-color-order-chip .dark-label{color:#1c1c1c;font-size:11px;font-weight:800}
