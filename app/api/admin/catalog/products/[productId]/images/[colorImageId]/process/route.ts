@@ -27,7 +27,17 @@ export const maxDuration = 60;
 // óculos: 15/09/2026, 3ª rodada (ver estado-consolidado.md seção 0.69) —
 // isso passou a ser DETECTADO PELA PRÓPRIA IA (dentro de `cropGalleryPhoto`,
 // em lib/catalog/gallery-photo-crop.ts), sem nenhuma marcação do master.
-// Cada foto de origem pode virar 1 ou 2 fotos de exibição, decidido sozinho.
+// Cada foto de origem pode virar 0, 1 ou 2 fotos de exibição, decidido
+// sozinho.
+//
+// Identificação da cor certa por REFERÊNCIA VISUAL: 15/09/2026, 4ª rodada
+// (ver estado-consolidado.md seção 0.70) — a "Foto da cor" desta cor agora é
+// obrigatória pra processar (assinada UMA vez aqui, reaproveitada em TODAS
+// as chamadas de IA desta rodada), porque é ela que a IA usa como
+// referência visual pra saber qual armação/posição de cada foto candidata
+// tem a cor certa (útil principalmente quando uma foto do anúncio mostra
+// mais de uma cor junto, ou quando a cor é uma estampa difícil de descrever
+// em texto).
 //
 // Diferente da versão anterior (que apagava e recriava TODAS as fotos de
 // exibição a cada clique): agora só ACRESCENTA fotos novas, nunca mexe nas
@@ -52,6 +62,26 @@ export async function POST(
     .eq('product_id', productId)
     .maybeSingle();
   if (!color) return NextResponse.json({ message: 'Cor não encontrada.' }, { status: 404 });
+
+  // "Foto da cor" passou a ser OBRIGATÓRIA pra processar (15/09/2026, 4ª
+  // rodada — ver comentário acima): sem ela a IA não tem nenhuma referência
+  // visual pra identificar a cor certa. Assinada UMA vez aqui, reaproveitada
+  // como referência em toda chamada de IA desta rodada (inclusive quando a
+  // própria "Foto da cor" também entra como candidata a ser recortada —
+  // nesse caso ela é comparada com ela mesma, o que é só um caso trivial).
+  if (!color.original_image_path) {
+    return NextResponse.json({
+      message: 'Esta cor ainda não tem "Foto da cor" — ela é obrigatória agora, usada como referência pra IA identificar a cor certa. Adicione a foto da cor antes de processar.'
+    }, { status: 400 });
+  }
+  const { data: referenceSigned, error: referenceSignError } = await auth.admin.storage
+    .from(BUCKET)
+    .createSignedUrl(color.original_image_path, 300);
+  if (referenceSignError || !referenceSigned?.signedUrl) {
+    console.error('catalog_process_reference_sign_failed', { message: referenceSignError?.message });
+    return NextResponse.json({ message: 'Não foi possível preparar a "Foto da cor" como referência — tente de novo.' }, { status: 500 });
+  }
+  const referenceUrl = referenceSigned.signedUrl;
 
   // Fotos já marcadas para esta cor em "Todas as fotos do anúncio" — sem
   // limite (antes cortava em 4).
@@ -84,20 +114,16 @@ export async function POST(
     candidates.push({ kind: 'galeria', galleryImageId: photo.id, signedUrl: photo.image_url });
   }
 
-  if (color.original_image_path && !ownPhotoAlreadyProcessed) {
-    const { data: ownSigned, error: ownSignError } = await auth.admin.storage
-      .from(BUCKET)
-      .createSignedUrl(color.original_image_path, 300);
-    if (ownSignError || !ownSigned?.signedUrl) {
-      console.error('catalog_process_own_photo_sign_failed', { message: ownSignError?.message });
-    } else {
-      candidates.push({ kind: 'foto_da_cor', galleryImageId: null, signedUrl: ownSigned.signedUrl });
-    }
+  if (!ownPhotoAlreadyProcessed) {
+    // Reaproveita a mesma URL assinada já preparada acima como referência —
+    // a própria "Foto da cor" processada contra ela mesma sempre bate (caso
+    // trivial), então sempre vira exatamente 1 resultado.
+    candidates.push({ kind: 'foto_da_cor', galleryImageId: null, signedUrl: referenceUrl });
   }
 
   if (!candidates.length) {
     return NextResponse.json({
-      message: 'Nada para processar — marque fotos para esta cor em "Todas as fotos do anúncio" (ou envie a "Foto da cor"), ou todas as fotos já foram processadas antes.'
+      message: 'Nada para processar — marque fotos para esta cor em "Todas as fotos do anúncio", ou todas as fotos (inclusive a própria "Foto da cor") já foram processadas antes.'
     }, { status: 400 });
   }
 
@@ -118,11 +144,21 @@ export async function POST(
     from_own_color_photo: boolean;
   }[] = [];
   let failedCount = 0;
+  // Fotos onde a IA não encontrou a cor certa (ver `detectMatchingFrameCount`
+  // em gallery-photo-crop.ts) — contadas só pra informar no resultado final;
+  // NÃO ficam marcadas como "já processadas" no banco (isso só acontece pra
+  // fotos que geraram pelo menos 1 resultado de verdade, via
+  // `source_gallery_image_id`), então clicar "Processar com IA" de novo vai
+  // tentar essas mesmas fotos outra vez. Limitação conhecida — aceitável por
+  // enquanto porque é rara (as fotos já foram marcadas manualmente como
+  // sendo desta cor antes de chegar aqui).
+  let noMatchCount = 0;
 
   for (const candidate of candidates) {
     if (Date.now() - startedAt > STEP_BUDGET_MS) { ranOutOfTime = true; break; }
     try {
-      const buffers = await cropGalleryPhoto(candidate.signedUrl);
+      const buffers = await cropGalleryPhoto(candidate.signedUrl, referenceUrl);
+      if (!buffers.length) noMatchCount += 1;
       for (const buffer of buffers) {
         const position = nextPosition;
         nextPosition += 1;
@@ -166,6 +202,7 @@ export async function POST(
 
   const parts: string[] = [];
   if (rowsToInsert.length) parts.push(`${rowsToInsert.length} foto(s) processada(s) — confira e valide cada uma.`);
+  if (noMatchCount) parts.push(`${noMatchCount} foto(s) não pareciam ter a cor certa (comparado com a "Foto da cor") — nenhum resultado gerado pra elas.`);
   if (failedCount) parts.push(`${failedCount} foto(s) não puderam ser processadas — tente de novo.`);
   if (ranOutOfTime) parts.push('O tempo acabou antes de terminar todas — clique em "Processar com IA" de novo para continuar com as que faltam.');
   if (!parts.length) parts.push('Nenhuma foto nova para processar.');

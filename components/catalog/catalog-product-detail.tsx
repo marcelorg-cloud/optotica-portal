@@ -1746,7 +1746,13 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
             const validatedImages = [...color.displayImages].filter((d) => d.validatedAt).sort((a, b) => a.position - b.position);
             const pendingImages = [...color.displayImages].filter((d) => !d.validatedAt).sort((a, b) => a.position - b.position);
             const taggedPhotos = product.galleryPhotos.filter((p) => p.colorImageIds.includes(color.id));
-            const hasProcessCandidates = taggedPhotos.length > 0 || Boolean(color.originalImageUrl);
+            // "Foto da cor" virou OBRIGATÓRIA pra processar (15/09/2026, 4ª
+            // rodada — ver estado-consolidado.md seção 0.70): é ela que a IA
+            // usa como referência visual pra identificar a cor certa em cada
+            // foto candidata. Sem ela, não tem o que processar, mesmo com
+            // fotos marcadas em "Todas as fotos do anúncio".
+            const ownPhotoAlreadyProcessed = color.displayImages.some((d) => d.fromOwnColorPhoto);
+            const hasProcessCandidates = Boolean(color.originalImageUrl) && (taggedPhotos.length > 0 || !ownPhotoAlreadyProcessed);
             return (
             <div key={color.id} className="catalog-color-card">
               <div className="catalog-color-photos" style={{ flexDirection: 'column' }}>
@@ -1857,8 +1863,11 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                     {color.status === 'validada' && (
                       <span className="helper">Esta cor já está validada. Você ainda pode processar de novo, enviar um óculos manualmente, trocar a foto marcada ou rejeitar — o painel continua editável mesmo depois de validar.</span>
                     )}
-                    {!color.originalImageUrl && !taggedPhotos.length && (
-                      <span className="helper">Falta a foto desta cor (seção acima) ou pelo menos uma foto marcada para esta cor em &quot;Todas as fotos do anúncio&quot;.</span>
+                    {!color.originalImageUrl && (
+                      <span className="helper">Falta a &quot;Foto da cor&quot; (seção acima) — ela agora é obrigatória, usada pela IA como referência pra identificar a cor certa em cada foto.</span>
+                    )}
+                    {color.originalImageUrl && !taggedPhotos.length && ownPhotoAlreadyProcessed && (
+                      <span className="helper">Nenhuma foto nova pra processar — marque mais fotos para esta cor em &quot;Todas as fotos do anúncio&quot;.</span>
                     )}
                     {/* Marcação manual "2 posições" REMOVIDA (15/09/2026 —
                         3ª rodada, ver estado-consolidado.md seção 0.69): a

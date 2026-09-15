@@ -1,48 +1,54 @@
-// Prompt de IA do catálogo de fotos — 4ª versão (15/09/2026, 3ª rodada do
-// dia — ver estado-consolidado.md seção 0.69): pedido do usuário mudou três
-// coisas nesta rodada:
-// (1) Tamanho/proporção final: passou de quadrado 1024×1024 pra 1040×320
-//     (largura×altura) — a proporção real das fotos usadas no produto.
-// (2) Formato final: passou de PNG pra JPG, com um teto de 200KB por foto
-//     (arquivo final tem que caber nesse tamanho, senão fica pesado demais
-//     pro que vai carregar essas fotos).
-// (3) Divisão em múltiplas fotos quando há mais de um óculos na mesma foto:
-//     ANTES (seção 0.67) isso era uma marcação manual do master antes de
-//     clicar "Processar com IA" (checkbox "2 posições"), de propósito, pra
-//     não arriscar a IA "inventar" uma segunda foto quase-idêntica numa foto
-//     que só tinha uma posição (IA generativa não é determinística). Pedido
-//     explícito do usuário nesta rodada: "quando a imagem tiver mais de um
-//     óculos a IA deve separar em mais imagens" — SEM nenhuma marcação do
-//     master, decisão 100% automática da IA. Perguntado antes de implementar
-//     (AskUserQuestion) pra confirmar que era isso mesmo, não o checkbox já
-//     existente só com a proporção nova — confirmado: automático.
+// Prompt de IA do catálogo de fotos — 5ª versão (15/09/2026, 4ª rodada do
+// dia — ver estado-consolidado.md seção 0.70): pedido do usuário, depois de
+// várias rodadas revisando o texto do prompt em português antes de colocar
+// no sistema (ver spec-ajustes-fotos-cor.md e a conversa registrada):
 //
-// Para (3), como o `google/nano-banana` (modelo usado pra recortar/limpar) é
-// só um modelo de EDIÇÃO de imagem — não devolve texto, então não dá pra
-// pedir "quantos óculos tem nesta foto, responda com um número" pra ele —
-// esta versão adiciona um PASSO NOVO antes do recorte: `detectFrameCount`,
-// que chama um modelo de VQA (pergunta e resposta sobre imagem,
-// `lucataco/moondream2`) só pra decidir 1 ou 2 chamadas de recorte. Se essa
-// detecção falhar por qualquer motivo (rede, modelo indisponível, resposta
-// que não dá pra interpretar), assume 1 — era o comportamento antes desta
-// função existir, mais conservador que arriscar duplicar foto errado.
+// (1) A IA agora recebe DUAS imagens em toda chamada: a foto candidata
+//     (de "Todas as fotos do anúncio", ou a própria "Foto da cor") e a
+//     "Foto da cor" da cor sendo processada, como REFERÊNCIA visual da
+//     cor/estampa certa — em vez de tentar descrever a cor em texto (que
+//     não funciona bem pra estampas). A referência nunca aparece no
+//     resultado, só serve pra identificar qual armação/posição da foto
+//     candidata tem a cor certa.
+// (2) Se a foto candidata mostrar mais de uma cor de armação, a IA
+//     descarta as que não batem com a referência e recorta só a que bate.
+// (3) Se a cor certa aparecer em mais de uma posição/ângulo na mesma foto,
+//     gera um resultado pra cada posição (mesmo mecanismo de "2 posições"
+//     de rodadas anteriores, agora amarrado à cor certa em vez de "duas
+//     posições de qualquer cor").
+// (4) Reforçado: não mudar cor, material, brilho, padrão, PROPORÇÃO nem
+//     formato/desenho do óculos — só recortar/limpar.
+//
+// Arquitetura pra (1)-(3): o `google/nano-banana` (edição de imagem) já
+// aceita várias imagens numa chamada (`image_input: [...]`), então as duas
+// fotos (candidata + referência) vão juntas em cada chamada de recorte. Já
+// o `lucataco/moondream2` (só pergunta-e-resposta sobre imagem, usado pra
+// CONTAR quantas vezes a cor certa aparece antes de decidir 1 ou 2 recortes)
+// é tipicamente um modelo de UMA imagem só — não dá pra confiar que ele
+// aceite duas imagens numa pergunta só, e não dá pra testar isso contra o
+// Replicate de verdade nesta sessão. Pra não depender dessa capacidade
+// incerta, `buildComparisonImage()` MONTA (por código, via `sharp`, nada de
+// IA nesse passo) uma única imagem com a referência à esquerda e a foto
+// candidata à direita, e o prompt de detecção explica esse layout — assim a
+// detecção funciona com qualquer modelo de UMA imagem.
 //
 // IMPORTANTE — não testado nesta sessão (mesma ressalva de sempre neste
 // projeto): sem acesso à rede de verdade pro Replicate por aqui, não dá pra
-// confirmar como o `moondream2` se sai detectando "mais de um óculos" nem
-// como o `nano-banana` se sai recortando pra caber bem numa proporção tão
-// larga (1040×320 é bem mais "faixa" que quadrado). Se o resultado sair
-// diferente do esperado (detecção errada, armação cortada, fundo não 100%
-// branco, adesivo não sumir), me manda um exemplo (a foto usada + o
-// resultado) que eu ajusto o prompt/modelo — mesmo processo de sempre.
+// confirmar como os dois modelos se saem na prática com esta versão do
+// prompt (principalmente: o nano-banana usando a segunda imagem só como
+// referência sem "vazar" ela pro resultado, e o moondream2 lendo a imagem
+// composta corretamente). Se o resultado sair diferente do esperado, me
+// manda um exemplo (a foto usada + a foto da cor + o resultado) que eu
+// ajusto o prompt.
 import Replicate from 'replicate';
 import sharp from 'sharp';
 
 const CROP_MODEL = 'google/nano-banana';
 // Modelo de VQA (Visual Question Answering — pergunta em texto sobre uma
-// imagem, resposta em texto) só pra contar quantos óculos aparecem numa
-// foto antes de decidir quantas vezes chamar o CROP_MODEL. Mais leve/rápido
-// que usar o próprio nano-banana (que nem devolve texto) pra essa decisão.
+// imagem, resposta em texto) só pra contar quantas vezes a cor de
+// referência aparece na foto candidata, antes de decidir quantas vezes
+// chamar o CROP_MODEL. Mais leve/rápido que usar o próprio nano-banana (que
+// nem devolve texto) pra essa decisão.
 const DETECT_MODEL = 'lucataco/moondream2';
 
 // Tamanho final padrão de toda foto de exibição (15/09/2026, 3ª rodada —
@@ -63,25 +69,98 @@ const OUTPUT_HEIGHT = 320;
 const MAX_JPEG_BYTES = 200 * 1024;
 const JPEG_QUALITY_STEPS = [82, 72, 62, 52, 42, 32];
 
-const CROP_PROMPT_BASE = `You will be given one photo of a pair of eyeglasses from an online product listing.
-The photo may show the eyeglasses frame alone, being worn by a person, next to packaging or other items, from any angle, and may include background clutter.
-Output a new image that is this photo cropped tightly around just the eyeglasses frame itself:
-- Remove any person, face, hands, background, packaging or other objects.
+// Altura de cada metade da imagem composta usada só pra detecção (não é o
+// resultado final — isso nunca é salvo nem mostrado, é só o que o modelo de
+// detecção enxerga). Não precisa ser grande, só legível o suficiente pra
+// comparar cor/estampa.
+const COMPARISON_HEIGHT = 480;
+
+const CROP_PROMPT_BASE = `You will be given TWO images.
+The FIRST image is a candidate product-listing photo that needs to be cropped.
+The SECOND image is a reference photo showing the exact correct color/pattern of the eyeglasses frame — use it ONLY to visually identify which frame (or which position) in the first image has the correct color/pattern. Do not copy from, blend with, or base the crop on the second image in any other way — it is only a color reference and must NEVER appear in the output.
+
+The first image may show the frame alone, being worn by a person, next to packaging or other items, from any angle, may include background clutter, and may show the correct color/pattern together with other, different-colored frames in the same photo.
+
+Output a new image that is the first photo cropped, following these rules:
+- Do not change the frame's color, material, shine, pattern, proportions, or shape/design — keep it exactly faithful to how it looks in the first photo. Only crop and clean; never redraw, resize/distort, retouch, or repaint the frame's appearance.
+- Remove any person, face, hands, background, packaging or other objects completely.
 - Fill the entire background with solid pure white (#FFFFFF), studio product-photo style.
-- Center the frame and zoom in so it fills most of the image.
+- The frame should occupy as much of the final image as possible, with only a small margin on top and on the sides — do not let the frame touch the edges, but keep the margin as small as possible.
+- The final image must have the fixed wide, short rectangular proportion already defined (1040×320 pixels — much wider than tall).
 - If there is a sticker, label, or printed text stuck on top of a lens (common in supplier photos), remove it and restore that lens to look clear/transparent like the rest of the lens.
-- Preserve the frame's true color, material, shine and pattern exactly as shown in the original photo — do not recolor, retouch, or otherwise change its appearance. Only clean and crop.`;
+- If the first image shows more than one frame color, use the second image (reference) to identify which one matches the correct color/pattern, and use ONLY that one — completely ignore and discard any frame with a different color/pattern.`;
 
 const CROP_PROMPT_SINGLE = `${CROP_PROMPT_BASE}
-If the photo happens to show the frame in two different positions or angles, just pick the clearer one and crop only that.`;
+If the correct-colored frame happens to appear in two different positions or angles in the first photo, just pick the clearer one and crop only that.`;
 
-const CROP_PROMPT_DUAL_FIRST = `${CROP_PROMPT_BASE}
-This photo shows the eyeglasses frame in two clearly different positions or angles (for example, a front view and a side view laid out in the same photo). Crop and output only the FIRST one — the leftmost or topmost position. Ignore the second position entirely.`;
+const CROP_PROMPT_FIRST_OF_TWO = `${CROP_PROMPT_BASE}
+The correct-colored frame (matching the reference) appears in the first photo in two clearly different positions or angles (for example, a front view and a side view laid out in the same photo). Crop and output only the FIRST one — the leftmost or topmost matching position. Ignore the second matching position entirely.`;
 
-const CROP_PROMPT_DUAL_SECOND = `${CROP_PROMPT_BASE}
-This photo shows the eyeglasses frame in two clearly different positions or angles (for example, a front view and a side view laid out in the same photo). Crop and output only the SECOND one — the rightmost or bottommost position, different from the first. Ignore the first position entirely.`;
+const CROP_PROMPT_SECOND_OF_TWO = `${CROP_PROMPT_BASE}
+The correct-colored frame (matching the reference) appears in the first photo in two clearly different positions or angles (for example, a front view and a side view laid out in the same photo). Crop and output only the SECOND one — the rightmost or bottommost matching position, different from the first. Ignore the first matching position entirely.`;
 
-const DETECT_PROMPT = `Look at this product photo of eyeglasses. Count how many separate views of an eyeglasses frame are shown in the photo — if the same physical frame appears twice, in two different positions or angles laid out together in the same photo (for example a front view and a side view), count that as 2. If only one frame/view is shown, answer 1. Reply with ONLY a single digit: 1 or 2. If unsure, reply 1.`;
+const DETECT_PROMPT = `This is a single composite image made of two photos placed side by side, separated by a thin gap.
+The LEFT photo is a REFERENCE showing the correct color/pattern of an eyeglasses frame.
+The RIGHT photo is a product photo that may show one or more eyeglasses frames, possibly in different colors/patterns and/or in different positions or angles.
+Count how many times a frame with the SAME color/pattern as the LEFT reference photo appears in the RIGHT photo. If that same color/pattern appears twice, in two different positions or angles, count each occurrence separately. Completely ignore any frame in the RIGHT photo whose color/pattern is clearly different from the LEFT reference — do not count those.
+Reply with ONLY a single digit:
+0 = no frame in the right photo matches the reference color/pattern
+1 = it appears exactly once
+2 = it appears twice (or more — reply 2 for two or more)
+If unsure, reply 1.`;
+
+async function fetchImageBuffer(url: string): Promise<Buffer> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Não foi possível baixar a imagem (status ${response.status}).`);
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
+
+/**
+ * Monta, por código (sem IA), uma única imagem com a foto de referência
+ * (Foto da cor) à esquerda e a foto candidata à direita, devolvida como
+ * data URI base64 — o Replicate aceita imagem embutida assim, sem precisar
+ * hospedar em lugar nenhum. Usada só pra alimentar `detectMatchingFrameCount`
+ * (nunca é salva nem vira parte do resultado final). Ver comentário no topo
+ * do arquivo sobre por que isso existe em vez de mandar duas imagens
+ * separadas pro modelo de detecção.
+ */
+async function buildComparisonImage(referenceUrl: string, candidateUrl: string): Promise<string> {
+  const [referenceBuf, candidateBuf] = await Promise.all([
+    fetchImageBuffer(referenceUrl),
+    fetchImageBuffer(candidateUrl)
+  ]);
+
+  const [referenceResized, candidateResized] = await Promise.all([
+    sharp(referenceBuf).resize({ height: COMPARISON_HEIGHT, withoutEnlargement: false }).toBuffer(),
+    sharp(candidateBuf).resize({ height: COMPARISON_HEIGHT, withoutEnlargement: false }).toBuffer()
+  ]);
+  const [referenceMeta, candidateMeta] = await Promise.all([
+    sharp(referenceResized).metadata(),
+    sharp(candidateResized).metadata()
+  ]);
+  const referenceWidth = referenceMeta.width || COMPARISON_HEIGHT;
+  const candidateWidth = candidateMeta.width || COMPARISON_HEIGHT;
+  const gap = 24;
+
+  const composite = await sharp({
+    create: {
+      width: referenceWidth + gap + candidateWidth,
+      height: COMPARISON_HEIGHT,
+      channels: 3,
+      background: { r: 255, g: 255, b: 255 }
+    }
+  })
+    .composite([
+      { input: referenceResized, left: 0, top: 0 },
+      { input: candidateResized, left: referenceWidth + gap, top: 0 }
+    ])
+    .jpeg({ quality: 85 })
+    .toBuffer();
+
+  return `data:image/jpeg;base64,${composite.toString('base64')}`;
+}
 
 // `replicate.run` só aceita o formato "owner/modelo" tipado como template
 // literal (não `string` genérico) — daí o tipo explícito aqui, em vez de só
@@ -94,8 +173,10 @@ async function runReplicate(model: `${string}/${string}`, input: Record<string, 
   return replicate.run(model, { input });
 }
 
-async function runNanoBanana(imageUrl: string, prompt: string): Promise<Buffer> {
-  const output = await runReplicate(CROP_MODEL, { prompt, image_input: [imageUrl] });
+async function runNanoBanana(candidateUrl: string, referenceUrl: string, prompt: string): Promise<Buffer> {
+  // Ordem [candidata, referência] combina com o prompt ("FIRST image" /
+  // "SECOND image" acima).
+  const output = await runReplicate(CROP_MODEL, { prompt, image_input: [candidateUrl, referenceUrl] });
   const aiUrl = resolveOutputUrl(output);
   const response = await fetch(aiUrl);
   if (!response.ok) {
@@ -105,20 +186,24 @@ async function runNanoBanana(imageUrl: string, prompt: string): Promise<Buffer> 
 }
 
 /**
- * Decide, ANTES de recortar, se uma foto mostra um ou dois óculos (a mesma
- * armação em duas posições/ângulos, ou duas armações diferentes na mesma
- * foto) — pra saber se `cropGalleryPhoto` deve chamar o CROP_MODEL uma ou
- * duas vezes. Nunca lança erro pra fora: qualquer falha (rede, modelo
- * indisponível, resposta fora do esperado) vira `1` (assume uma posição só,
- * o comportamento mais conservador).
+ * Decide, ANTES de recortar, quantas vezes a cor/estampa de referência
+ * aparece na foto candidata (0, 1 ou 2) — pra saber se `cropGalleryPhoto`
+ * deve pular a foto (0), chamar o CROP_MODEL uma vez (1) ou duas vezes (2).
+ * Nunca lança erro pra fora: qualquer falha (rede, modelo indisponível,
+ * resposta fora do esperado) vira `1` — mais conservador que arriscar
+ * pular uma foto que já foi manualmente marcada como sendo desta cor, ou
+ * arriscar duplicar.
  */
-async function detectFrameCount(imageUrl: string): Promise<1 | 2> {
+async function detectMatchingFrameCount(referenceUrl: string, candidateUrl: string): Promise<0 | 1 | 2> {
   try {
-    const output = await runReplicate(DETECT_MODEL, { image: imageUrl, question: DETECT_PROMPT });
+    const comparisonImage = await buildComparisonImage(referenceUrl, candidateUrl);
+    const output = await runReplicate(DETECT_MODEL, { image: comparisonImage, question: DETECT_PROMPT });
     const text = Array.isArray(output) ? output.join('') : String(output ?? '');
-    return text.includes('2') ? 2 : 1;
+    const match = text.match(/[012]/);
+    if (!match) return 1;
+    return Number(match[0]) as 0 | 1 | 2;
   } catch (err) {
-    console.error('catalog_detect_frame_count_failed', { message: err instanceof Error ? err.message : String(err) });
+    console.error('catalog_detect_matching_frame_count_failed', { message: err instanceof Error ? err.message : String(err) });
     return 1;
   }
 }
@@ -148,23 +233,30 @@ async function standardizeDisplayImage(buffer: Buffer): Promise<Buffer> {
 }
 
 /**
- * Manda uma foto (geral do anúncio, já sabida como sendo desta cor — ver
- * migração 202609131400 — ou a própria "Foto da cor") pro nano-banana,
- * pedindo pra recortar/limpar/padronizar. Detecta sozinha (via
- * `detectFrameCount`) se a foto mostra mais de um óculos; se sim, devolve 2
- * imagens (uma chamada de IA por posição, nunca em paralelo — mesma
- * limitação de conta já documentada em outras partes do projeto); caso
- * contrário devolve só 1. Sem nenhum parâmetro manual — decisão inteira da
- * IA (ver comentário no topo do arquivo).
+ * Manda uma foto candidata (geral do anúncio, já sabida como marcada pra
+ * esta cor — ver migração 202609131400 — ou a própria "Foto da cor") pro
+ * nano-banana, junto com a "Foto da cor" desta cor como REFERÊNCIA visual,
+ * pedindo pra identificar a cor certa (se a foto tiver mais de uma),
+ * recortar/limpar/padronizar. Detecta sozinha (via `detectMatchingFrameCount`)
+ * quantas vezes a cor certa aparece na foto candidata:
+ * - 0 vezes: devolve lista vazia (esta foto não tem a cor certa — não gera
+ *   nenhum resultado, mesmo já estando marcada pra esta cor).
+ * - 1 vez: devolve 1 imagem.
+ * - 2 vezes: devolve 2 imagens (uma chamada de IA por posição, nunca em
+ *   paralelo — mesma limitação de conta já documentada em outras partes do
+ *   projeto).
+ * Sem nenhum parâmetro manual — decisão inteira da IA (ver comentário no
+ * topo do arquivo).
  */
-export async function cropGalleryPhoto(imageUrl: string): Promise<Buffer[]> {
-  const frameCount = await detectFrameCount(imageUrl);
-  if (frameCount === 1) {
-    const raw = await runNanoBanana(imageUrl, CROP_PROMPT_SINGLE);
+export async function cropGalleryPhoto(candidateUrl: string, referenceUrl: string): Promise<Buffer[]> {
+  const matchCount = await detectMatchingFrameCount(referenceUrl, candidateUrl);
+  if (matchCount === 0) return [];
+  if (matchCount === 1) {
+    const raw = await runNanoBanana(candidateUrl, referenceUrl, CROP_PROMPT_SINGLE);
     return [await standardizeDisplayImage(raw)];
   }
-  const first = await runNanoBanana(imageUrl, CROP_PROMPT_DUAL_FIRST);
-  const second = await runNanoBanana(imageUrl, CROP_PROMPT_DUAL_SECOND);
+  const first = await runNanoBanana(candidateUrl, referenceUrl, CROP_PROMPT_FIRST_OF_TWO);
+  const second = await runNanoBanana(candidateUrl, referenceUrl, CROP_PROMPT_SECOND_OF_TWO);
   return [await standardizeDisplayImage(first), await standardizeDisplayImage(second)];
 }
 
