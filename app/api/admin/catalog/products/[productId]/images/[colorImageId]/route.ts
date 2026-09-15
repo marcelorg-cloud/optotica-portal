@@ -12,9 +12,38 @@ import { requireMaster } from '@/lib/catalog/require-master';
 // alguém completar os campos que faltam — por isso o action 'validar' checa
 // status atual antes de aceitar.
 
-const ACTIONS = ['validar', 'rejeitar', 'completar', 'trocar_foto', 'enviar_oculos'] as const;
+// 'restaurar' (15/09/2026, botão "Desfazer última ação"): ação interna, sem
+// botão próprio na tela — usada só pelo "desfazer" pra escrever de volta,
+// SEM as regras de negócio das outras ações, os valores exatos que a linha
+// tinha antes da última ação (capturados no navegador antes de cada ação
+// mudar algo). Nunca chamada com dado vindo de fora do próprio "desfazer".
+const ACTIONS = ['validar', 'rejeitar', 'completar', 'trocar_foto', 'enviar_oculos', 'restaurar'] as const;
 type Action = typeof ACTIONS[number];
 const BUCKET = 'catalog-product-photos';
+
+// Campos que 'restaurar' pode escrever de volta — sempre um subconjunto
+// fechado (nunca todo o body repassado direto pro update), pra nunca virar
+// uma porta pra escrever coluna arbitrária na tabela.
+const RESTORABLE_FIELDS = [
+  'status',
+  'originalImagePath',
+  'processedImagePath',
+  'processedAt',
+  'validatedBy',
+  'validatedAt',
+  'rejectionReason',
+  'missingRequiredFields'
+] as const;
+const RESTORABLE_COLUMN_BY_FIELD: Record<typeof RESTORABLE_FIELDS[number], string> = {
+  status: 'status',
+  originalImagePath: 'original_image_path',
+  processedImagePath: 'processed_image_path',
+  processedAt: 'processed_at',
+  validatedBy: 'validated_by',
+  validatedAt: 'validated_at',
+  rejectionReason: 'rejection_reason',
+  missingRequiredFields: 'missing_required_fields'
+};
 
 export async function PATCH(
   request: Request,
@@ -141,6 +170,24 @@ export async function PATCH(
     return NextResponse.json({ message: 'Óculos da prova online salvo.' });
   }
 
+  if (action === 'restaurar') {
+    const snapshot = body?.snapshot && typeof body.snapshot === 'object' ? body.snapshot : null;
+    if (!snapshot) return NextResponse.json({ message: 'Nada para restaurar.' }, { status: 400 });
+
+    const patch: Record<string, unknown> = { updated_at: now };
+    for (const field of RESTORABLE_FIELDS) {
+      if (!(field in snapshot)) continue;
+      const value = (snapshot as Record<string, unknown>)[field];
+      if (field === 'missingRequiredFields' && value !== null && !Array.isArray(value)) continue;
+      patch[RESTORABLE_COLUMN_BY_FIELD[field]] = value;
+    }
+    if (Object.keys(patch).length === 1) return NextResponse.json({ message: 'Nada para restaurar.' }, { status: 400 });
+
+    const { error } = await auth.admin.from('catalog_product_color_images').update(patch).eq('id', colorImageId);
+    if (error) return NextResponse.json({ message: 'Não foi possível desfazer.' }, { status: 500 });
+    return NextResponse.json({ message: 'Ação desfeita.' });
+  }
+
   if (image.status === 'incompleto') {
     return NextResponse.json({ message: 'Complete os campos obrigatórios antes de validar ou rejeitar.' }, { status: 409 });
   }
@@ -163,4 +210,30 @@ export async function PATCH(
     .eq('id', colorImageId);
   if (error) return NextResponse.json({ message: 'Não foi possível rejeitar a imagem.' }, { status: 500 });
   return NextResponse.json({ message: 'Imagem rejeitada.' });
+}
+
+// Apagar uma cor (15/09/2026, botão "Desfazer última ação"): só usada pelo
+// "desfazer" logo depois de criar uma cor por engano ("+ Adicionar cor" ou
+// "Importar do AliExpress") — nunca exposta como botão de apagar cor normal
+// na tela (apagar uma cor de verdade, já em uso, continua sendo só via SQL,
+// de propósito, pelo tanto de coisa que depende dela — fotos de exibição,
+// marcação em "Todas as fotos do anúncio" etc., tudo removido em cascata
+// pelo banco). ON DELETE CASCADE cuida de catalog_product_color_display_images
+// e catalog_product_gallery_image_colors desta cor.
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ productId: string; colorImageId: string }> }
+) {
+  const { productId, colorImageId } = await params;
+  const auth = await requireMaster();
+  if (!auth.ok) return NextResponse.json({ message: auth.message }, { status: auth.status });
+
+  const { error } = await auth.admin
+    .from('catalog_product_color_images')
+    .delete()
+    .eq('id', colorImageId)
+    .eq('product_id', productId);
+  if (error) return NextResponse.json({ message: 'Não foi possível apagar a cor.' }, { status: 500 });
+
+  return NextResponse.json({ message: 'Cor removida.' });
 }

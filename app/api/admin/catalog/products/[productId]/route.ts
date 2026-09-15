@@ -62,12 +62,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
   const { data: displayRows } = colorIds.length
     ? await auth.admin
         .from('catalog_product_color_display_images')
-        .select('id, color_image_id, position, image_path, validated_at')
+        .select('id, color_image_id, position, image_path, validated_at, source, source_gallery_image_id, from_own_color_photo')
         .in('color_image_id', colorIds)
         .order('position', { ascending: true })
-    : { data: [] as { id: string; color_image_id: string; position: number; image_path: string | null; validated_at: string | null }[] };
+    : { data: [] as { id: string; color_image_id: string; position: number; image_path: string | null; validated_at: string | null; source: string; source_gallery_image_id: string | null; from_own_color_photo: boolean }[] };
 
-  const displayByColor = new Map<string, { id: string; position: number; image_path: string | null; validated_at: string | null }[]>();
+  const displayByColor = new Map<string, { id: string; position: number; image_path: string | null; validated_at: string | null; source: string; source_gallery_image_id: string | null; from_own_color_photo: boolean }[]>();
   for (const row of displayRows || []) {
     const list = displayByColor.get(row.color_image_id) || [];
     list.push(row);
@@ -87,7 +87,23 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       const url = row.image_path
         ? (await auth.admin.storage.from('catalog-product-photos').createSignedUrl(row.image_path, 3600)).data?.signedUrl || null
         : null;
-      return { id: row.id, position: row.position, validatedAt: row.validated_at, url };
+      // `imagePath` cru (15/09/2026, "Desfazer última ação") — mesma razão
+      // do comentário acima em originalImagePath/processedImagePath.
+      // `source`/`sourceGalleryImageId`/`fromOwnColorPhoto` (15/09/2026,
+      // fim da recolorização — ver estado-consolidado.md seção 0.67):
+      // usados só pra restaurar fielmente ao desfazer (a rota PUT de
+      // restauração precisa desses campos pra recriar a linha idêntica) e
+      // pelo process/route.ts pra não reprocessar a mesma origem de novo.
+      return {
+        id: row.id,
+        position: row.position,
+        validatedAt: row.validated_at,
+        url,
+        imagePath: row.image_path,
+        source: row.source,
+        sourceGalleryImageId: row.source_gallery_image_id,
+        fromOwnColorPhoto: row.from_own_color_photo
+      };
     }));
 
     return {
@@ -100,6 +116,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       validatedAt: image.validated_at,
       originalImageUrl: original.data?.signedUrl || null,
       processedImageUrl: processed.data?.signedUrl || null,
+      // Caminhos "crus" no Storage (15/09/2026 — botão "Desfazer última
+      // ação"): as URLs assinadas acima expiram em 1h e mudam a cada
+      // carregamento, então não servem pra guardar "o valor de antes" e
+      // escrever de volta depois. Só o caminho cru é estável o bastante pra
+      // isso — usado só pelo botão de desfazer, nunca mostrado na tela.
+      originalImagePath: image.original_image_path,
+      processedImagePath: image.processed_image_path,
       hasSourceImageUrl: Boolean(image.source_image_url),
       // Padrão de SKU/cor (13/09/2026): variante (C1, C2...) + cor
       // padronizada num campo à parte — ver lib/catalog/sku-standard.ts.
@@ -115,10 +138,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       // já existe na tabela global.
       colorNote: image.color_note,
       variantSku: image.color_variant_number ? buildVariantSku(product.sku_optotica, image.color_variant_number) : null,
-      // Fotos de exibição (13/09/2026, migração 202609131200; formato
-      // atual desde 202609131400): até 4, recortadas pela IA a partir das
-      // fotos da galeria marcadas manualmente pelo master pra esta cor —
-      // ver botões de remover/validar na tela.
+      // Fotos de exibição (13/09/2026, migração 202609131200; sem limite de
+      // 4 desde 15/09/2026 — ver estado-consolidado.md seção 0.67):
+      // recortadas pela IA a partir das fotos da galeria marcadas
+      // manualmente pelo master pra esta cor, mais a própria "Foto da cor" —
+      // as ainda não validadas aparecem pendentes (popup de validar), as já
+      // validadas viram o catálogo de fotos da cor (coluna esquerda,
+      // reordenável).
       displayImages
     };
   }));
@@ -160,7 +186,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       // migração 202609131400) — alimenta a seção nova "Todas as fotos do
       // anúncio", onde o master marca/desmarca cor por foto.
       galleryPhotos: (gallery || []).map((g) => ({ id: g.id, url: g.image_url, colorImageIds: tagsByGalleryImage.get(g.id) || [] })),
-      positionImageUrl: positionSigned.data?.signedUrl || null
+      positionImageUrl: positionSigned.data?.signedUrl || null,
+      // Caminho cru (15/09/2026, "Desfazer última ação") — mesma razão do
+      // comentário acima em originalImagePath/processedImagePath.
+      positionImagePath: product.position_image_path
     },
     colorImages: withUrls
   });

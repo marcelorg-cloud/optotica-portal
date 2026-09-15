@@ -40,6 +40,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
   const body = await request.json().catch(() => null);
   const requestedUrl = typeof body?.imageUrl === 'string' ? body.imageUrl : null;
   const uploadedPath = typeof body?.path === 'string' ? body.path : null;
+  // `clear: true` (15/09/2026, botão "Desfazer última ação"): só usada pelo
+  // "desfazer" quando o produto NÃO tinha foto de posição antes da última
+  // ação (não dá pra "desfazer para null" mandando `path`/`imageUrl`, já
+  // que os dois exigem um valor). Nunca exposta como botão normal na tela —
+  // remover a foto de posição de propósito continua sendo só via SQL.
+  const clear = body?.clear === true;
+
+  if (clear) {
+    const now = new Date().toISOString();
+    const { error: clearError } = await auth.admin
+      .from('catalog_products')
+      .update({ position_image_path: null, position_image_updated_at: now, updated_at: now })
+      .eq('id', productId);
+    if (clearError) return NextResponse.json({ message: 'Não foi possível desfazer.' }, { status: 500 });
+    return NextResponse.json({ message: 'Foto de posição removida.' });
+  }
 
   let path: string;
 
@@ -91,25 +107,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     .eq('id', productId);
   if (updateError) return NextResponse.json({ message: 'Não foi possível salvar a foto de posição.' }, { status: 500 });
 
-  // A posição é compartilhada por todas as cores — trocar invalida qualquer
-  // processamento/validação já feito, porque o resultado do "Processar com
-  // IA" de cada cor foi gerado a partir da posição anterior.
-  const { error: resetProcessedError } = await auth.admin
-    .from('catalog_product_color_images')
-    .update({ processed_image_path: null, processed_at: null, validated_by: null, validated_at: null, rejection_reason: null, updated_at: now })
-    .eq('product_id', productId)
-    .not('processed_image_path', 'is', null);
-  if (resetProcessedError) {
-    console.error('catalog_product_position_photo_reset_failed', { message: resetProcessedError.message });
-  }
-  const { error: resetStatusError } = await auth.admin
-    .from('catalog_product_color_images')
-    .update({ status: 'pendente', updated_at: now })
-    .eq('product_id', productId)
-    .in('status', ['validada', 'rejeitada']);
-  if (resetStatusError) {
-    console.error('catalog_product_position_photo_status_reset_failed', { message: resetStatusError.message });
-  }
-
-  return NextResponse.json({ message: 'Foto de posição salva — as cores já tratadas foram marcadas para reprocessar.' });
+  // Reset de todas as cores REMOVIDO (15/09/2026 — ver estado-consolidado.md
+  // seção 0.67): existia porque "Processar com IA" usava esta foto de
+  // posição como referência de forma para a recolorização — trocar a
+  // posição invalidava o resultado já pintado de cada cor. A recolorização
+  // saiu de vez do sistema; esta foto de posição não alimenta mais nenhum
+  // processamento (fica na tela só porque o usuário pediu pra manter,
+  // mesmo sem uso funcional por enquanto) — então trocá-la não tem mais
+  // nenhum efeito colateral sobre as cores.
+  return NextResponse.json({ message: 'Foto de posição salva.' });
 }

@@ -30,6 +30,10 @@ type Product = {
   // alimenta a seção "Todas as fotos do anúncio".
   galleryPhotos: { id: string; url: string; colorImageIds: string[] }[];
   positionImageUrl: string | null;
+  // Caminho cru no Storage (15/09/2026, "Desfazer última ação") — só usado
+  // pra guardar/restaurar o valor de antes, nunca mostrado na tela (a URL
+  // assinada acima é o que renderiza a foto).
+  positionImagePath: string | null;
 };
 
 type ColorImage = {
@@ -42,6 +46,10 @@ type ColorImage = {
   validatedAt: string | null;
   originalImageUrl: string | null;
   processedImageUrl: string | null;
+  // Caminhos crus no Storage (15/09/2026, "Desfazer última ação") — mesma
+  // razão do comentário em Product.positionImagePath acima.
+  originalImagePath: string | null;
+  processedImagePath: string | null;
   hasSourceImageUrl: boolean;
   // Padrão de SKU/cor (13/09/2026) — ver lib/catalog/sku-standard.ts. Cores
   // criadas antes dessa data podem ter esses campos nulos até a migração de
@@ -60,8 +68,45 @@ type ColorImage = {
   // da galeria marcadas manualmente pra esta cor em "Todas as fotos do
   // anúncio" — sem significado especial de posição, todas removíveis e
   // validáveis.
-  displayImages: { id: string; position: number; url: string | null; validatedAt: string | null }[];
+  displayImages: {
+    id: string;
+    position: number;
+    url: string | null;
+    validatedAt: string | null;
+    imagePath: string | null;
+    // Origem (15/09/2026, fim da recolorização — ver estado-consolidado.md
+    // seção 0.67): usados só pelo "Desfazer última ação" (restaurar fiel) e
+    // pra ler se a foto veio da própria "Foto da cor" ou de uma foto da
+    // galeria marcada.
+    source: string;
+    sourceGalleryImageId: string | null;
+    fromOwnColorPhoto: boolean;
+  }[];
 };
+
+// Instantâneo do que a linha da cor tinha ANTES da última ação (15/09/2026,
+// botão "Desfazer última ação") — só os campos que a tela já recebe do
+// servidor (ver ColorImage acima); escrito de volta via a ação `restaurar`
+// em .../images/[colorImageId]/route.ts.
+type ColorSnapshot = {
+  status: string;
+  originalImagePath: string | null;
+  processedImagePath: string | null;
+  rejectionReason: string | null;
+  validatedAt: string | null;
+  missingRequiredFields: string[];
+};
+
+function snapshotColor(color: ColorImage): ColorSnapshot {
+  return {
+    status: color.status,
+    originalImagePath: color.originalImagePath,
+    processedImagePath: color.processedImagePath,
+    rejectionReason: color.rejectionReason,
+    validatedAt: color.validatedAt,
+    missingRequiredFields: color.missingRequiredFields
+  };
+}
 
 const STATUS_LABEL: Record<string, string> = { em_triagem: 'Em triagem', publicado: 'Publicado', arquivado: 'Arquivado' };
 const COLOR_STATUS_LABEL: Record<string, string> = { incompleto: 'Incompleto — falta foto', pendente: 'Pendente', validada: 'Validada', rejeitada: 'Rejeitada' };
@@ -189,6 +234,50 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   // termina — ver `applyLoad` abaixo.
   const [pendingGalleryColors, setPendingGalleryColors] = useState<Record<string, string[]>>({});
 
+  // Chave especial (sem id de foto de galeria) pra marcar a própria "Foto da
+  // cor" como tendo a armação em 2 posições — ver comentário completo em
+  // `dualPositionSelections` logo abaixo e em process/route.ts.
+  const OWN_PHOTO_DUAL_KEY = '__own_color_photo__';
+
+  // "Processar com IA" sem recolorização (15/09/2026 — ver
+  // estado-consolidado.md seção 0.67): antes de clicar "Processar com IA", o
+  // master pode marcar quais fotos (marcadas em "Todas as fotos do anúncio",
+  // ou a própria "Foto da cor") mostram a armação em DUAS posições/ângulos
+  // diferentes — cada uma dessas vira 2 fotos de exibição em vez de 1.
+  // Mapa: color_image_id -> Set de chaves marcadas (gallery_image_id, ou
+  // `OWN_PHOTO_DUAL_KEY` pra "Foto da cor"). Só usado no momento do clique —
+  // não precisa persistir entre cargas da página.
+  const [dualPositionSelections, setDualPositionSelections] = useState<Record<string, Set<string>>>({});
+
+  function toggleDualPosition(colorImageId: string, key: string) {
+    setDualPositionSelections((prev) => {
+      const current = new Set(prev[colorImageId] ?? []);
+      if (current.has(key)) current.delete(key);
+      else current.add(key);
+      return { ...prev, [colorImageId]: current };
+    });
+  }
+
+  // Popup de ampliar foto de exibição (15/09/2026, pedido do usuário: "vai
+  // para a coluna da esquerda quando são aprovadas... clicando na foto ela
+  // aumenta de tamanho e tem um botão de validar") — mostra a foto grande
+  // com Validar/Remover (pendente) ou só Remover (já validada) dentro do
+  // popup, em vez de botões pequenos ao lado de cada miniatura.
+  const [openDisplayImage, setOpenDisplayImage] = useState<{ colorImageId: string; position: number; url: string | null; validatedAt: string | null } | null>(null);
+
+  // "Desfazer última ação" (15/09/2026, pedido do usuário depois do
+  // incidente de 15/09 — cores sumindo/duplicando sem um jeito fácil de
+  // voltar atrás): guarda só a ÚLTIMA ação que mudou algo no banco nesta
+  // visita à tela (em memória — um F5 ou sair da página perde essa
+  // informação, decisão explícita do usuário: mais simples que precisar de
+  // uma tabela de histórico no banco). Cada handler que muda algo chama
+  // `setLastAction` no final, com uma função `undo` que sabe desfazer
+  // exatamente aquela ação (escrevendo de volta o valor de antes, capturado
+  // ANTES da chamada que mudou o dado). Uma ação nova sempre substitui a
+  // anterior — só um nível de desfazer, sem histórico/pilha.
+  const [lastAction, setLastAction] = useState<{ label: string; undo: () => Promise<void> } | null>(null);
+  const [undoing, setUndoing] = useState(false);
+
   function applyLoad({ ok, payload }: Awaited<ReturnType<typeof fetchJson>>) {
     if (ok) { setProduct(payload.product); setColors(payload.colorImages); setPendingGalleryColors({}); }
     else setMessage({ kind: 'error', text: payload.message || 'Produto não encontrado.' });
@@ -198,12 +287,79 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     return fetchJson(`/api/admin/catalog/products/${productId}`).then(applyLoad);
   }
 
+  async function handleUndo() {
+    if (!lastAction) return;
+    setUndoing(true);
+    setMessage(null);
+    try {
+      await lastAction.undo();
+      setMessage({ kind: 'success', text: `Desfeito: ${lastAction.label}.` });
+      setLastAction(null);
+      load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Não foi possível desfazer${err instanceof Error ? `: ${err.message}` : ''}. Tente de novo.` });
+    } finally {
+      setUndoing(false);
+    }
+  }
+
+  // Escreve de volta, numa cor, os campos capturados por `snapshotColor`
+  // ANTES da última ação — usada por quase todo `undo` de ação por cor (ver
+  // ação `restaurar` em .../images/[colorImageId]/route.ts).
+  async function restoreColorSnapshot(colorImageId: string, snapshot: ColorSnapshot) {
+    const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'restaurar', snapshot })
+    });
+    if (!ok) throw new Error(payload.message || 'Não foi possível desfazer esta cor.');
+  }
+
+  // Apaga uma cor recém-criada por engano (undo de "+ Adicionar cor" e de
+  // cada cor criada por "Importar do AliExpress") — usa a rota DELETE nova
+  // em .../images/[colorImageId]/route.ts, só chamada por aqui.
+  async function deleteColorForUndo(colorImageId: string) {
+    const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}`, { method: 'DELETE' });
+    if (!ok) throw new Error(payload.message || 'Não foi possível apagar a cor.');
+  }
+
+  // Recria foto(s) apagadas de "Todas as fotos do anúncio" (undo de
+  // "Remover"/"Remover selecionadas") — a foto some da tabela ao apagar (sem
+  // soft delete), então desfazer precisa recriar a linha do zero (ganha um
+  // ID novo) e, se ela tinha marcação de cor, salvar essa marcação de novo
+  // depois — a rota de criação em lote (`.../gallery`) não aceita cores
+  // junto, só URLs.
+  async function restoreDeletedGalleryPhotos(photos: { url: string; colorImageIds: string[] }[]) {
+    if (!photos.length) return;
+    const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/gallery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageUrls: photos.map((p) => p.url) })
+    });
+    if (!ok) throw new Error(payload.message || 'Não foi possível desfazer.');
+    const { ok: loadOk, payload: loadPayload } = await fetchJson(`/api/admin/catalog/products/${productId}`);
+    if (!loadOk) throw new Error(loadPayload.message || 'Não foi possível desfazer.');
+    const freshPhotos: { id: string; url: string; colorImageIds: string[] }[] = loadPayload.product.galleryPhotos;
+    for (const photo of photos) {
+      if (!photo.colorImageIds.length) continue;
+      const match = freshPhotos.find((p) => p.url === photo.url);
+      if (!match) continue;
+      const { ok: tagOk, payload: tagPayload } = await fetchJson(`/api/admin/catalog/products/${productId}/gallery/${match.id}/colors`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ colorImageIds: photo.colorImageIds })
+      });
+      if (!tagOk) throw new Error(tagPayload.message || 'Não foi possível restaurar a marcação de cores.');
+    }
+  }
+
   useEffect(() => {
     fetchJson(`/api/admin/catalog/products/${productId}`).then(applyLoad);
   }, [productId]);
 
   async function handleSaveProduct(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const before = product;
     setBusy(true);
     setMessage(null);
     // try/finally (13/09/2026, 5ª rodada — achado em produção: "clico pra
@@ -239,7 +395,33 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-      if (ok) load();
+      if (ok) {
+        if (before) {
+          setLastAction({
+            label: 'salvar alterações do produto',
+            undo: async () => {
+              const { ok: undoOk, payload: undoPayload } = await fetchJson(`/api/admin/catalog/products/${productId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  modelName: before.modelName,
+                  skuOptotica: before.skuOptotica,
+                  lensWidthMm: before.lensWidthMm,
+                  lensHeightMm: before.lensHeightMm,
+                  bridgeMm: before.bridgeMm ?? '',
+                  lensDiagonalMm: before.lensDiagonalMm ?? '',
+                  templeLengthMm: before.templeLengthMm ?? '',
+                  rimMm: before.rimMm ?? '',
+                  frameTotalWidthMm: before.frameTotalWidthMm ?? '',
+                  standardHeightMm: before.standardHeightMm ?? ''
+                })
+              });
+              if (!undoOk) throw new Error(undoPayload.message);
+            }
+          });
+        }
+        load();
+      }
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
@@ -248,6 +430,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   }
 
   async function handlePublish(status: 'publicado' | 'arquivado') {
+    const before = product;
     setBusy(true);
     setMessage(null);
     try {
@@ -257,7 +440,22 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         body: JSON.stringify({ status })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-      if (ok) load();
+      if (ok) {
+        if (before) {
+          setLastAction({
+            label: status === 'publicado' ? 'publicar produto' : 'arquivar produto',
+            undo: async () => {
+              const { ok: undoOk, payload: undoPayload } = await fetchJson(`/api/admin/catalog/products/${productId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: before.status })
+              });
+              if (!undoOk) throw new Error(undoPayload.message);
+            }
+          });
+        }
+        load();
+      }
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
@@ -291,7 +489,16 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         body: JSON.stringify({ colorPrincipal, colorSecondary, colorNote, supplierColorName, supplierSku, originalImagePath })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-      if (ok) { event.currentTarget.reset(); newColorFileRef.current = null; setShowNewColor(false); load(); }
+      if (ok) {
+        event.currentTarget.reset();
+        newColorFileRef.current = null;
+        setShowNewColor(false);
+        if (payload.id) {
+          const newColorId = payload.id as string;
+          setLastAction({ label: 'adicionar cor', undo: () => deleteColorForUndo(newColorId) });
+        }
+        load();
+      }
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
@@ -420,13 +627,17 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       let successCount = 0;
       let duplicateCount = 0;
       let failCount = 0;
+      // Ids das cores criadas AGORA (15/09/2026, "Desfazer última ação") —
+      // pra "Importar N cor(es)" desfazer significa apagar só as que esta
+      // chamada criou, nunca cores que já existiam antes.
+      const createdIds: string[] = [];
       for (const color of toCreate) {
         const res = await fetchJson(`/api/admin/catalog/products/${productId}/images`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ colorPrincipal: color.colorPrincipal, supplierColorName: color.supplierColorName || undefined, supplierSku: color.supplierSku || undefined, sourceImageUrl: color.sourceImageUrl || undefined })
         });
-        if (res.ok) successCount += 1;
+        if (res.ok) { successCount += 1; if (res.payload.id) createdIds.push(res.payload.id); }
         // 409 = já existe uma cor com esta combinação neste produto (tabela
         // global de cores, 14/09/2026) — não é bem uma "falha", é o
         // comportamento esperado pra evitar duplicar.
@@ -459,6 +670,18 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       setImportColors([]);
       setImportGalleryUrls([]);
       setImportParseMessage(null);
+      if (createdIds.length) {
+        // Fotos da galeria adicionadas nesta importação NÃO são removidas
+        // pelo desfazer (o upsert é idempotente e sem duplicar — não vale a
+        // complexidade de rastrear quais eram realmente novas só pra isso) —
+        // só as cores criadas agora são apagadas.
+        setLastAction({
+          label: `importar ${createdIds.length} cor(es)`,
+          undo: async () => {
+            for (const id of createdIds) await deleteColorForUndo(id);
+          }
+        });
+      }
       load();
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
@@ -489,6 +712,17 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     );
     if (!confirmed) return;
 
+    // Instantâneo de cada cor afetada ANTES do reset (15/09/2026, "Desfazer
+    // última ação") — só assim dá pra voltar `original_image_path`/status/
+    // processamento/validação exatamente pro que eram, já que a rota de
+    // reset sobrescreve tudo isso.
+    const beforeSnapshots = matched
+      .map((c) => {
+        const found = (colors || []).find((col) => col.id === c.existingColorImageId);
+        return found ? { id: found.id, snapshot: snapshotColor(found) } : null;
+      })
+      .filter((s): s is { id: string; snapshot: ColorSnapshot } => Boolean(s));
+
     setBusy(true);
     setMessage(null);
     try {
@@ -507,6 +741,16 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         setImportColors([]);
         setImportGalleryUrls([]);
         setImportParseMessage(null);
+        if (beforeSnapshots.length) {
+          // Fotos de galeria adicionadas neste reset não são removidas pelo
+          // desfazer, mesma razão do "Importar" acima.
+          setLastAction({
+            label: `resetar foto(s) de ${beforeSnapshots.length} cor(es)`,
+            undo: async () => {
+              for (const { id, snapshot } of beforeSnapshots) await restoreColorSnapshot(id, snapshot);
+            }
+          });
+        }
         load();
       }
     } catch (err) {
@@ -519,6 +763,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   async function handleAddMissingPhoto(colorImageId: string) {
     const file = selectedFixFile[colorImageId];
     if (!file) { setMessage({ kind: 'error', text: 'Escolha um arquivo antes de clicar em "Adicionar foto".' }); return; }
+    const before = (colors || []).find((c) => c.id === colorImageId);
     setBusy(true);
     setMessage(null);
     // try/finally: garante que o botão nunca fique travado (busy preso em
@@ -533,7 +778,10 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         body: JSON.stringify({ action: 'completar', stillMissing: [], originalImagePath: uploaded.path })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-      if (ok) load();
+      if (ok) {
+        if (before) setLastAction({ label: 'adicionar foto', undo: () => restoreColorSnapshot(colorImageId, snapshotColor(before)) });
+        load();
+      }
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
@@ -547,6 +795,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   async function handleReplacePhoto(colorImageId: string) {
     const file = selectedReplaceFile[colorImageId];
     if (!file) { setMessage({ kind: 'error', text: 'Escolha um arquivo antes de clicar em "Trocar foto".' }); return; }
+    const before = (colors || []).find((c) => c.id === colorImageId);
     setBusy(true);
     setMessage(null);
     try {
@@ -558,7 +807,10 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         body: JSON.stringify({ action: 'trocar_foto', originalImagePath: uploaded.path })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-      if (ok) load();
+      if (ok) {
+        if (before) setLastAction({ label: 'trocar foto', undo: () => restoreColorSnapshot(colorImageId, snapshotColor(before)) });
+        load();
+      }
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
@@ -570,12 +822,16 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   }
 
   async function handleImportPhoto(colorImageId: string) {
+    const before = (colors || []).find((c) => c.id === colorImageId);
     setBusy(true);
     setMessage(null);
     try {
       const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/import-photo`, { method: 'POST' });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-      if (ok) load();
+      if (ok) {
+        if (before) setLastAction({ label: 'importar foto do AliExpress', undo: () => restoreColorSnapshot(colorImageId, snapshotColor(before)) });
+        load();
+      }
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
@@ -589,6 +845,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   // 202609130006): podem ser de outra cor, por isso a escolha é sempre
   // visual (miniatura clicável), nunca automática.
   async function handleImportFromGallery(colorImageId: string, imageUrl: string) {
+    const before = (colors || []).find((c) => c.id === colorImageId);
     setBusy(true);
     setMessage(null);
     try {
@@ -598,7 +855,10 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         body: JSON.stringify({ imageUrl })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-      if (ok) load();
+      if (ok) {
+        if (before) setLastAction({ label: 'usar foto da galeria', undo: () => restoreColorSnapshot(colorImageId, snapshotColor(before)) });
+        load();
+      }
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
@@ -617,6 +877,12 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   async function handleUploadProductPosition() {
     const file = selectedPositionFile;
     if (!file) { setMessage({ kind: 'error', text: 'Escolha um arquivo antes de clicar em "Salvar foto de posição".' }); return; }
+    // Capturado ANTES da chamada (15/09/2026, "Desfazer última ação").
+    // Simplificado na mesma data: esta rota deixou de resetar as cores como
+    // efeito colateral (não alimenta mais nenhum processamento — ver
+    // estado-consolidado.md seção 0.67), então desfazer só precisa
+    // restaurar a foto de posição em si.
+    const beforePositionPath = product?.positionImagePath ?? null;
     setBusy(true);
     setMessage(null);
     try {
@@ -628,7 +894,20 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         body: JSON.stringify({ path: uploaded.path })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-      if (ok) load();
+      if (ok) {
+        setLastAction({
+          label: 'salvar foto de posição do produto',
+          undo: async () => {
+            const { ok: posOk, payload: posPayload } = await fetchJson(`/api/admin/catalog/products/${productId}/position-photo`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(beforePositionPath ? { path: beforePositionPath } : { clear: true })
+            });
+            if (!posOk) throw new Error(posPayload.message);
+          }
+        });
+        load();
+      }
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
@@ -638,7 +917,13 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
   }
 
+  // Reescrito de vez em 15/09/2026 (fim da recolorização — ver
+  // estado-consolidado.md seção 0.67): não mexe mais em status/foto tratada
+  // da cor, e não apaga mais nada — só ACRESCENTA fotos de exibição novas
+  // (a rota devolve `createdIds`, então desfazer é só apagar essas
+  // mesmas linhas, sem precisar restaurar snapshot nenhum).
   async function handleProcess(colorImageId: string) {
+    const dualKeys = Array.from(dualPositionSelections[colorImageId] ?? []);
     setBusy(true);
     setMessage(null);
     // try/finally (13/09/2026, 5ª rodada — achado em produção): esta é a
@@ -654,9 +939,32 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     // (recarregava o estado do zero), mas o clique em si nunca fazia nada até
     // isso.
     try {
-      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/process`, { method: 'POST' });
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/process`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dualPositionGalleryImageIds: dualKeys })
+      });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-      if (ok) load();
+      if (ok) {
+        const createdIds: string[] = Array.isArray(payload.createdIds) ? payload.createdIds : [];
+        if (createdIds.length) {
+          setLastAction({
+            label: 'processar com IA',
+            undo: async () => {
+              for (const id of createdIds) {
+                const { ok: delOk, payload: delPayload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/display-images`, {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ id })
+                });
+                if (!delOk) throw new Error(delPayload.message);
+              }
+            }
+          });
+        }
+        setDualPositionSelections((prev) => ({ ...prev, [colorImageId]: new Set() }));
+        load();
+      }
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
@@ -665,13 +973,13 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   }
 
   // "Enviar Óculos da Prova Online" (14/09/2026, pedido do usuário — seção
-  // 0.62): opção ADICIONAL ao "Processar com IA" acima (não o substitui —
-  // ver incidente registrado em 0.63 do estado consolidado). Quando a
-  // recolorização automática não sai boa o suficiente, o master pode subir
-  // manualmente, por cor, o PNG já pronto pra prova online (já recortado e
-  // colorido fora do sistema) — isso também grava em `processed_image_path`
-  // ("foto tratada"), a mesma coluna que "Processar com IA" preenche. O nome
-  // do arquivo precisa terminar em "<número>mm.png" (ex.:
+  // 0.62). Desde 15/09/2026 (fim da recolorização por IA — seção 0.67 do
+  // estado consolidado) este é o ÚNICO jeito de definir a "Foto de Prova":
+  // upload manual, por cor, do PNG já pronto pra prova online (recortado e
+  // colorido fora do sistema) — grava em `processed_image_path` ("Foto de
+  // Prova"). "Processar com IA" não mexe mais nesse campo, só nas "fotos de
+  // exibição" (catálogo de fotos da cor). O nome do arquivo precisa
+  // terminar em "<número>mm.png" (ex.:
   // "prova-online-SKU-138mm.png") — esse número é lido AQUI, no
   // navegador, antes do upload (o Storage descarta o nome original do
   // arquivo, só o conteúdo é enviado), e vira a "Frente Total (mm)" do
@@ -694,6 +1002,11 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       setMessage({ kind: 'error', text: 'O nome do arquivo precisa terminar em "<número>mm.png" (ex.: prova-online-SKU-138mm.png), indicando a Frente Total da armação em mm. Renomeie o arquivo e tente de novo.' });
       return;
     }
+    // Capturado ANTES da chamada (15/09/2026, "Desfazer última ação"): esta
+    // ação mexe em DUAS coisas — a foto tratada da cor e a Frente Total (mm)
+    // do produto inteiro — desfazer precisa devolver as duas.
+    const before = (colors || []).find((c) => c.id === colorImageId);
+    const beforeFrameTotalWidthMm = product?.frameTotalWidthMm ?? null;
     setBusy(true);
     setMessage(null);
     try {
@@ -719,6 +1032,24 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
           ? `Óculos enviado — Frente Total atualizada para ${frameWidthMm}mm.`
           : `Óculos enviado, mas não foi possível atualizar a Frente Total (${productPatch.payload.message}).`
       });
+      if (before) {
+        setLastAction({
+          label: 'enviar óculos da prova online',
+          undo: async () => {
+            await restoreColorSnapshot(colorImageId, snapshotColor(before));
+            // A Frente Total só mudou de verdade se a segunda chamada acima
+            // deu certo — se ela falhou, não há nada a desfazer nesse campo.
+            if (productPatch.ok) {
+              const { ok: prodOk, payload: prodPayload } = await fetchJson(`/api/admin/catalog/products/${productId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ frameTotalWidthMm: beforeFrameTotalWidthMm ?? '' })
+              });
+              if (!prodOk) throw new Error(prodPayload.message);
+            }
+          }
+        });
+      }
       load();
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
@@ -736,6 +1067,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       reason = window.prompt('Motivo da rejeição:') || '';
       if (!reason) return;
     }
+    const before = (colors || []).find((c) => c.id === colorImageId);
     setBusy(true);
     setMessage(null);
     try {
@@ -745,7 +1077,15 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         body: JSON.stringify({ action, reason })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-      if (ok) load();
+      if (ok) {
+        if (before) {
+          setLastAction({
+            label: action === 'validar' ? 'validar cor' : 'rejeitar cor',
+            undo: () => restoreColorSnapshot(colorImageId, snapshotColor(before))
+          });
+        }
+        load();
+      }
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
@@ -753,10 +1093,26 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
   }
 
-  // Remover uma foto de exibição já recortada (13/09/2026, migração
-  // 202609131200; qualquer posição desde a 202609131400 — não há mais
-  // posição especial, ver comentário no DELETE da rota).
+  // Remover uma foto de exibição (13/09/2026, migração 202609131200; sem
+  // limite de posição desde 15/09/2026 — ver comentário no DELETE da rota).
+  // Chamado a partir do popup de ampliar (tanto pendentes quanto já
+  // validadas podem ser removidas).
   async function handleRemoveDisplayImage(colorImageId: string, position: number) {
+    // Conjunto INTEIRO de fotos de exibição desta cor, capturado ANTES de
+    // remover (15/09/2026, "Desfazer última ação") — a rota de restaurar
+    // (PUT) substitui tudo, então desfazer precisa mandar de volta o
+    // conjunto completo de antes, com a foto removida de novo dentro dele.
+    const before = (colors || []).find((c) => c.id === colorImageId);
+    const beforeDisplayImages = before
+      ? before.displayImages.filter((d) => d.imagePath).map((d) => ({
+          position: d.position,
+          imagePath: d.imagePath as string,
+          validatedAt: d.validatedAt,
+          source: d.source,
+          sourceGalleryImageId: d.sourceGalleryImageId,
+          fromOwnColorPhoto: d.fromOwnColorPhoto
+        }))
+      : [];
     setBusy(true);
     setMessage(null);
     try {
@@ -766,7 +1122,21 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         body: JSON.stringify({ position })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-      if (ok) load();
+      if (ok) {
+        setLastAction({
+          label: 'remover foto de exibição',
+          undo: async () => {
+            const { ok: diOk, payload: diPayload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/display-images`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ images: beforeDisplayImages })
+            });
+            if (!diOk) throw new Error(diPayload.message);
+          }
+        });
+        setOpenDisplayImage(null);
+        load();
+      }
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
@@ -775,7 +1145,9 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   }
 
   // Validar uma foto de exibição (13/09/2026, migração 202609131400 — botão
-  // "Validar" do mockup): registro de que o master já conferiu esta foto.
+  // "Validar", desde 15/09/2026 dentro do popup de ampliar): ao validar, a
+  // foto sai da área de pendentes (seção "Processamento") e passa a
+  // aparecer na coluna esquerda ("Outras fotos validadas para o catálogo").
   async function handleValidateDisplayImage(colorImageId: string, position: number) {
     setBusy(true);
     setMessage(null);
@@ -786,6 +1158,43 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         body: JSON.stringify({ position })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) {
+        setLastAction({
+          label: 'validar foto de exibição',
+          undo: async () => {
+            const { ok: undoOk, payload: undoPayload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/display-images`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ position, undo: true })
+            });
+            if (!undoOk) throw new Error(undoPayload.message);
+          }
+        });
+        setOpenDisplayImage(null);
+        load();
+      }
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Reordenar manualmente as fotos já validadas (15/09/2026, pedido do
+  // usuário: "seria bom cada foto ter um número de prioridade") — troca a
+  // posição da foto com a da vizinha (seta pra cima/baixo), usando a ação
+  // `moveTo` nova da rota. Sem undo dedicado — trocar de novo (seta
+  // contrária) já desfaz.
+  async function handleReorderDisplayImage(colorImageId: string, position: number, moveTo: number) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/display-images`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position, moveTo })
+      });
+      if (!ok) setMessage({ kind: 'error', text: payload.message });
       if (ok) load();
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
@@ -830,6 +1239,10 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
 
   async function handleSaveGalleryColorTags() {
     if (!dirtyGalleryPhotos.length) return;
+    // Marcação ANTIGA de cada foto suja, capturada ANTES de salvar
+    // (15/09/2026, "Desfazer última ação") — desfazer manda de volta essa
+    // lista completa pra cada foto que foi salva com sucesso.
+    const beforeTags = dirtyGalleryPhotos.map((photo) => ({ id: photo.id, colorImageIds: photo.colorImageIds }));
     setBusy(true);
     setMessage(null);
     try {
@@ -845,6 +1258,21 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         else failCount += 1;
       }
       setMessage({ kind: failCount ? 'error' : 'success', text: `Marcação de ${okCount} foto(s) salva.${failCount ? ` ${failCount} falharam — tente de novo.` : ''}` });
+      if (okCount) {
+        setLastAction({
+          label: `salvar marcação de cores de ${okCount} foto(s)`,
+          undo: async () => {
+            for (const { id, colorImageIds } of beforeTags) {
+              const { ok: undoOk, payload: undoPayload } = await fetchJson(`/api/admin/catalog/products/${productId}/gallery/${id}/colors`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ colorImageIds })
+              });
+              if (!undoOk) throw new Error(undoPayload.message);
+            }
+          }
+        });
+      }
       load();
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
@@ -861,12 +1289,18 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   // apagar na mão o que não serve depois de ver na tela.
   async function handleRemoveGalleryPhoto(galleryImageId: string) {
     if (!confirm('Remover esta foto da galeria deste produto? Isso não pode ser desfeito.')) return;
+    const before = product?.galleryPhotos.find((p) => p.id === galleryImageId);
     setBusy(true);
     setMessage(null);
     try {
       const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/gallery/${galleryImageId}`, { method: 'DELETE' });
       if (!ok) setMessage({ kind: 'error', text: payload.message || 'Não foi possível remover esta foto.' });
-      if (ok) load();
+      if (ok) {
+        if (before) {
+          setLastAction({ label: 'remover foto da galeria', undo: () => restoreDeletedGalleryPhotos([{ url: before.url, colorImageIds: before.colorImageIds }]) });
+        }
+        load();
+      }
     } catch (err) {
       setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
     } finally {
@@ -892,6 +1326,9 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     const ids = Array.from(selectedGalleryIds);
     if (!ids.length) return;
     if (!confirm(`Remover ${ids.length} foto(s) selecionada(s) da galeria deste produto? Isso não pode ser desfeito.`)) return;
+    const beforePhotos = (product?.galleryPhotos || [])
+      .filter((p) => selectedGalleryIds.has(p.id))
+      .map((p) => ({ url: p.url, colorImageIds: p.colorImageIds }));
     setBusy(true);
     setMessage(null);
     try {
@@ -903,6 +1340,9 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         else failed += 1;
       }
       setMessage({ kind: failed ? 'error' : 'success', text: `${removed} foto(s) removida(s).${failed ? ` ${failed} falharam — tente de novo.` : ''}` });
+      if (removed) {
+        setLastAction({ label: `remover ${removed} foto(s) da galeria`, undo: () => restoreDeletedGalleryPhotos(beforePhotos) });
+      }
       setSelectedGalleryIds(new Set());
       load();
     } catch (err) {
@@ -927,6 +1367,20 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
           {product.status !== 'arquivado' && <button className="button secondary" type="button" disabled={busy} onClick={() => handlePublish('arquivado')}>Arquivar</button>}
         </div>
       </div>
+
+      {/* "Desfazer última ação" (15/09/2026, pedido do usuário depois do
+          incidente de cores sumindo/duplicando): só aparece quando há algo
+          pra desfazer nesta visita à página — some depois de usado, depois
+          de qualquer F5/saída da página (é só em memória), ou assim que
+          outra ação nova acontecer (substitui a anterior, um nível só). */}
+      {lastAction && (
+        <div className="card" style={{ padding: '10px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: '#fff8e6' }}>
+          <span>Última ação: <strong>{lastAction.label}</strong></span>
+          <button className="button secondary" type="button" disabled={busy || undoing} onClick={handleUndo}>
+            {undoing ? 'Desfazendo…' : 'Desfazer última ação'}
+          </button>
+        </div>
+      )}
 
       {message && <p ref={messageRef} className={`form-message ${message.kind}`}>{message.text}</p>}
 
@@ -954,22 +1408,20 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       </form>
 
       {/* Foto de posição do produto (13/09/2026, 2ª rodada — depois mudou de
-          sentido na 4ª rodada, ver lib/catalog/frame-colorize.ts): uma só,
-          usada por "Processar com IA" em TODAS as cores deste modelo — o
-          ângulo/pose é o mesmo, só a cor muda (ver migração 202609130009).
-          A partir da 4ª rodada esta foto PRECISA já vir recortada (fundo e
-          lente transparentes, feita fora do sistema) — deixou de ser uma
-          foto crua que a IA recorta sozinha: agora ela também define a
-          forma final do resultado (a IA só recolore por cima, nunca recorta
-          nada), então se ela não estiver bem recortada o resultado sai sem
-          nenhum recorte. */}
+          sentido na 4ª rodada). SEM USO FUNCIONAL desde 15/09/2026 (fim da
+          recolorização por IA — ver estado-consolidado.md seção 0.67): esta
+          foto só alimentava aquele passo (dar a forma/pose pra IA recolorir
+          por cima). O usuário pediu explicitamente pra MANTER esta seção na
+          tela mesmo assim (pode voltar a servir pra algo no futuro) — só o
+          texto de ajuda abaixo foi ajustado pra não afirmar algo que não é
+          mais verdade; upload/armazenamento continuam idênticos. */}
       <div className="card catalog-position-card">
         <div className="preview">
           {product.positionImageUrl ? <img src={product.positionImageUrl} alt="Foto de posição do produto" /> : 'sem foto de posição'}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <span className="section-label">Foto de posição — já recortada (de frente, fundo e lente transparentes, usada para todas as cores deste modelo)</span>
-          <span className="helper">Envie um PNG já recortado por fora do sistema (ex.: Photoshop, remove.bg): fundo e a área da lente transparentes, só a armação visível. Esta foto define a forma final do resultado — a IA só troca a cor, não recorta mais nada.</span>
+          <span className="section-label">Foto de posição (sem uso no processamento das cores no momento)</span>
+          <span className="helper">Guardada aqui pra uso futuro — hoje nenhuma cor deste produto usa esta foto pra processar nada.</span>
           <input
             type="file"
             accept="image/png"
@@ -993,9 +1445,6 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
           <button className="button secondary small" type="button" disabled={busy} style={{ justifySelf: 'start' }} onClick={handleUploadProductPosition}>
             Salvar foto de posição
           </button>
-          {product.positionImageUrl && (
-            <span className="helper">Trocar esta foto marca as cores já tratadas para reprocessar (a pose mudou pra todas elas).</span>
-          )}
         </div>
       </div>
 
@@ -1291,16 +1740,60 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
 
       {colors.length ? (
         <div className="catalog-color-grid">
-          {colors.map((color) => (
+          {colors.map((color) => {
+            // Layout em duas colunas (15/09/2026, pedido do usuário com
+            // print anexado): coluna esquerda só com fotos (sem nenhum botão
+            // de ação), coluna direita com todos os controles. As fotos de
+            // exibição já validadas viram o "catálogo" desta cor na coluna
+            // esquerda (reordenável); as ainda não validadas ficam pendentes
+            // na seção "Processamento", à direita, esperando o master abrir
+            // o popup e clicar "Validar" ou "Remover".
+            const validatedImages = [...color.displayImages].filter((d) => d.validatedAt).sort((a, b) => a.position - b.position);
+            const pendingImages = [...color.displayImages].filter((d) => !d.validatedAt).sort((a, b) => a.position - b.position);
+            const taggedPhotos = product.galleryPhotos.filter((p) => p.colorImageIds.includes(color.id));
+            const dualSelected = dualPositionSelections[color.id] ?? new Set<string>();
+            const hasProcessCandidates = taggedPhotos.length > 0 || Boolean(color.originalImageUrl);
+            return (
             <div key={color.id} className="catalog-color-card">
-              <div className="catalog-color-photos">
+              <div className="catalog-color-photos" style={{ flexDirection: 'column' }}>
                 <div className="half">
                   <span className="catalog-photo-label">Foto da cor</span>
                   {color.originalImageUrl ? <img src={color.originalImageUrl} alt="Foto da cor" /> : 'sem foto'}
                 </div>
                 <div className="half">
-                  <span className="catalog-photo-label">Tratada</span>
-                  {color.processedImageUrl ? <img src={color.processedImageUrl} alt="Tratada" /> : 'aguardando tratamento'}
+                  <span className="catalog-photo-label">Foto de Prova</span>
+                  {color.processedImageUrl ? <img src={color.processedImageUrl} alt="Foto de Prova" /> : 'nenhuma ainda'}
+                </div>
+                <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span className="section-label" style={{ fontSize: 10 }}>Outras fotos validadas para o catálogo ({validatedImages.length})</span>
+                  {validatedImages.length ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      {validatedImages.map((img, idx) => (
+                        <div key={img.id} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <button
+                            type="button"
+                            style={{ padding: 0, border: '1px solid var(--line)', borderRadius: 4, overflow: 'hidden', cursor: 'pointer', background: 'none' }}
+                            onClick={() => setOpenDisplayImage({ colorImageId: color.id, position: img.position, url: img.url, validatedAt: img.validatedAt })}
+                            title={`${idx + 1}ª foto do catálogo — clique para ampliar`}
+                          >
+                            {img.url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={img.url} alt={`Foto ${idx + 1} do catálogo`} style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', display: 'block' }} />
+                            ) : (
+                              <span style={{ width: '100%', aspectRatio: '1 / 1', display: 'block', background: 'var(--soft)' }} />
+                            )}
+                          </button>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <button type="button" className="text-button" style={{ fontSize: 11 }} disabled={busy || idx === 0} onClick={() => handleReorderDisplayImage(color.id, img.position, validatedImages[idx - 1].position)} title="Subir prioridade">▲</button>
+                            <span className="muted" style={{ fontSize: 10 }}>{idx + 1}º</span>
+                            <button type="button" className="text-button" style={{ fontSize: 11 }} disabled={busy || idx === validatedImages.length - 1} onClick={() => handleReorderDisplayImage(color.id, img.position, validatedImages[idx + 1].position)} title="Descer prioridade">▼</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="helper" style={{ fontSize: 11 }}>Nenhuma ainda — valide fotos processadas na seção &quot;Processamento&quot; ao lado.</span>
+                  )}
                 </div>
               </div>
               <div className="catalog-color-body">
@@ -1368,53 +1861,87 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                   <div className="catalog-color-section">
                     <span className="section-label">Processamento</span>
                     {color.status === 'validada' && (
-                      <span className="helper">Esta cor já está validada. Você ainda pode reprocessar, enviar um óculos manualmente, trocar a foto marcada ou rejeitar — o painel continua editável mesmo depois de validar.</span>
+                      <span className="helper">Esta cor já está validada. Você ainda pode processar de novo, enviar um óculos manualmente, trocar a foto marcada ou rejeitar — o painel continua editável mesmo depois de validar.</span>
                     )}
-                    {!product.positionImageUrl && (
-                      <span className="helper">Falta a foto de posição do produto (seção no topo da página).</span>
+                    {!color.originalImageUrl && !taggedPhotos.length && (
+                      <span className="helper">Falta a foto desta cor (seção acima) ou pelo menos uma foto marcada para esta cor em &quot;Todas as fotos do anúncio&quot;.</span>
                     )}
-                    {!color.originalImageUrl && (
-                      <span className="helper">Falta a foto desta cor (seção acima).</span>
-                    )}
-                    {(() => {
-                      const taggedPhotos = product.galleryPhotos.filter((p) => p.colorImageIds.includes(color.id));
-                      return taggedPhotos.length > 0 ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span className="helper">{taggedPhotos.length} foto(s) marcada(s) para esta cor em &quot;Todas as fotos do anúncio&quot; — serão recortadas ao processar:</span>
-                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                            {taggedPhotos.map((p) => (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img key={p.id} src={p.url} alt="Marcada para esta cor" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
-                            ))}
-                          </div>
+                    {/* Marcação "2 posições" (15/09/2026, pedido do usuário:
+                        "fotos que têm o óculos em duas posições podem ser
+                        repartidas em dois resultados") — o master marca ANTES
+                        de clicar "Processar com IA" quais fotos já viu que
+                        mostram a armação duas vezes; só essas geram 2
+                        resultados em vez de 1 (ver process/route.ts — não é
+                        detecção automática, pra não arriscar duplicar foto
+                        que só tem uma posição). */}
+                    {taggedPhotos.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span className="helper">{taggedPhotos.length} foto(s) marcada(s) para esta cor em &quot;Todas as fotos do anúncio&quot; — marque abaixo as que mostram a armação em 2 posições (opcional):</span>
+                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                          {taggedPhotos.map((p) => (
+                            <label key={p.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, fontSize: 10, cursor: 'pointer' }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={p.url} alt="Marcada para esta cor" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <input type="checkbox" checked={dualSelected.has(p.id)} onChange={() => toggleDualPosition(color.id, p.id)} />
+                                2 posições
+                              </span>
+                            </label>
+                          ))}
                         </div>
-                      ) : (
-                        <span className="helper">Nenhuma foto marcada para esta cor ainda — marque em &quot;Todas as fotos do anúncio&quot; acima antes de processar, se quiser fotos de exibição extras.</span>
-                      );
-                    })()}
+                      </div>
+                    )}
+                    {color.originalImageUrl && (
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={dualSelected.has(OWN_PHOTO_DUAL_KEY)} onChange={() => toggleDualPosition(color.id, OWN_PHOTO_DUAL_KEY)} />
+                        A própria &quot;Foto da cor&quot; também mostra a armação em 2 posições
+                      </label>
+                    )}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <button className="button secondary small" type="button" disabled={busy || !product.positionImageUrl || !color.originalImageUrl} onClick={() => handleProcess(color.id)}>
-                        {color.processedImageUrl ? 'Reprocessar com IA' : 'Processar com IA'}
+                      <button className="button secondary small" type="button" disabled={busy || !hasProcessCandidates} onClick={() => handleProcess(color.id)}>
+                        {color.displayImages.length > 0 ? 'Processar novamente' : 'Processar com IA'}
                       </button>
                       <button className="button primary small" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'validar')}>{color.status === 'validada' ? 'Validar novamente' : 'Validar'}</button>
                       <button className="text-button danger" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'rejeitar')}>Rejeitar</button>
                     </div>
 
+                    {pendingImages.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span className="helper">{pendingImages.length} foto(s) processada(s), aguardando validação — clique pra ampliar:</span>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {pendingImages.map((img) => (
+                            <button
+                              key={img.id}
+                              type="button"
+                              style={{ padding: 0, border: '1px solid var(--line)', borderRadius: 4, overflow: 'hidden', cursor: 'pointer', background: 'none', width: 64, height: 64 }}
+                              onClick={() => setOpenDisplayImage({ colorImageId: color.id, position: img.position, url: img.url, validatedAt: img.validatedAt })}
+                              title="Clique para ampliar e validar"
+                            >
+                              {img.url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={img.url} alt="Pendente de validação" style={{ width: 64, height: 64, objectFit: 'cover', display: 'block' }} />
+                              ) : (
+                                <span style={{ width: 64, height: 64, display: 'block' }} />
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* "Enviar Óculos da Prova Online" (14/09/2026, pedido do
-                        usuário — seção 0.62): opção MANUAL adicional ao
-                        "Processar com IA" acima (não o substitui — ver
-                        incidente registrado em 0.63 do estado consolidado).
-                        Útil quando a recolorização automática não sai boa o
-                        suficiente: o master sobe aqui o PNG já pronto
-                        (recortado e colorido fora do sistema), que grava na
-                        mesma coluna `processed_image_path`. O nome do
-                        arquivo precisa terminar em "<número>mm.png" (ex.:
-                        "prova-online-SKU-138mm.png") — esse número vira a
-                        "Frente Total (mm)" do produto (campo do formulário no
-                        topo da página, usado por lib/tryon/geometry.ts pra
+                        usuário — seção 0.62). Desde 15/09/2026 (fim da
+                        recolorização — seção 0.67 do estado consolidado) é o
+                        ÚNICO jeito de definir a "Foto de Prova": o master
+                        sobe aqui o PNG já pronto (recortado e colorido fora
+                        do sistema), que grava em `processed_image_path`. O
+                        nome do arquivo precisa terminar em "<número>mm.png"
+                        (ex.: "prova-online-SKU-138mm.png") — esse número vira
+                        a "Frente Total (mm)" do produto (campo do formulário
+                        no topo da página, usado por lib/tryon/geometry.ts pra
                         escalar a armação na Prova Online). */}
                     <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #eee', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <span className="helper" style={{ fontWeight: 600 }}>Ou envie manualmente o óculos já pronto:</span>
+                      <span className="helper" style={{ fontWeight: 600 }}>Enviar manualmente o óculos já pronto (Foto de Prova):</span>
                       <span className="helper">Envie o PNG já pronto (recortado e colorido fora do sistema) — o nome do arquivo precisa terminar em &quot;&lt;número&gt;mm.png&quot; (ex.: prova-online-SKU-138mm.png), indicando a Frente Total da armação em mm.</span>
                       <input
                         type="file"
@@ -1433,42 +1960,47 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                     </div>
                   </div>
                 )}
-
-                {color.displayImages.length > 0 && (
-                  <div className="catalog-color-section">
-                    <span className="section-label">Fotos de exibição desta cor ({color.displayImages.length}/4) — recortadas pela IA a partir das fotos marcadas para esta cor em &quot;Todas as fotos do anúncio&quot;</span>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      {color.displayImages.map((img) => (
-                        <div key={img.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                          {img.url ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={img.url} alt={`Foto ${img.position}`} style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 4 }} />
-                          ) : (
-                            <span style={{ width: 64, height: 64 }} />
-                          )}
-                          <span className="muted" style={{ fontSize: 10 }}>{img.validatedAt ? 'validada' : 'recortada por IA'}</span>
-                          <div style={{ display: 'flex', gap: 4 }}>
-                            {!img.validatedAt && (
-                              <button className="text-button" type="button" disabled={busy} style={{ fontSize: 11 }} onClick={() => handleValidateDisplayImage(color.id, img.position)}>
-                                Validar
-                              </button>
-                            )}
-                            <button className="text-button danger" type="button" disabled={busy} style={{ fontSize: 11 }} onClick={() => handleRemoveDisplayImage(color.id, img.position)}>
-                              Remover
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="catalog-empty">Nenhuma cor cadastrada ainda.</div>
       )}
+
+      {/* Popup de ampliar foto de exibição (15/09/2026) — abre tanto pra
+          fotos pendentes (Validar + Remover) quanto já validadas (só
+          Remover, já que "Validar" de novo não faz sentido). */}
+      {openDisplayImage && (() => {
+        const color = colors?.find((c) => c.id === openDisplayImage.colorImageId);
+        const img = color?.displayImages.find((d) => d.position === openDisplayImage.position);
+        if (!color || !img) return null;
+        return (
+          <div
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setOpenDisplayImage(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}
+          >
+            <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 8, padding: 16, maxWidth: '92vw', maxHeight: '92vh', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+              {img.url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={img.url} alt="Foto de exibição ampliada" style={{ maxWidth: '85vw', maxHeight: '70vh', objectFit: 'contain' }} />
+              ) : (
+                <span className="helper">sem foto</span>
+              )}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+                {!img.validatedAt && (
+                  <button className="button primary" type="button" disabled={busy} onClick={() => handleValidateDisplayImage(color.id, img.position)}>Validar</button>
+                )}
+                <button className="text-button danger" type="button" disabled={busy} onClick={() => handleRemoveDisplayImage(color.id, img.position)}>Remover</button>
+                <button className="button secondary" type="button" onClick={() => setOpenDisplayImage(null)}>Fechar</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
