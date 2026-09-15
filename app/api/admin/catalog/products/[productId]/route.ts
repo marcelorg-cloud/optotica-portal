@@ -11,7 +11,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
 
   const { data: product } = await auth.admin
     .from('catalog_products')
-    .select('id, supplier_id, supplier_item_id, model_name, sku_optotica, format_code, material_code, model_number, lens_width_mm, lens_height_mm, bridge_mm, lens_diagonal_mm, temple_length_mm, rim_mm, frame_total_width_mm, standard_height_mm, measurement_source, status, created_at, catalog_suppliers(name, store_id)')
+    .select('id, supplier_id, supplier_item_id, model_name, sku_optotica, format_code, material_code, model_number, lens_width_mm, lens_height_mm, bridge_mm, lens_diagonal_mm, temple_length_mm, rim_mm, frame_total_width_mm, standard_height_mm, measurement_source, status, created_at, position_image_path, catalog_suppliers(name, store_id)')
     .eq('id', productId)
     .maybeSingle();
   if (!product) return NextResponse.json({ message: 'Produto não encontrado.' }, { status: 404 });
@@ -27,8 +27,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
   // e, desde 13/09/2026 (migração 202609131400), pela seção "Todas as fotos
   // do anúncio", onde o master marca manualmente quais cores aparecem em
   // cada foto — por isso agora também expõe `id` (precisa pra marcar/
-  // desmarcar cor e pra .../display-images/route.ts (POST) encontrar as
-  // fotos marcadas).
+  // desmarcar cor e pra process/route.ts encontrar as fotos marcadas).
   const { data: gallery } = await auth.admin
     .from('catalog_product_gallery_images')
     .select('id, image_url')
@@ -126,6 +125,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
 
   const supplier = (product as unknown as { catalog_suppliers: { name: string; store_id: string } | null }).catalog_suppliers;
 
+  // Foto de posição (13/09/2026, 2ª rodada — ver migração 202609130009): uma
+  // só por produto, compartilhada por todas as cores.
+  const positionSigned = product.position_image_path
+    ? await auth.admin.storage.from('catalog-product-photos').createSignedUrl(product.position_image_path, 3600)
+    : { data: null };
+
   return NextResponse.json({
     product: {
       id: product.id,
@@ -154,7 +159,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       // Fotos da galeria com `id` + cores já marcadas nelas (13/09/2026,
       // migração 202609131400) — alimenta a seção nova "Todas as fotos do
       // anúncio", onde o master marca/desmarca cor por foto.
-      galleryPhotos: (gallery || []).map((g) => ({ id: g.id, url: g.image_url, colorImageIds: tagsByGalleryImage.get(g.id) || [] }))
+      galleryPhotos: (gallery || []).map((g) => ({ id: g.id, url: g.image_url, colorImageIds: tagsByGalleryImage.get(g.id) || [] })),
+      positionImageUrl: positionSigned.data?.signedUrl || null
     },
     colorImages: withUrls
   });

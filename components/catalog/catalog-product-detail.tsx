@@ -29,6 +29,7 @@ type Product = {
   // 202609131400 — "Substitui — só marcação manual daqui pra frente") —
   // alimenta a seção "Todas as fotos do anúncio".
   galleryPhotos: { id: string; url: string; colorImageIds: string[] }[];
+  positionImageUrl: string | null;
 };
 
 type ColorImage = {
@@ -130,8 +131,8 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const [loadingLastJson, setLoadingLastJson] = useState(false);
 
   // A mensagem de sucesso/erro fica perto do topo da página — mas as ações
-  // por cor (Trocar foto, Enviar Óculos da Prova Online etc.) ficam mais
-  // abaixo, na grade de cores. Sem isso, um clique num card lá embaixo produz uma
+  // por cor (Trocar foto, Processar com IA, Enviar Óculos da Prova Online
+  // etc.) ficam mais abaixo, na grade de cores. Sem isso, um clique num card lá embaixo produz uma
   // mensagem que aparece fora da tela, dando a impressão de "não fez nada"
   // (achado em produção, 13/09/2026: usuário reportou "clico em Trocar foto
   // e não muda nada" mesmo depois da mensagem já estar aparecendo).
@@ -151,12 +152,19 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   // "pegou" antes do usuário clicar em "Trocar foto"/"Adicionar foto".
   const [selectedFixFile, setSelectedFixFile] = useState<Record<string, File | null>>({});
   const [selectedReplaceFile, setSelectedReplaceFile] = useState<Record<string, File | null>>({});
+  // Foto de posição do produto (13/09/2026, 2ª rodada — ver migração
+  // 202609130009): uma só por produto, compartilhada por todas as cores.
+  // Mesmo padrão de captura por estado (não por ref/DOM) que corrigiu o
+  // "Trocar foto" por cor.
+  const positionFileInput = useRef<HTMLInputElement | null>(null);
+  const [selectedPositionFile, setSelectedPositionFile] = useState<File | null>(null);
   // "Enviar Óculos da Prova Online" (14/09/2026, pedido do usuário — seção
-  // 0.62 do estado consolidado): substitui de vez o antigo "Processar com
-  // IA"/foto de posição do produto. Agora o master sobe manualmente, por
-  // cor, o PNG já pronto (recortado e colorido fora do sistema) que vai ser
-  // usado na prova online — mesmo padrão de captura por estado (não por
-  // ref/DOM) que corrigiu o "Trocar foto".
+  // 0.62 do estado consolidado): ADICIONADA como mais uma opção ao lado do
+  // "Processar com IA" (não o substitui — ver incidente registrado em 0.63).
+  // O master sobe manualmente, por cor, o PNG já pronto (recortado e
+  // colorido fora do sistema) que vai ser usado na prova online — mesmo
+  // padrão de captura por estado (não por ref/DOM) que corrigiu o "Trocar
+  // foto".
   const glassesFileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   const [selectedGlassesFile, setSelectedGlassesFile] = useState<Record<string, File | null>>({});
 
@@ -598,13 +606,73 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
   }
 
+  // Envio manual da foto de posição do produto (mesmo padrão do "Trocar
+  // foto" por cor: try/finally, arquivo lido de estado capturado no
+  // onChange). Pedido do usuário (13/09/2026, 6ª rodada): esta seção passa a
+  // ser SÓ upload manual — a opção de escolher direto da galeria do anúncio
+  // foi removida da tela, já que aquelas fotos vêm cruas (sem recorte) e não
+  // servem mais aqui desde a 4ª rodada (a foto de posição precisa vir
+  // recortada). A rota `.../position-photo` continua aceitando `imageUrl`
+  // no corpo por compatibilidade, mas não é mais chamada por nenhum botão.
+  async function handleUploadProductPosition() {
+    const file = selectedPositionFile;
+    if (!file) { setMessage({ kind: 'error', text: 'Escolha um arquivo antes de clicar em "Salvar foto de posição".' }); return; }
+    setBusy(true);
+    setMessage(null);
+    try {
+      const uploaded = await uploadPhoto(productId, file);
+      if (!uploaded.ok) { setMessage({ kind: 'error', text: uploaded.message }); return; }
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/position-photo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: uploaded.path })
+      });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+      setSelectedPositionFile(null);
+      if (positionFileInput.current) positionFileInput.current.value = '';
+    }
+  }
+
+  async function handleProcess(colorImageId: string) {
+    setBusy(true);
+    setMessage(null);
+    // try/finally (13/09/2026, 5ª rodada — achado em produção): esta é a
+    // chamada mais demorada da tela (chega a chamar uma IA generativa) e por
+    // isso a mais fácil de esbarrar num erro de REDE de verdade (não um erro
+    // "normal" com resposta HTTP, mas a conexão cair no meio — ex.: a função
+    // da Vercel estourar o tempo limite antes de terminar). Sem try/finally
+    // aqui, uma falha dessas deixava `busy` travado em `true` pra sempre —
+    // como `busy` desabilita TODOS os botões da página (não só este), o
+    // sintoma reportado foi "clico em Trocar foto de posição [um botão sem
+    // nenhuma relação] e não acontece nada", sem nenhuma mensagem — porque um
+    // botão desabilitado nem chama a função ao ser clicado. Um F5 destravava
+    // (recarregava o estado do zero), mas o clique em si nunca fazia nada até
+    // isso.
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/process`, { method: 'POST' });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) load();
+    } catch (err) {
+      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // "Enviar Óculos da Prova Online" (14/09/2026, pedido do usuário — seção
-  // 0.62): substitui de vez o "Processar com IA"/foto de posição do produto
-  // (removidos). O master sobe manualmente, por cor, o PNG já pronto pra
-  // prova online (já recortado e colorido fora do sistema) — isso é o que
-  // vira `processed_image_path` ("foto tratada") a partir de agora, nunca
-  // mais gerado por IA. O nome do arquivo precisa terminar em "<número>mm.png"
-  // (ex.: "prova-online-SKU-138mm.png") — esse número é lido AQUI, no
+  // 0.62): opção ADICIONAL ao "Processar com IA" acima (não o substitui —
+  // ver incidente registrado em 0.63 do estado consolidado). Quando a
+  // recolorização automática não sai boa o suficiente, o master pode subir
+  // manualmente, por cor, o PNG já pronto pra prova online (já recortado e
+  // colorido fora do sistema) — isso também grava em `processed_image_path`
+  // ("foto tratada"), a mesma coluna que "Processar com IA" preenche. O nome
+  // do arquivo precisa terminar em "<número>mm.png" (ex.:
+  // "prova-online-SKU-138mm.png") — esse número é lido AQUI, no
   // navegador, antes do upload (o Storage descarta o nome original do
   // arquivo, só o conteúdo é enviado), e vira a "Frente Total (mm)" do
   // PRODUTO (não desta cor só — é o mesmo campo já usado pela Prova Online
@@ -659,26 +727,6 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       setSelectedGlassesFile((prev) => ({ ...prev, [colorImageId]: null }));
       const input = glassesFileInputs.current[colorImageId];
       if (input) input.value = '';
-    }
-  }
-
-  // "Gerar fotos de exibição" (14/09/2026): separado do que virou o upload
-  // manual do óculos acima — continua sendo só o recorte por IA (Replicate)
-  // das fotos marcadas em "Todas as fotos do anúncio" pra esta cor, sem
-  // nenhuma relação com a Prova Online. Antes rodava junto do extinto
-  // "Processar com IA"; agora tem rota e botão próprios (ver .../
-  // display-images/route.ts, POST).
-  async function handleGenerateDisplayImages(colorImageId: string) {
-    setBusy(true);
-    setMessage(null);
-    try {
-      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/display-images`, { method: 'POST' });
-      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-      if (ok) load();
-    } catch (err) {
-      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -905,11 +953,57 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         <button className="button primary" type="submit" disabled={busy}>Salvar alterações</button>
       </form>
 
+      {/* Foto de posição do produto (13/09/2026, 2ª rodada — depois mudou de
+          sentido na 4ª rodada, ver lib/catalog/frame-colorize.ts): uma só,
+          usada por "Processar com IA" em TODAS as cores deste modelo — o
+          ângulo/pose é o mesmo, só a cor muda (ver migração 202609130009).
+          A partir da 4ª rodada esta foto PRECISA já vir recortada (fundo e
+          lente transparentes, feita fora do sistema) — deixou de ser uma
+          foto crua que a IA recorta sozinha: agora ela também define a
+          forma final do resultado (a IA só recolore por cima, nunca recorta
+          nada), então se ela não estiver bem recortada o resultado sai sem
+          nenhum recorte. */}
+      <div className="card catalog-position-card">
+        <div className="preview">
+          {product.positionImageUrl ? <img src={product.positionImageUrl} alt="Foto de posição do produto" /> : 'sem foto de posição'}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span className="section-label">Foto de posição — já recortada (de frente, fundo e lente transparentes, usada para todas as cores deste modelo)</span>
+          <span className="helper">Envie um PNG já recortado por fora do sistema (ex.: Photoshop, remove.bg): fundo e a área da lente transparentes, só a armação visível. Esta foto define a forma final do resultado — a IA só troca a cor, não recorta mais nada.</span>
+          <input
+            type="file"
+            accept="image/png"
+            ref={positionFileInput}
+            onChange={(e) => setSelectedPositionFile(e.target.files?.[0] || null)}
+          />
+          {selectedPositionFile ? (
+            <span className="helper">Arquivo selecionado: {selectedPositionFile.name}</span>
+          ) : (
+            <span className="helper">Envie aqui o PNG já recortado</span>
+          )}
+          {/* Rótulo único "Salvar foto de posição", sem variante "Trocar"
+              (13/09/2026, 8ª rodada, pedido do usuário): esse botão SEMPRE
+              foi só upload manual do arquivo escolhido acima em "Escolher
+              arquivo" — nunca consultou o AliExpress (isso só existe no
+              "Trocar foto" por COR, seção mais abaixo, que tem miniaturas da
+              galeria). O rótulo "Trocar" aqui só gerava confusão por
+              parecer a mesma coisa. Comportamento não muda: salva o arquivo
+              selecionado, e se já havia uma foto de posição, ela é
+              substituída. */}
+          <button className="button secondary small" type="button" disabled={busy} style={{ justifySelf: 'start' }} onClick={handleUploadProductPosition}>
+            Salvar foto de posição
+          </button>
+          {product.positionImageUrl && (
+            <span className="helper">Trocar esta foto marca as cores já tratadas para reprocessar (a pose mudou pra todas elas).</span>
+          )}
+        </div>
+      </div>
+
       {/* "Todas as fotos do anúncio" (13/09/2026, mockup do usuário +
           migração 202609131400 — "Substitui — só marcação manual daqui pra
           frente"): o master marca aqui, foto a foto, quais cores aparecem em
           cada uma (uma foto pode ter mais de uma cor — ex.: foto
-          comparativa). Essa marcação é o que "Gerar fotos de exibição", em cada
+          comparativa). Essa marcação é o que "Processar com IA", em cada
           cor mais abaixo, usa como fonte das fotos a recortar — nada aqui
           recorta nada sozinho, é só a marcação. */}
       {product.galleryPhotos.length > 0 && colors.length > 0 && (
@@ -917,8 +1011,8 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
           <span className="section-label">Todas as fotos do anúncio — marque quais cores aparecem em cada foto</span>
           <p className="helper" style={{ margin: '4px 0 12px' }}>
             Clique nas bolinhas de cor abaixo de cada foto para marcar/desmarcar — é só uma pré-seleção,
-            ainda não salva nada. Clique em &quot;Salvar marcações&quot; quando terminar. Ao clicar em
-            &quot;Gerar fotos de exibição&quot; numa cor, ela recorta só as fotos marcadas (e já salvas) para aquela cor.
+            ainda não salva nada. Clique em &quot;Salvar marcações&quot; quando terminar. Ao processar uma cor
+            com IA, ela recorta só as fotos marcadas (e já salvas) para aquela cor.
           </p>
           {/* Salvar/descartar a pré-seleção (14/09/2026, pedido do usuário:
               "está lenta a seleção de cores... pode ser uma pré-seleção e
@@ -1205,8 +1299,8 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                   {color.originalImageUrl ? <img src={color.originalImageUrl} alt="Foto da cor" /> : 'sem foto'}
                 </div>
                 <div className="half">
-                  <span className="catalog-photo-label">Óculos (Prova Online)</span>
-                  {color.processedImageUrl ? <img src={color.processedImageUrl} alt="Óculos da Prova Online" /> : 'nenhum óculos enviado ainda'}
+                  <span className="catalog-photo-label">Tratada</span>
+                  {color.processedImageUrl ? <img src={color.processedImageUrl} alt="Tratada" /> : 'aguardando tratamento'}
                 </div>
               </div>
               <div className="catalog-color-body">
@@ -1272,54 +1366,21 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
 
                 {color.status !== 'incompleto' && (
                   <div className="catalog-color-section">
-                    {/* "Enviar Óculos da Prova Online" (14/09/2026, pedido do
-                        usuário — seção 0.62): substitui de vez o antigo
-                        "Processar com IA"/recolorização por IA. O master sobe
-                        aqui, manualmente, o PNG já pronto (recortado e
-                        colorido fora do sistema) que a Prova Online usa —
-                        isso é o que grava em `processed_image_path`. O nome
-                        do arquivo precisa terminar em "<número>mm.png" (ex.:
-                        "prova-online-SKU-138mm.png") — esse número vira a
-                        "Frente Total (mm)" do produto (campo do formulário no
-                        topo da página, usado por lib/tryon/geometry.ts pra
-                        escalar a armação na Prova Online). */}
-                    <span className="section-label">Óculos da Prova Online</span>
+                    <span className="section-label">Processamento</span>
                     {color.status === 'validada' && (
-                      <span className="helper">Esta cor já está validada. Você ainda pode enviar um óculos novo, trocar a foto marcada ou rejeitar — o painel continua editável mesmo depois de validar.</span>
+                      <span className="helper">Esta cor já está validada. Você ainda pode reprocessar, enviar um óculos manualmente, trocar a foto marcada ou rejeitar — o painel continua editável mesmo depois de validar.</span>
+                    )}
+                    {!product.positionImageUrl && (
+                      <span className="helper">Falta a foto de posição do produto (seção no topo da página).</span>
                     )}
                     {!color.originalImageUrl && (
                       <span className="helper">Falta a foto desta cor (seção acima).</span>
                     )}
-                    <span className="helper">Envie o PNG já pronto (recortado e colorido fora do sistema) — o nome do arquivo precisa terminar em &quot;&lt;número&gt;mm.png&quot; (ex.: prova-online-SKU-138mm.png), indicando a Frente Total da armação em mm.</span>
-                    <input
-                      type="file"
-                      accept="image/png"
-                      ref={(el) => { glassesFileInputs.current[color.id] = el; }}
-                      onChange={(e) => setSelectedGlassesFile((prev) => ({ ...prev, [color.id]: e.target.files?.[0] || null }))}
-                    />
-                    {selectedGlassesFile[color.id] ? (
-                      <span className="helper">Arquivo selecionado: {selectedGlassesFile[color.id]!.name}</span>
-                    ) : (
-                      <span className="helper">Nenhum arquivo selecionado ainda</span>
-                    )}
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <button className="button secondary small" type="button" disabled={busy} onClick={() => handleUploadGlassesPhoto(color.id)}>
-                        Enviar Óculos da Prova Online
-                      </button>
-                      <button className="button primary small" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'validar')}>{color.status === 'validada' ? 'Validar novamente' : 'Validar'}</button>
-                      <button className="text-button danger" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'rejeitar')}>Rejeitar</button>
-                    </div>
-                  </div>
-                )}
-
-                {color.status !== 'incompleto' && (
-                  <div className="catalog-color-section">
-                    <span className="section-label">Fotos de exibição (recorte por IA — sem relação com a Prova Online)</span>
                     {(() => {
                       const taggedPhotos = product.galleryPhotos.filter((p) => p.colorImageIds.includes(color.id));
                       return taggedPhotos.length > 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span className="helper">{taggedPhotos.length} foto(s) marcada(s) para esta cor em &quot;Todas as fotos do anúncio&quot; — serão recortadas ao gerar:</span>
+                          <span className="helper">{taggedPhotos.length} foto(s) marcada(s) para esta cor em &quot;Todas as fotos do anúncio&quot; — serão recortadas ao processar:</span>
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                             {taggedPhotos.map((p) => (
                               // eslint-disable-next-line @next/next/no-img-element
@@ -1328,17 +1389,46 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                           </div>
                         </div>
                       ) : (
-                        <span className="helper">Nenhuma foto marcada para esta cor ainda — marque em &quot;Todas as fotos do anúncio&quot; acima antes de gerar, se quiser fotos de exibição extras.</span>
+                        <span className="helper">Nenhuma foto marcada para esta cor ainda — marque em &quot;Todas as fotos do anúncio&quot; acima antes de processar, se quiser fotos de exibição extras.</span>
                       );
                     })()}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <button
-                        className="button secondary small"
-                        type="button"
-                        disabled={busy || !product.galleryPhotos.some((p) => p.colorImageIds.includes(color.id))}
-                        onClick={() => handleGenerateDisplayImages(color.id)}
-                      >
-                        Gerar fotos de exibição
+                      <button className="button secondary small" type="button" disabled={busy || !product.positionImageUrl || !color.originalImageUrl} onClick={() => handleProcess(color.id)}>
+                        {color.processedImageUrl ? 'Reprocessar com IA' : 'Processar com IA'}
+                      </button>
+                      <button className="button primary small" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'validar')}>{color.status === 'validada' ? 'Validar novamente' : 'Validar'}</button>
+                      <button className="text-button danger" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'rejeitar')}>Rejeitar</button>
+                    </div>
+
+                    {/* "Enviar Óculos da Prova Online" (14/09/2026, pedido do
+                        usuário — seção 0.62): opção MANUAL adicional ao
+                        "Processar com IA" acima (não o substitui — ver
+                        incidente registrado em 0.63 do estado consolidado).
+                        Útil quando a recolorização automática não sai boa o
+                        suficiente: o master sobe aqui o PNG já pronto
+                        (recortado e colorido fora do sistema), que grava na
+                        mesma coluna `processed_image_path`. O nome do
+                        arquivo precisa terminar em "<número>mm.png" (ex.:
+                        "prova-online-SKU-138mm.png") — esse número vira a
+                        "Frente Total (mm)" do produto (campo do formulário no
+                        topo da página, usado por lib/tryon/geometry.ts pra
+                        escalar a armação na Prova Online). */}
+                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #eee', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <span className="helper" style={{ fontWeight: 600 }}>Ou envie manualmente o óculos já pronto:</span>
+                      <span className="helper">Envie o PNG já pronto (recortado e colorido fora do sistema) — o nome do arquivo precisa terminar em &quot;&lt;número&gt;mm.png&quot; (ex.: prova-online-SKU-138mm.png), indicando a Frente Total da armação em mm.</span>
+                      <input
+                        type="file"
+                        accept="image/png"
+                        ref={(el) => { glassesFileInputs.current[color.id] = el; }}
+                        onChange={(e) => setSelectedGlassesFile((prev) => ({ ...prev, [color.id]: e.target.files?.[0] || null }))}
+                      />
+                      {selectedGlassesFile[color.id] ? (
+                        <span className="helper">Arquivo selecionado: {selectedGlassesFile[color.id]!.name}</span>
+                      ) : (
+                        <span className="helper">Nenhum arquivo selecionado ainda</span>
+                      )}
+                      <button className="button secondary small" type="button" disabled={busy} style={{ justifySelf: 'start' }} onClick={() => handleUploadGlassesPhoto(color.id)}>
+                        Enviar Óculos da Prova Online
                       </button>
                     </div>
                   </div>

@@ -2,13 +2,15 @@ import { NextResponse } from 'next/server';
 import { requireMaster } from '@/lib/catalog/require-master';
 
 // Fila de Aprovação (Especificação — Painel de Catálogo, seção 5): o
-// master valida ou rejeita manualmente cada imagem por cor depois de subir
-// o óculos da prova online (ação 'enviar_oculos', abaixo — antes desta
-// atualização, depois de um processamento de IA que não existe mais). Uma
-// imagem "incompleto" (campo obrigatório não veio na importação, ex.: sem
-// foto real por cor) não pode ser validada até alguém completar os campos
-// que faltam — por isso o action 'validar' checa status atual antes de
-// aceitar.
+// master valida ou rejeita manualmente cada imagem por cor depois que a
+// foto tratada da prova online estiver pronta — seja pelo "Processar com
+// IA" (recolorização automática, action separada em .../process/route.ts)
+// ou por upload manual do óculos já pronto (ação 'enviar_oculos', abaixo —
+// 14/09/2026, seção 0.62, adicionada como MAIS uma opção, sem remover o
+// processamento por IA). Uma imagem "incompleto" (campo obrigatório não
+// veio na importação, ex.: sem foto real por cor) não pode ser validada até
+// alguém completar os campos que faltam — por isso o action 'validar' checa
+// status atual antes de aceitar.
 
 const ACTIONS = ['validar', 'rejeitar', 'completar', 'trocar_foto', 'enviar_oculos'] as const;
 type Action = typeof ACTIONS[number];
@@ -91,16 +93,13 @@ export async function PATCH(
     const { error: signError } = await auth.admin.storage.from('catalog-product-photos').createSignedUrl(originalImagePath, 60);
     if (signError) return NextResponse.json({ message: 'Não encontramos a foto enviada. Tente enviar de novo.' }, { status: 400 });
 
-    // Não zera mais `processed_image_path`/`processed_at` (14/09/2026, seção
-    // 0.62): desde que o óculos da Prova Online passou a ser um upload
-    // manual independente (ver ação 'enviar_oculos' abaixo), ele deixou de
-    // ser derivado desta foto — trocar a "Foto da cor" (usada só no
-    // catálogo/miniatura) não deve mais apagar um óculos já enviado.
     const { error } = await auth.admin
       .from('catalog_product_color_images')
       .update({
         status: 'pendente',
         original_image_path: originalImagePath,
+        processed_image_path: null,
+        processed_at: null,
         validated_by: null,
         validated_at: null,
         rejection_reason: null,
@@ -108,20 +107,22 @@ export async function PATCH(
       })
       .eq('id', colorImageId);
     if (error) return NextResponse.json({ message: 'Não foi possível trocar a foto.' }, { status: 500 });
-    return NextResponse.json({ message: 'Foto trocada.' });
+    return NextResponse.json({ message: 'Foto trocada — pronta para "Processar com IA" de novo.' });
   }
 
   if (action === 'enviar_oculos') {
     // "Enviar Óculos da Prova Online" (14/09/2026, pedido do usuário — seção
-    // 0.62): substitui de vez o antigo "Processar com IA". O PNG já pronto
-    // (recortado e colorido fora do sistema) que o master sobe aqui vira
-    // `processed_image_path` — a mesma coluna que antes só a IA preenchia.
-    // Não muda `status` (pode enviar de novo numa cor já 'validada', mesmo
-    // padrão de "reprocessar" que já existia) nem mexe em nenhum outro
-    // campo — a "Frente Total (mm)" (lida do nome do arquivo, no navegador)
-    // é gravada à parte, pelo componente, num PATCH comum em
-    // .../products/[productId] (campo de produto, compartilhado por todas
-    // as cores — não tem uma cópia por cor aqui).
+    // 0.62): alternativa MANUAL ao "Processar com IA" (que continua
+    // existindo em .../process/route.ts) — as duas escrevem na mesma coluna
+    // `processed_image_path`. Uso: quando a recolorização automática não
+    // fica boa o suficiente, o master pode subir aqui um PNG já pronto
+    // (recortado e colorido fora do sistema) na mesma medida. Não muda
+    // `status` (pode enviar de novo numa cor já 'validada', mesmo padrão de
+    // "reprocessar" que já existia) nem mexe em nenhum outro campo — a
+    // "Frente Total (mm)" (lida do nome do arquivo, no navegador) é gravada
+    // à parte, pelo componente, num PATCH comum em .../products/[productId]
+    // (campo de produto, compartilhado por todas as cores — não tem uma
+    // cópia por cor aqui).
     if (image.status === 'incompleto') {
       return NextResponse.json({ message: 'Esta cor ainda não tem foto — use "Adicionar foto" ou "Importar do AliExpress" antes.' }, { status: 409 });
     }
