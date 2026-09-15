@@ -11,14 +11,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
 
   const { data: product } = await auth.admin
     .from('catalog_products')
-    .select('id, supplier_id, supplier_item_id, model_name, sku_optotica, format_code, material_code, model_number, lens_width_mm, lens_height_mm, bridge_mm, lens_diagonal_mm, temple_length_mm, rim_mm, frame_total_width_mm, standard_height_mm, measurement_source, status, created_at, position_image_path, catalog_suppliers(name, store_id)')
+    .select('id, supplier_id, supplier_item_id, model_name, sku_optotica, format_code, material_code, model_number, lens_width_mm, lens_height_mm, bridge_mm, lens_diagonal_mm, temple_length_mm, rim_mm, frame_total_width_mm, standard_height_mm, measurement_source, status, created_at, catalog_suppliers(name, store_id)')
     .eq('id', productId)
     .maybeSingle();
   if (!product) return NextResponse.json({ message: 'Produto não encontrado.' }, { status: 404 });
 
   const { data: images } = await auth.admin
     .from('catalog_product_color_images')
-    .select('id, color_name, supplier_sku, original_image_path, processed_image_path, status, missing_required_fields, rejection_reason, validated_at, created_at, source_image_url, color_variant_number, color_principal, color_secondary, supplier_color_name')
+    .select('id, color_name, supplier_sku, original_image_path, processed_image_path, status, missing_required_fields, rejection_reason, validated_at, created_at, source_image_url, color_variant_number, color_principal, color_secondary, supplier_color_name, color_note')
     .eq('product_id', productId)
     .order('color_variant_number', { ascending: true, nullsFirst: false });
 
@@ -27,7 +27,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
   // e, desde 13/09/2026 (migração 202609131400), pela seção "Todas as fotos
   // do anúncio", onde o master marca manualmente quais cores aparecem em
   // cada foto — por isso agora também expõe `id` (precisa pra marcar/
-  // desmarcar cor e pra process/route.ts encontrar as fotos marcadas).
+  // desmarcar cor e pra .../display-images/route.ts (POST) encontrar as
+  // fotos marcadas).
   const { data: gallery } = await auth.admin
     .from('catalog_product_gallery_images')
     .select('id, image_url')
@@ -109,6 +110,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       colorPrincipal: image.color_principal,
       colorSecondary: image.color_secondary,
       supplierColorName: image.supplier_color_name,
+      // Observação da cor (14/09/2026, migração 202609140100 — tabela
+      // global de cores): preenchida só quando esta cor é uma variação de
+      // verdade (ex.: "fosco") de uma combinação principal/secundária que
+      // já existe na tabela global.
+      colorNote: image.color_note,
       variantSku: image.color_variant_number ? buildVariantSku(product.sku_optotica, image.color_variant_number) : null,
       // Fotos de exibição (13/09/2026, migração 202609131200; formato
       // atual desde 202609131400): até 4, recortadas pela IA a partir das
@@ -119,12 +125,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
   }));
 
   const supplier = (product as unknown as { catalog_suppliers: { name: string; store_id: string } | null }).catalog_suppliers;
-
-  // Foto de posição (13/09/2026, 2ª rodada — ver migração 202609130009): uma
-  // só por produto, compartilhada por todas as cores.
-  const positionSigned = product.position_image_path
-    ? await auth.admin.storage.from('catalog-product-photos').createSignedUrl(product.position_image_path, 3600)
-    : { data: null };
 
   return NextResponse.json({
     product: {
@@ -154,8 +154,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       // Fotos da galeria com `id` + cores já marcadas nelas (13/09/2026,
       // migração 202609131400) — alimenta a seção nova "Todas as fotos do
       // anúncio", onde o master marca/desmarca cor por foto.
-      galleryPhotos: (gallery || []).map((g) => ({ id: g.id, url: g.image_url, colorImageIds: tagsByGalleryImage.get(g.id) || [] })),
-      positionImageUrl: positionSigned.data?.signedUrl || null
+      galleryPhotos: (gallery || []).map((g) => ({ id: g.id, url: g.image_url, colorImageIds: tagsByGalleryImage.get(g.id) || [] }))
     },
     colorImages: withUrls
   });
