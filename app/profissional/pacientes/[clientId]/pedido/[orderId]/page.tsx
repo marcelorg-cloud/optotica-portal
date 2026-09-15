@@ -17,8 +17,19 @@ export const metadata: Metadata = { title: 'Atendimento' };
 
 type QuoteItemMeta = { lensType?: string; lensIndex?: string; lensMaterial?: string; lensTreatment?: string; laboratory?: string; notes?: string };
 type QuoteRow = { id: string; total: number; quote_items: { description: string; metadata: QuoteItemMeta }[] | null };
-type FrameVariant = { color: string; image?: string; qty?: number };
-type FrameRow = { id: string; name: string; metadata: { kind?: string; variants?: FrameVariant[] } | null };
+// Escolha da armação (Etapa 3) — 15/09/2026, redesenho pro catálogo novo
+// (ver migração 202609151600 e components/order/frame-step.tsx): cada
+// "Modelo" agora é um catalog_products publicado, com uma cor por
+// catalog_product_color_images (o círculo de cor clicável do wireframe) e,
+// dentro de cada cor, a "Foto de Prova" (processed_image_path, usada na
+// prova online) e a "foto do óculos" (melhor foto de exibição validada).
+type DisplayImageRow = { image_path: string | null; position: number; validated_at: string | null };
+type ColorImageRow = {
+  id: string; color_name: string; color_principal: string | null; color_secondary: string | null;
+  color_variant_number: number | null; processed_image_path: string | null; status: string;
+  catalog_product_color_display_images: DisplayImageRow[] | null;
+};
+type CatalogProductRow = { id: string; model_name: string; sku_optotica: string; catalog_product_color_images: ColorImageRow[] | null };
 type LaboratoryRow = { id: string; name: string; is_primary: boolean };
 type MenuTierRow = {
   lens_type: 'single_vision' | 'multifocal';
@@ -67,13 +78,19 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
     .maybeSingle();
   if (!order || order.client_id !== clientId) redirect('/profissional/pacientes');
 
-  const [{ data: client }, { data: prescription }, { data: quotesData }, { data: orderFrame }, { data: fulfillment }, { data: framesData }, { data: menuTiersData }, { data: laboratoriesData }] = await Promise.all([
+  const [{ data: client }, { data: prescription }, { data: quotesData }, { data: orderFrame }, { data: fulfillment }, { data: catalogProductsData }, { data: reactionsData }, { data: menuTiersData }, { data: laboratoriesData }] = await Promise.all([
     admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe, dnp_photo_path, birth_date, cpf').eq('id', clientId).maybeSingle(),
     admin.from('prescriptions').select('prescription_data').eq('order_id', orderId).maybeSingle(),
     admin.from('quotes').select('id, total, quote_items(description, metadata)').eq('order_id', orderId),
-    admin.from('order_frames').select('frame_name, sku, color').eq('order_id', orderId).maybeSingle(),
+    admin.from('order_frames').select('frame_name, sku, color, catalog_color_image_id').eq('order_id', orderId).maybeSingle(),
     admin.from('order_fulfillment').select('*').eq('order_id', orderId).maybeSingle(),
-    admin.from('frames').select('id, name, metadata').is('organization_id', null).eq('active', true).order('name'),
+    // Escolha da armação (15/09/2026) — catálogo novo em vez de `frames`.
+    admin
+      .from('catalog_products')
+      .select('id, model_name, sku_optotica, catalog_product_color_images(id, color_name, color_principal, color_secondary, color_variant_number, processed_image_path, status, catalog_product_color_display_images(image_path, position, validated_at))')
+      .eq('status', 'publicado')
+      .order('model_name'),
+    admin.from('order_frame_reactions').select('catalog_color_image_id, status').eq('order_id', orderId),
     profile.organization_id
       ? admin.from('lens_menu_tiers')
           .select('lens_type, tier_number, is_addon, tier_name, benefit_phrase, target_audience, manufacturer, product_line, lens_index, ar_treatment, price')
@@ -129,9 +146,56 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
     lensIndex: t.lens_index, arTreatment: t.ar_treatment, price: Number(t.price) || 0
   }));
 
-  const frames = ((framesData || []) as unknown as FrameRow[]).map((f) => ({
-    id: f.id, name: f.name, kind: f.metadata?.kind || '', variants: f.metadata?.variants || []
-  }));
+  // Monta a lista de produtos/cores pra Etapa 3 (uma linha por modelo, um
+  // círculo por cor) — junta a "Foto de Prova" (processed_image_path) e a
+  // melhor "foto do óculos" (foto de exibição validada, menor `position`)
+  // de cada cor, e assina as duas de uma vez só (bucket privado
+  // 'catalog-product-photos', 1h de validade — tempo de sobra pra uma
+  // sessão de atendimento).
+  const catalogProducts = (catalogProductsData || []) as unknown as CatalogProductRow[];
+  const pathsToSign = new Set<string>();
+  for (const product of catalogProducts) {
+    for (const color of product.catalog_product_color_images || []) {
+      if (color.processed_image_path) pathsToSign.add(color.processed_image_path);
+      const bestDisplay = (color.catalog_product_color_display_images || [])
+        .filter((d) => d.validated_at && d.image_path)
+        .sort((a, b) => a.position - b.position)[0];
+      if (bestDisplay?.image_path) pathsToSign.add(bestDisplay.image_path);
+    }
+  }
+  const signedByPath = new Map<string, string>();
+  if (pathsToSign.size) {
+    const { data: signedList } = await admin.storage.from('catalog-product-photos').createSignedUrls(Array.from(pathsToSign), 3600);
+    for (const entry of signedList || []) {
+      if (entry.path && entry.signedUrl) signedByPath.set(entry.path, entry.signedUrl);
+    }
+  }
+  const reactionByColorImageId = new Map((reactionsData || []).map((r) => [r.catalog_color_image_id as string, r.status as string]));
+  const confirmedColorImageId = (orderFrame as { catalog_color_image_id?: string | null } | null)?.catalog_color_image_id || null;
+
+  const armacaoModels = catalogProducts
+    .filter((product) => (product.catalog_product_color_images || []).length > 0)
+    .map((product) => ({
+      id: product.id,
+      modelName: product.model_name,
+      skuOptotica: product.sku_optotica,
+      colors: (product.catalog_product_color_images || []).map((color) => {
+        const bestDisplay = (color.catalog_product_color_display_images || [])
+          .filter((d) => d.validated_at && d.image_path)
+          .sort((a, b) => a.position - b.position)[0];
+        return {
+          id: color.id,
+          colorName: color.color_name,
+          colorPrincipal: color.color_principal,
+          colorSecondary: color.color_secondary,
+          colorVariantNumber: color.color_variant_number,
+          provaUrl: color.processed_image_path ? signedByPath.get(color.processed_image_path) || null : null,
+          fotoOculosUrl: bestDisplay?.image_path ? signedByPath.get(bestDisplay.image_path) || null : null,
+          reaction: (reactionByColorImageId.get(color.id) || null) as 'gostei' | 'talvez' | 'oculto' | null,
+          confirmed: confirmedColorImageId === color.id
+        };
+      })
+    }));
 
   const ful = fulfillment as Record<string, unknown> | null;
   const str = (v: unknown) => (v === null || v === undefined ? '' : String(v));
@@ -242,7 +306,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
               {tag(hasFrame, current === 2)}
             </div>
             <div className="card-body">
-              <FrameStep orderId={order.id} frames={frames} selectedFrameName={orderFrame?.frame_name || null} selectedColor={orderFrame?.color || null} locked={comandaDone} />
+              <FrameStep orderId={order.id} models={armacaoModels} confirmedFrameName={orderFrame?.frame_name || null} confirmedColor={orderFrame?.color || null} locked={comandaDone} />
             </div>
           </section>
 

@@ -1,146 +1,93 @@
-OPTÓTICA PORTAL — Fim da recolorização + catálogo de fotos por cor (15/09/2026)
+OPTÓTICA PORTAL — Nova Etapa 3 "Escolha da armação" no painel de atendimento (15/09/2026)
 ================================================================================
 
-IMPORTANTE — esta entrega JUNTA duas coisas
---------------------------------------------
-Como você ainda não tinha subido o zip anterior (`optotica-desfazer-acao-v1.zip`,
-botão "Desfazer última ação"), esta entrega inclui os arquivos dos DOIS pacotes
-juntos, já um por cima do outro — não precisa subir os dois separados, só este
-aqui. Se você já tiver subido o anterior por engano, subir este por cima não
-tem problema nenhum (só teria mais uma leitura de sobrescrita no GitHub).
+O QUE MUDOU
+------------
+A tela "Escolha da armação" (Etapa 3, painel do profissional) foi redesenhada
+seguindo o modelo que você mandou (wireframe com campos vermelhos):
 
-Cobre: (1) o botão "Desfazer última ação" e (2) o fim da recolorização por IA +
-o novo catálogo de fotos por cor, conforme o documento
-`spec-ajustes-fotos-cor.md` que combinamos antes desta entrega.
+- Trocou o grid de cards "Modelo 01..05" por UMA LINHA por modelo.
+- Cada modelo mostra um círculo colorido clicável por cor (C1, C3, C4...).
+  Clicar num círculo troca qual foto aparece na linha, sem recarregar nada.
+- Cada linha mostra 2 fotos: "Foto de Prova" (a foto tratada usada na prova
+  online) e "Foto do óculos" (a melhor foto de exibição já validada dessa
+  cor no catálogo).
+- O dropdown de cor + botão único "Selecionar" saíram. No lugar, 3 botões:
+  GOSTEI / TALVEZ / OCULTAR — clicar de novo no mesmo botão desmarca
+  (funciona como liga/desliga, não como escolha única).
+- OCULTAR só deixa a linha/círculo com opacidade reduzida — não faz a cor
+  sumir de verdade da lista (você pediu especificamente isso).
+- Quando uma cor está marcada GOSTEI, aparece um botão extra "Confirmar
+  esta cor" — só esse botão grava a escolha FINAL do pedido (equivalente ao
+  antigo "Selecionar"). Sem confirmar, GOSTEI/TALVEZ/OCULTAR são só
+  preferências registradas, não fecham a etapa.
 
-O QUE MUDOU (resumo)
----------------------
-- A recolorização por IA saiu de vez (não pinta mais a armação pra bater com a
-  cor). "Processar com IA" agora só recorta, garante fundo branco, limpa
-  adesivo da lente e padroniza o tamanho — sem limite de 4 fotos.
-- Fotos marcadas em "Todas as fotos do anúncio" MAIS a própria "Foto da cor"
-  entram como entrada do processamento.
-- Cada foto processada nasce pendente de validação — clique nela abre um
-  popup ampliado com "Validar"/"Remover". Ao validar, ela vai pra coluna
-  ESQUERDA do card da cor ("Outras fotos validadas para o catálogo"),
-  reordenável com as setas ▲▼.
-- Card de cada cor virou DUAS COLUNAS: esquerda só fotos (Foto da cor, Foto de
-  Prova, catálogo validado), direita todos os controles.
-- "Foto de Prova" (antiga "Tratada") só muda pelo "Enviar Óculos da Prova
-  Online" — nunca mais pela IA.
-- "Foto de posição do produto" (topo da página) CONTINUA NA TELA (você pediu
-  pra manter), só que sem nenhum uso funcional agora — o texto de ajuda foi
-  ajustado pra não afirmar algo que não é mais verdade.
-- Botão "Desfazer última ação" (já detalhado no LEIA-PRIMEIRO anterior, que
-  também está resumido aqui): cobre as ações que mudam algo no banco nesta
-  tela, guardado só em memória durante a visita à página.
-- NOVO (2ª rodada, mesmo dia): a faixa "Última ação"/mensagem de resultado
-  ("Foto removida.", "Foto validada." etc.) agora fica FIXA no topo da
-  página enquanto você rola pra baixo — não precisa mais rolar pra cima pra
-  ver o resultado de uma ação feita lá embaixo, num card de cor.
-- NOVO (3ª rodada, mesmo dia — mudou de novo o "Processar com IA"):
-  * Toda foto de exibição agora sai no formato JPG, na proporção 1040×320
-    (largura×altura — a proporção real usada no produto), com no máximo
-    200KB cada. Antes era PNG quadrado 1024×1024 sem limite de tamanho de
-    arquivo.
-  * O checkbox manual "2 posições" SAIU — a IA agora decide sozinha se uma
-    foto mostra mais de um óculos (a mesma armação em duas posições, ou duas
-    armações diferentes) e separa em mais de uma foto de resultado, sem
-    precisar de nenhuma marcação sua antes de clicar "Processar com IA".
-- NOVO (4ª rodada, mesmo dia — depois de revisarmos o texto do prompt várias
-  vezes em português antes de eu mexer no código):
-  * "Foto da cor" virou OBRIGATÓRIA pra processar — o botão "Processar com
-    IA" fica desabilitado se a cor ainda não tiver essa foto. Ela agora é
-    usada como REFERÊNCIA VISUAL: a IA compara cada foto candidata com a
-    "Foto da cor" pra identificar qual armação (ou qual posição) tem a cor
-    certa — útil principalmente quando uma foto do anúncio mostra mais de
-    uma cor junto (ou quando a cor é uma estampa difícil de descrever em
-    texto).
-  * Se uma foto candidata mostrar mais de uma cor de armação, a IA descarta
-    as que não batem com a "Foto da cor" e recorta só a que bate. Se
-    nenhuma cor da foto bater com a referência, essa foto não gera nenhum
-    resultado (a mensagem final do "Processar com IA" avisa quantas fotos
-    caíram nesse caso).
-  * A regra de "não mudar cor/formato" ficou mais explícita no prompt:
-    também não muda mais a PROPORÇÃO da armação, só recorta/limpa.
-
-ATUALIZAÇÃO — arquivos mortos NÃO saem mais nesta entrega
------------------------------------------------------------
-Por pedido seu, `lib/catalog/frame-colorize.ts` e `lib/catalog/frame-recolor.ts`
-NÃO devem ser apagados agora — ficam registrados no documento
-`arquivos-mortos.md` (salvo no projeto) pra serem removidos só numa revisão
-final, com backup antes. Ignore qualquer instrução anterior pra apagá-los.
-
-ORDEM PARA SUBIR — SIGA NESTA SEQUÊNCIA
+MUDANÇA DE FONTE DE DADOS (importante)
 -----------------------------------------
-1. Rode a migração `supabase/migrations/202609151500_fotos_exibicao_sem_limite.sql`
-   no SQL Editor do Supabase (cola e roda — sem risco, só altera constraints e
-   adiciona uma coluna nova, não apaga nada).
+Essa tela usava a tabela antiga `frames` (fotos hotlinkadas do AliExpress,
+sem nenhuma ligação com o catálogo novo que fizemos nas últimas entregas).
+Ela passou a usar o CATÁLOGO NOVO — os mesmos `catalog_products` /
+`catalog_product_color_images` / fotos de exibição validadas que você edita
+no painel de catálogo (`/admin/catalogo`). Ou seja: só aparece aqui um
+modelo se ele estiver PUBLICADO no catálogo, e as cores/fotos são as
+mesmas que você já vê e valida lá.
 
-2. Suba os 9 arquivos deste pacote, cada um no seu caminho exato (NÃO apague
-   nenhum arquivo do GitHub nesta entrega):
-   - components/catalog/catalog-product-detail.tsx
-   - app/api/admin/catalog/products/[productId]/images/[colorImageId]/route.ts
-   - app/api/admin/catalog/products/[productId]/images/[colorImageId]/display-images/route.ts
-   - app/api/admin/catalog/products/[productId]/images/[colorImageId]/process/route.ts
-   - app/api/admin/catalog/products/[productId]/position-photo/route.ts
-   - app/api/admin/catalog/products/[productId]/route.ts
-   - lib/catalog/gallery-photo-crop.ts
-   - app/globals.css (só ganhou uma regra nova, `.catalog-sticky-status` — não mexe em
-     mais nada do resto do CSS do site)
-   - supabase/migrations/202609151500_fotos_exibicao_sem_limite.sql (pode subir junto, é só o
-     registro da migração já rodada no passo 1)
+A tabela antiga `frames` continua existindo (não apaguei nada) — ela só
+não é mais usada por ESTA tela. A tela equivalente do lado do PACIENTE
+(`/cliente/pedido/[orderId]`, quando ele escolhe a armação sozinho) NÃO foi
+mexida nesta entrega — combinamos que seu pedido era especificamente sobre
+o "painel de atendimento" (o profissional). Se quiser espelhar lá também,
+é só pedir.
 
-3. Depois que a Vercel publicar (1–2 min), teste num produto que já tenha
-   fotos marcadas para alguma cor em "Todas as fotos do anúncio":
-   a. Abra a cor — confira o novo layout de duas colunas.
-   b. Clique "Processar com IA" — as fotos marcadas (e a "Foto da cor", se
-      tiver) devem virar fotos pendentes, aparecendo na seção
-      "Processamento" (miniaturas pequenas).
-   c. Clique numa foto pendente — deve abrir o popup ampliado com
-      "Validar"/"Remover".
-   d. Clique "Validar" — a foto deve sumir da área de pendentes e aparecer na
-      coluna esquerda, em "Outras fotos validadas para o catálogo".
-   e. Com 2+ fotos validadas, teste as setas ▲▼ pra reordenar.
-   f. Envie um óculos pronto em "Enviar Óculos da Prova Online" — confira que
-      só isso muda a "Foto de Prova" (a miniatura no topo da coluna
-      esquerda).
-   g. Teste "Desfazer última ação" depois de validar uma foto, ou depois de
-      processar — confira que volta certinho.
-   h. Role a página pra baixo até um card de cor mais abaixo, clique em
-      qualquer ação (ex.: "Remover" numa foto de exibição) e confira que a
-      faixa "Última ação"/mensagem de resultado aparece FIXA no topo,
-      visível sem precisar rolar a página de volta pra cima.
-   i. Confira que as fotos de exibição saem na proporção larga e baixa
-      (1040×320, não mais quadradas) e que o arquivo é .jpg; se você tiver
-      uma foto com o óculos em duas posições/duas armações na mesma imagem,
-      processe-a e confira que virou 2 fotos de exibição sozinha (sem você
-      marcar nada).
-   j. NOVO: confira que uma cor sem "Foto da cor" não deixa clicar em
-      "Processar com IA" (botão desabilitado, com aviso). Se você tiver uma
-      foto do anúncio com MAIS DE UMA COR de armação junto (ex.: comparativo
-      preto + tartaruga na mesma foto), marque essa foto pra uma das cores e
-      processe — confira que o resultado é só a cor certa, a outra cor
-      descartada. Como a IA está lendo bem uma foto por chamada, teste
-      também com uma estampa (não só cor sólida), já que foi um dos motivos
-      dessa mudança.
+`order_frames` (onde a escolha final é gravada) manteve exatamente o mesmo
+formato de sempre — só ganhou 2 colunas novas (nullable) pra saber que a
+escolha veio do catálogo novo. Nenhuma outra tela que já lê essa tabela
+(resumo do pedido, Comanda) precisou mudar.
 
-AVISO IMPORTANTE — NÃO TESTADO CONTRA O REPLICATE DE VERDADE
----------------------------------------------------------------
-Como de costume neste projeto, esta sessão não tem acesso à rede pra chamar o
-Replicate de verdade — o prompt novo da IA (fundo branco, limpar adesivo da
-lente, identificar a cor certa comparando com a "Foto da cor") foi escrito
-com cuidado mas não pôde ser testado com fotos reais. A contagem de quantas
-vezes a cor certa aparece numa foto usa um modelo (`lucataco/moondream2`)
-que recebe uma imagem montada por código (a "Foto da cor" e a foto candidata
-lado a lado, numa imagem só) em vez de duas imagens separadas — feito assim
-porque não dá pra garantir que esse modelo aceitaria duas imagens numa
-pergunta só, e não pôde ser testado nesta sessão. Se a IA errar a
-identificação da cor certa (pegar a cor errada, ou não achar nenhuma cor
-quando devia), não separar quando devia (ou o contrário), ou se o fundo não
-sair 100% branco, o adesivo não sumir, ou o recorte não caber bem na
-proporção larga (1040×320), me manda um exemplo (a foto usada + a "Foto da
-cor" + o resultado que saiu) que eu ajusto o prompt/modelo — é o tipo de
-ajuste rápido de fazer depois de ver um caso real.
+GOSTEI/TALVEZ/OCULTAR ficam guardados numa tabela nova,
+`order_frame_reactions` (uma linha por pedido + cor).
+
+ORDEM PARA SUBIR
+-----------------
+1. Rode a migração `supabase/migrations/202609151600_atendimento_escolha_armacao_catalogo.sql`
+   no SQL Editor do Supabase (cola e roda — só adiciona colunas/tabela nova,
+   não apaga nem altera nada existente). O SQL completo também está colado
+   ao final desta mensagem no chat, caso prefira copiar de lá.
+
+2. Suba os 6 arquivos deste pacote, cada um no seu caminho exato:
+   - components/order/frame-step.tsx
+   - app/api/professional/orders/[orderId]/frame/route.ts
+   - app/api/professional/orders/[orderId]/frame-reactions/route.ts
+   - app/profissional/pacientes/[clientId]/pedido/[orderId]/page.tsx
+   - app/globals.css (só ganhou uma regra nova de CSS pro layout da Etapa 3
+     — não mexe em mais nada do resto do CSS do site)
+   - supabase/migrations/202609151600_atendimento_escolha_armacao_catalogo.sql
+     (pode subir junto, é só o registro da migração já rodada no passo 1)
+
+3. Depois que a Vercel publicar (1–2 min), teste um pedido em que pelo
+   menos 1 produto do catálogo esteja PUBLICADO e com pelo menos 1 cor com
+   foto (Foto de Prova e/ou foto de exibição validada):
+   a. Abra "Etapa 3 — Escolha da armação" — confira que aparece 1 linha por
+      modelo publicado, com os círculos de cor.
+   b. Clique em círculos de cores diferentes — confira que a "Foto de
+      Prova" e a "Foto do óculos" trocam junto.
+   c. Clique GOSTEI numa cor — confira que o botão fica destacado e aparece
+      "Confirmar esta cor".
+   d. Clique GOSTEI de novo — confira que desmarca (o botão "Confirmar
+      esta cor" some).
+   e. Marque GOSTEI de novo e clique "Confirmar esta cor" — confira que
+      aparece o aviso "Armação confirmada" no topo da etapa e a etiqueta da
+      etapa muda pra "Completo".
+   f. Clique OCULTAR numa cor — confira que só esmaece (não some da lista).
+   g. Se um modelo do catálogo ainda não tiver nenhuma foto pronta pra
+      alguma cor, confira que aparece "ainda sem foto" no lugar da imagem,
+      sem quebrar a tela.
+
+AVISO — SEM ACESSO AO SUPABASE DE VERDADE NESTA SESSÃO
+---------------------------------------------------------
+Como de costume, não pude testar contra dados reais (só rodei o build de
+produção completo — TypeScript, lint, todas as páginas — numa cópia limpa
+do repositório, sem erros). Se algo não aparecer do jeito esperado com
+produtos/cores reais, me manda um print que eu ajusto rápido.
 
 Sem SQL nova além do passo 1 acima.
