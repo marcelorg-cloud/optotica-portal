@@ -54,6 +54,11 @@ export async function POST(request: Request) {
   }
   const pupilA = body.pupilA as Point;
   const pupilB = body.pupilB as Point;
+  // Ponto nasal opcional (15/09/2026, ajuste feito comparando com o JS
+  // original da Ui!Gafas) — refina o centro da armação; se o cliente não
+  // mandar (versão de cache antiga do bundle, por exemplo), cai pra média
+  // simples entre as pupilas, igual ao comportamento de antes.
+  const nasalCenter = isPoint(body?.nasalCenter) ? (body.nasalCenter as Point) : undefined;
 
   const { data: color } = await admin
     .from('catalog_product_color_images')
@@ -107,6 +112,7 @@ export async function POST(request: Request) {
     const geometry = computeOverlayGeometry({
       pupilA: { x: pupilA.x * scale, y: pupilA.y * scale },
       pupilB: { x: pupilB.x * scale, y: pupilB.y * scale },
+      nasalCenter: nasalCenter ? { x: nasalCenter.x * scale, y: nasalCenter.y * scale } : undefined,
       dnpTotalMm: Number(client.dnp_od) + Number(client.dnp_oe),
       frameWidthMm: Number(frameWidthMm),
       frameAspectRatio

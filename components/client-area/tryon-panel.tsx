@@ -46,7 +46,14 @@ export function TryonPanel({
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
-  const lastAnalysis = useRef<{ pupilA: Point; pupilB: Point; photoWidth: number; photoHeight: number } | null>(null);
+  const lastAnalysis = useRef<{ pupilA: Point; pupilB: Point; nasalCenter: Point; photoWidth: number; photoHeight: number } | null>(null);
+  // 15/09/2026 — a mesma foto do cliente serve pra qualquer cor/armação
+  // escolhida; a detecção de rosto (MediaPipe) não muda entre uma seleção e
+  // outra, só a armação composta por cima muda. O script original da
+  // Ui!Gafas já cacheava isso (por hash da imagem, em localStorage) pra não
+  // rodar o modelo de novo à toa; aqui basta cachear em memória por sessão,
+  // por URL da foto (mais simples, sem precisar de hash nem localStorage).
+  const detectionCacheRef = useRef<{ url: string; pupilA: Point; pupilB: Point; nasalCenter: Point } | null>(null);
 
   const dnpTotalMm = dnpOd != null && dnpOe != null ? Number(dnpOd) + Number(dnpOe) : null;
   const canTry = Boolean(clientPhotoUrl) && dnpTotalMm != null && dnpTotalMm > 0;
@@ -73,9 +80,19 @@ export function TryonPanel({
 
       // Roda no navegador — mesmo código usado por "Medir DNP com foto"
       // (lib/dnp-vision.ts), reaproveitado aqui sem nenhuma detecção nova
-      // (ver seção 0.29 do estado consolidado do projeto).
-      const { detectFacePoints } = await import('@/lib/dnp-vision');
-      const points = await detectFacePoints(canvas);
+      // (ver seção 0.29 do estado consolidado do projeto). Cacheado por URL
+      // da foto (ver comentário acima) — só roda de novo se a foto mudou.
+      let points: { pupilA: Point; pupilB: Point; nasalCenter: Point } | null = null;
+      if (detectionCacheRef.current && detectionCacheRef.current.url === clientPhotoUrl) {
+        points = detectionCacheRef.current;
+      } else {
+        const { detectFacePoints } = await import('@/lib/dnp-vision');
+        const detected = await detectFacePoints(canvas);
+        if (detected) {
+          points = detected;
+          detectionCacheRef.current = { url: clientPhotoUrl, ...detected };
+        }
+      }
       if (!points) {
         setStatus('error');
         setMessage({ kind: 'error', text: 'Não conseguimos identificar seu rosto nesta foto. Tente enviar uma foto olhando de frente para a câmera, com boa iluminação.' });
@@ -86,6 +103,7 @@ export function TryonPanel({
       const geometry = computeOverlayGeometry({
         pupilA: points.pupilA,
         pupilB: points.pupilB,
+        nasalCenter: points.nasalCenter,
         dnpTotalMm,
         frameWidthMm: product.lensWidthMm,
         frameAspectRatio
@@ -102,7 +120,7 @@ export function TryonPanel({
       ctx.drawImage(frameImg, -geometry.widthPx / 2, -geometry.heightPx / 2, geometry.widthPx, geometry.heightPx);
       ctx.restore();
 
-      lastAnalysis.current = { pupilA: points.pupilA, pupilB: points.pupilB, photoWidth: canvas.width, photoHeight: canvas.height };
+      lastAnalysis.current = { pupilA: points.pupilA, pupilB: points.pupilB, nasalCenter: points.nasalCenter, photoWidth: canvas.width, photoHeight: canvas.height };
       setStatus('ready');
     } catch {
       setStatus('error');
@@ -124,6 +142,7 @@ export function TryonPanel({
         colorName: product.colorName,
         pupilA: analysis.pupilA,
         pupilB: analysis.pupilB,
+        nasalCenter: analysis.nasalCenter,
         photoWidth: analysis.photoWidth,
         photoHeight: analysis.photoHeight
       })

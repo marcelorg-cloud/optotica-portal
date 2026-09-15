@@ -29,14 +29,38 @@ export type OverlayGeometry = {
   angleDeg: number;
 };
 
+// 15/09/2026 — comparado contra o JS original de verdade da Ui!Gafas
+// (embed-glass.js, "Rsvtg", cedido pelo usuário para conferência). O mecanismo
+// central (regra de três + rotação pelo ângulo entre as pupilas) já batia. Uma
+// diferença real encontrada: lá o centro da armação não é a média simples
+// entre as duas pupilas — é a projeção do ponto "midwayBetweenEyes" (do
+// FaceMesh) sobre a própria linha que liga as pupilas
+// (`calculateMidPointInLine`), corrigindo o centro pra o ponto central real do
+// rosto (ponte do nariz) em vez de assumir que os dois olhos estão sempre
+// perfeitamente simétricos em relação a ele. `lib/dnp-vision.ts` já detecta o
+// equivalente (`nasalCenter`, landmark 168 do MediaPipe) mas ele não era usado
+// aqui — agora é, como refinamento opcional (sem esse ponto, cai pra média
+// simples de antes, então nada quebra pra quem já chamava sem ele).
+function projectPointOntoLine(point: Point, lineA: Point, lineB: Point): Point {
+  const abx = lineB.x - lineA.x;
+  const aby = lineB.y - lineA.y;
+  const lengthSq = abx * abx + aby * aby;
+  if (lengthSq < 1e-6) return { x: (lineA.x + lineB.x) / 2, y: (lineA.y + lineB.y) / 2 };
+  const t = ((point.x - lineA.x) * abx + (point.y - lineA.y) * aby) / lengthSq;
+  return { x: lineA.x + t * abx, y: lineA.y + t * aby };
+}
+
 export function computeOverlayGeometry(params: {
   pupilA: Point;
   pupilB: Point;
+  /** Ponto de referência nasal (ponte do nariz) opcional — quando informado, refina o
+   * centro da armação projetando-o sobre a linha entre as pupilas, em vez da média simples. */
+  nasalCenter?: Point;
   dnpTotalMm: number;
   frameWidthMm: number;
   frameAspectRatio: number;
 }): OverlayGeometry | null {
-  const { pupilA, pupilB, dnpTotalMm, frameWidthMm, frameAspectRatio } = params;
+  const { pupilA, pupilB, nasalCenter, dnpTotalMm, frameWidthMm, frameAspectRatio } = params;
   if (!(dnpTotalMm > 0) || !(frameWidthMm > 0)) return null;
 
   const dx = pupilB.x - pupilA.x;
@@ -48,12 +72,16 @@ export function computeOverlayGeometry(params: {
   const widthPx = frameWidthMm * pxPerMm;
   const heightPx = widthPx * frameAspectRatio;
 
+  const center = nasalCenter
+    ? projectPointOntoLine(nasalCenter, pupilA, pupilB)
+    : { x: (pupilA.x + pupilB.x) / 2, y: (pupilA.y + pupilB.y) / 2 };
+
   return {
     pxPerMm,
     widthPx,
     heightPx,
-    centerX: (pupilA.x + pupilB.x) / 2,
-    centerY: (pupilA.y + pupilB.y) / 2,
+    centerX: center.x,
+    centerY: center.y,
     angleDeg: (Math.atan2(dy, dx) * 180) / Math.PI
   };
 }

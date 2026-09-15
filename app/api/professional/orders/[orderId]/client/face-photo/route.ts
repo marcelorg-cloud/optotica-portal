@@ -80,7 +80,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
   const { error: uploadError } = await admin.storage.from(SOURCE_BUCKET).upload(sourcePath, bytes, { contentType: file.type, upsert: true });
   if (uploadError) {
     console.error('face_photo_source_upload_failed', { message: uploadError.message });
-    return NextResponse.json({ message: 'Não foi possível salvar a foto enviada.' }, { status: 500 });
+    // Detalhe do erro exposto na resposta (15/09/2026): esta rota só usa o
+    // client admin (service role), que já ignora RLS — então se isto falhar
+    // quase sempre é porque o bucket 'tryon-face-source-photos' ainda não
+    // foi criado no painel do Supabase (erro típico: "Bucket not found").
+    // Mostrar o texto real evita depender dos logs da Vercel para descobrir.
+    return NextResponse.json({ message: 'Não foi possível salvar a foto enviada.', detail: uploadError.message }, { status: 500 });
   }
 
   const { data: signedSource } = await admin.storage.from(SOURCE_BUCKET).createSignedUrl(sourcePath, 300);
@@ -100,7 +105,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
   const { error: processedUploadError } = await admin.storage.from(SOURCE_BUCKET).upload(processedPath, processedBuffer, { contentType: 'image/jpeg', upsert: true });
   if (processedUploadError) {
     console.error('face_photo_processed_upload_failed', { message: processedUploadError.message });
-    return NextResponse.json({ message: 'Foto processada, mas não foi possível salvar o resultado.' }, { status: 500 });
+    return NextResponse.json({ message: 'Foto processada, mas não foi possível salvar o resultado.', detail: processedUploadError.message }, { status: 500 });
   }
 
   const { error: updateError } = await admin.from('clients').update({
@@ -148,7 +153,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ or
   const { data: processedBlob, error: downloadError } = await admin.storage.from(SOURCE_BUCKET).download(client.tryon_face_processed_path);
   if (downloadError || !processedBlob) {
     console.error('face_photo_validate_download_failed', { message: downloadError?.message });
-    return NextResponse.json({ message: 'Não foi possível carregar a foto processada.' }, { status: 500 });
+    return NextResponse.json({ message: 'Não foi possível carregar a foto processada.', detail: downloadError?.message }, { status: 500 });
   }
 
   // Mesmo padrão de "sempre um único arquivo fixo por cliente" já usado em
@@ -163,7 +168,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ or
   const { error: uploadError } = await admin.storage.from(TRYON_BUCKET).upload(`${folder}/prova.jpg`, bytes, { contentType: 'image/jpeg', upsert: true });
   if (uploadError) {
     console.error('face_photo_validate_upload_failed', { message: uploadError.message });
-    return NextResponse.json({ message: 'Não foi possível publicar a foto como prova online oficial.' }, { status: 500 });
+    return NextResponse.json({ message: 'Não foi possível publicar a foto como prova online oficial.', detail: uploadError.message }, { status: 500 });
   }
 
   const { error: updateError } = await admin.from('clients').update({

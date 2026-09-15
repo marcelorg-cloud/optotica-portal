@@ -95,7 +95,11 @@ export function ClientStep({
       setFaceMessage(payload.message || 'Foto processada — confira e valide abaixo.');
       setFaceMessageKind('success');
     } else {
-      setFaceMessage(payload.message || 'Não foi possível processar a foto.');
+      // 15/09/2026: quando a API manda "detail" (erro real do Supabase),
+      // mostra junto — evita depender dos logs da Vercel para descobrir a
+      // causa (ex.: bucket ainda não criado no painel do Supabase).
+      const detail = payload.detail ? ` (${payload.detail})` : '';
+      setFaceMessage((payload.message || 'Não foi possível processar a foto.') + detail);
       setFaceMessageKind('error');
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -117,7 +121,8 @@ export function ClientStep({
       setFaceMessage(payload.message || 'Foto validada.');
       setFaceMessageKind('success');
     } else {
-      setFaceMessage(payload.message || 'Não foi possível validar a foto.');
+      const detail = payload.detail ? ` (${payload.detail})` : '';
+      setFaceMessage((payload.message || 'Não foi possível validar a foto.') + detail);
       setFaceMessageKind('error');
     }
   }
