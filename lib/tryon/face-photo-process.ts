@@ -7,7 +7,11 @@
 // estado-consolidado.md) e traduzido pra inglês aqui só porque todo outro
 // prompt de IA deste projeto (ver lib/catalog/gallery-photo-crop.ts) já é
 // em inglês — mesmo texto, mesmas 5 regras:
-// 1) recorte quadrado, rosto centralizado e bem enquadrado;
+// 1) recorte quadrado, rosto centralizado, BEM ZOOMADO — margem pequena
+//    (~5-8% da altura) acima do cabelo e abaixo do queixo, sem sobrar
+//    fundo vazio grande em volta (ajustado em 15/09/2026, 1º teste real
+//    contra o Replicate: o resultado veio com espaço de sobra demais em
+//    cima da cabeça — regra reescrita com margem quantificada);
 // 2) fundo trocado por cinza neutro liso (~#D9D9D9);
 // 3) iluminação do rosto equalizada pra parecer frontal/uniforme (sem
 //    sombra lateral forte), sem estourar pele nem mudar o tom de pele;
@@ -18,11 +22,14 @@
 // única imagem por chamada (não precisa de imagem de referência extra,
 // diferente do recorte de armação por cor).
 //
-// IMPORTANTE — não testado nesta sessão contra o Replicate de verdade
+// IMPORTANTE — ainda não testado NESTA SESSÃO contra o Replicate de verdade
 // (mesma ressalva de sempre neste projeto: sem acesso à rede real por
-// aqui). Se o resultado sair diferente do esperado (fundo errado, sombra
-// não removida, tom de pele alterado etc.), mandar um exemplo real pra
-// ajustar o prompt.
+// aqui) depois do ajuste de 15/09/2026 acima. O usuário já testou a versão
+// anterior em produção (funcionou — fundo cinza e composição da prova
+// online corretos —, só o enquadramento veio com espaço de sobra demais em
+// cima da cabeça, o que motivou o ajuste da regra 1). Se o novo resultado
+// ainda vier com margem grande ou cortar demais o rosto, mandar um exemplo
+// real pra afinar de novo.
 import Replicate from 'replicate';
 import sharp from 'sharp';
 
@@ -48,7 +55,7 @@ const MAX_JPEG_BYTES = 400 * 1024;
 const JPEG_QUALITY_STEPS = [88, 78, 68, 58, 48, 38];
 
 const FACE_PROMPT = `This is a photo of a patient's face, meant to serve as the base image for a virtual eyeglasses try-on (a pair of eyeglasses will be composited on top of it afterward). Adjust the photo following exactly these rules, without changing the person's identity or real facial features:
-1. Frame the face centered and facing forward, filling the frame well (from around the shoulders up to a bit above the top of the head), and crop the result to a SQUARE aspect ratio.
+1. Re-frame as a TIGHT, centered head-and-shoulders portrait and crop the result to a SQUARE aspect ratio. The head must fill most of the square's height — leave only a small, thin margin of background above the top of the hair (roughly 5-8% of the image height) and a similarly small margin below the chin/start of the neck. Do not leave large empty background areas above the head or around the shoulders — zoom in until the face is the clear, dominant subject of the frame. Center the face horizontally.
 2. Replace the background completely with a solid, neutral, uniform gray (no texture, no gradient, no shadow on the background) — approximate color #D9D9D9.
 3. Equalize the lighting on the face so it looks like even, soft, frontal lighting, as in a studio portrait — remove strong lateral/side shadows (for example, one side of the face noticeably darker than the other), without blowing out highlights on the skin or changing the person's real skin tone.
 4. Do NOT change facial features, expression, any eyewear the person is already wearing, hairstyle, or any other identity detail — only adjust the background, framing, and lighting.

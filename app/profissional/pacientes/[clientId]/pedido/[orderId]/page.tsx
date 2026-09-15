@@ -322,8 +322,11 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
         </div>
       </nav>
 
-      <div className="overview">
-        <div className="stack">
+      {/* "Resumo vivo" removido (15/09/2026, pedido do usuário) — os cards
+          das etapas passam a usar toda a largura da tela, sem a coluna
+          lateral fixa (ver app/globals.css: antes era `.overview` com
+          grid-template-columns:minmax(0,1fr) 320px). */}
+      <div className="stack">
 
           <section className="card step-section" id="cliente">
             <div className="card-head">
@@ -510,20 +513,6 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
           </section>
 
         </div>
-
-        <aside className="card sidebar">
-          <div className="card-head"><div><p className="eyebrow">Resumo vivo</p><h2>Atendimento</h2></div></div>
-          <div className="card-body">
-            <div className="summary-row"><span>Paciente</span><strong>{clientName}</strong></div>
-            <div className="summary-row"><span>DNP</span><strong>{dnp}</strong></div>
-            <div className="summary-row"><span>Lente</span><strong>{selectedQuote?.description || 'Não definida'}</strong></div>
-            <div className="summary-row"><span>Laboratório</span><strong>{selectedQuote?.laboratory || 'Não definido'}</strong></div>
-            <div className="summary-row"><span>Armação</span><strong>{orderFrame?.frame_name || 'Não definida'}</strong></div>
-            <div className="summary-row"><span>Valor proposto</span><strong>R$ {(selectedQuote?.total ?? 0).toFixed(2).replace('.', ',')}</strong></div>
-            <div className="notice">Cada etapa reaproveita as informações das etapas anteriores. O atendimento vai sendo complementado sem duplicar cadastros.</div>
-          </div>
-        </aside>
-      </div>
     </div>
   );
 }
