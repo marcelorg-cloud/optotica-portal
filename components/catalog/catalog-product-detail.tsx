@@ -235,29 +235,16 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   // termina — ver `applyLoad` abaixo.
   const [pendingGalleryColors, setPendingGalleryColors] = useState<Record<string, string[]>>({});
 
-  // Chave especial (sem id de foto de galeria) pra marcar a própria "Foto da
-  // cor" como tendo a armação em 2 posições — ver comentário completo em
-  // `dualPositionSelections` logo abaixo e em process/route.ts.
-  const OWN_PHOTO_DUAL_KEY = '__own_color_photo__';
-
-  // "Processar com IA" sem recolorização (15/09/2026 — ver
-  // estado-consolidado.md seção 0.67): antes de clicar "Processar com IA", o
-  // master pode marcar quais fotos (marcadas em "Todas as fotos do anúncio",
-  // ou a própria "Foto da cor") mostram a armação em DUAS posições/ângulos
-  // diferentes — cada uma dessas vira 2 fotos de exibição em vez de 1.
-  // Mapa: color_image_id -> Set de chaves marcadas (gallery_image_id, ou
-  // `OWN_PHOTO_DUAL_KEY` pra "Foto da cor"). Só usado no momento do clique —
-  // não precisa persistir entre cargas da página.
-  const [dualPositionSelections, setDualPositionSelections] = useState<Record<string, Set<string>>>({});
-
-  function toggleDualPosition(colorImageId: string, key: string) {
-    setDualPositionSelections((prev) => {
-      const current = new Set(prev[colorImageId] ?? []);
-      if (current.has(key)) current.delete(key);
-      else current.add(key);
-      return { ...prev, [colorImageId]: current };
-    });
-  }
+  // Marcação manual "2 posições" REMOVIDA (15/09/2026 — 3ª rodada, ver
+  // estado-consolidado.md seção 0.69): existia porque a detecção automática
+  // de "esta foto tem a armação em duas posições" tinha um risco conhecido
+  // (IA generativa não-determinística, chamar duas vezes numa foto de UMA
+  // posição só podia gerar um "quase duplicado" por engano). O usuário
+  // pediu explicitamente pra IA decidir sozinha agora ("a IA deve separar
+  // em mais imagens" quando detectar mais de um óculos na foto) — ver
+  // `lib/catalog/gallery-photo-crop.ts` (`detectFrameCount`), que faz essa
+  // detecção antes de recortar. Não precisa mais de nenhuma marcação do
+  // master antes de clicar "Processar com IA".
 
   // Popup de ampliar foto de exibição (15/09/2026, pedido do usuário: "vai
   // para a coluna da esquerda quando são aprovadas... clicando na foto ela
@@ -924,7 +911,6 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   // (a rota devolve `createdIds`, então desfazer é só apagar essas
   // mesmas linhas, sem precisar restaurar snapshot nenhum).
   async function handleProcess(colorImageId: string) {
-    const dualKeys = Array.from(dualPositionSelections[colorImageId] ?? []);
     setBusy(true);
     setMessage(null);
     // try/finally (13/09/2026, 5ª rodada — achado em produção): esta é a
@@ -942,8 +928,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     try {
       const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/process`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dualPositionGalleryImageIds: dualKeys })
+        headers: { 'Content-Type': 'application/json' }
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
       if (ok) {
@@ -963,7 +948,6 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
             }
           });
         }
-        setDualPositionSelections((prev) => ({ ...prev, [colorImageId]: new Set() }));
         load();
       }
     } catch (err) {
@@ -1762,7 +1746,6 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
             const validatedImages = [...color.displayImages].filter((d) => d.validatedAt).sort((a, b) => a.position - b.position);
             const pendingImages = [...color.displayImages].filter((d) => !d.validatedAt).sort((a, b) => a.position - b.position);
             const taggedPhotos = product.galleryPhotos.filter((p) => p.colorImageIds.includes(color.id));
-            const dualSelected = dualPositionSelections[color.id] ?? new Set<string>();
             const hasProcessCandidates = taggedPhotos.length > 0 || Boolean(color.originalImageUrl);
             return (
             <div key={color.id} className="catalog-color-card">
@@ -1877,36 +1860,15 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                     {!color.originalImageUrl && !taggedPhotos.length && (
                       <span className="helper">Falta a foto desta cor (seção acima) ou pelo menos uma foto marcada para esta cor em &quot;Todas as fotos do anúncio&quot;.</span>
                     )}
-                    {/* Marcação "2 posições" (15/09/2026, pedido do usuário:
-                        "fotos que têm o óculos em duas posições podem ser
-                        repartidas em dois resultados") — o master marca ANTES
-                        de clicar "Processar com IA" quais fotos já viu que
-                        mostram a armação duas vezes; só essas geram 2
-                        resultados em vez de 1 (ver process/route.ts — não é
-                        detecção automática, pra não arriscar duplicar foto
-                        que só tem uma posição). */}
+                    {/* Marcação manual "2 posições" REMOVIDA (15/09/2026 —
+                        3ª rodada, ver estado-consolidado.md seção 0.69): a
+                        IA agora detecta sozinha se uma foto mostra mais de
+                        um óculos e separa em mais de uma foto de resultado
+                        — nenhuma marcação do master é necessária antes de
+                        clicar "Processar com IA" (ver detectFrameCount em
+                        lib/catalog/gallery-photo-crop.ts). */}
                     {taggedPhotos.length > 0 && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <span className="helper">{taggedPhotos.length} foto(s) marcada(s) para esta cor em &quot;Todas as fotos do anúncio&quot; — marque abaixo as que mostram a armação em 2 posições (opcional):</span>
-                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                          {taggedPhotos.map((p) => (
-                            <label key={p.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, fontSize: 10, cursor: 'pointer' }}>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={p.url} alt="Marcada para esta cor" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                                <input type="checkbox" checked={dualSelected.has(p.id)} onChange={() => toggleDualPosition(color.id, p.id)} />
-                                2 posições
-                              </span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {color.originalImageUrl && (
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={dualSelected.has(OWN_PHOTO_DUAL_KEY)} onChange={() => toggleDualPosition(color.id, OWN_PHOTO_DUAL_KEY)} />
-                        A própria &quot;Foto da cor&quot; também mostra a armação em 2 posições
-                      </label>
+                      <span className="helper">{taggedPhotos.length} foto(s) marcada(s) para esta cor em &quot;Todas as fotos do anúncio&quot; serão processadas.</span>
                     )}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <button className="button secondary small" type="button" disabled={busy || !hasProcessCandidates} onClick={() => handleProcess(color.id)}>

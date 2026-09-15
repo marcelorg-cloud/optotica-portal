@@ -23,9 +23,11 @@ export const maxDuration = 60;
 // adesivo da lente e padronizar o tamanho (ver lib/catalog/
 // gallery-photo-crop.ts) — nunca mais julga/pinta cor nenhuma.
 //
-// Cada foto marcada como "esta foto tem a armação em 2 posições"
-// (`dualPositionGalleryImageIds` no corpo — preenchido pelo master ANTES de
-// clicar, vendo a própria foto) gera 2 resultados em vez de 1.
+// Divisão em duas fotos quando a mesma foto de origem mostra mais de um
+// óculos: 15/09/2026, 3ª rodada (ver estado-consolidado.md seção 0.69) —
+// isso passou a ser DETECTADO PELA PRÓPRIA IA (dentro de `cropGalleryPhoto`,
+// em lib/catalog/gallery-photo-crop.ts), sem nenhuma marcação do master.
+// Cada foto de origem pode virar 1 ou 2 fotos de exibição, decidido sozinho.
 //
 // Diferente da versão anterior (que apagava e recriava TODAS as fotos de
 // exibição a cada clique): agora só ACRESCENTA fotos novas, nunca mexe nas
@@ -51,17 +53,6 @@ export async function POST(
     .maybeSingle();
   if (!color) return NextResponse.json({ message: 'Cor não encontrada.' }, { status: 404 });
 
-  const body = await request.json().catch(() => null);
-  const dualPositionGalleryImageIds = new Set<string>(
-    Array.isArray(body?.dualPositionGalleryImageIds)
-      ? body.dualPositionGalleryImageIds.filter((id: unknown): id is string => typeof id === 'string')
-      : []
-  );
-  // Chave especial pra marcar a própria "Foto da cor" como tendo 2 posições
-  // — não tem um `id` de foto da galeria, então usa uma constante fixa.
-  const OWN_PHOTO_KEY = '__own_color_photo__';
-  const ownPhotoIsDual = dualPositionGalleryImageIds.has(OWN_PHOTO_KEY);
-
   // Fotos já marcadas para esta cor em "Todas as fotos do anúncio" — sem
   // limite (antes cortava em 4).
   const { data: taggedGalleryImages } = await auth.admin
@@ -85,12 +76,12 @@ export async function POST(
   const ownPhotoAlreadyProcessed = (existingDisplayImages || []).some((r) => r.from_own_color_photo);
   let nextPosition = (existingDisplayImages || []).reduce((max, r) => Math.max(max, r.position), 0) + 1;
 
-  type Candidate = { kind: 'galeria' | 'foto_da_cor'; galleryImageId: string | null; signedUrl: string; dual: boolean };
+  type Candidate = { kind: 'galeria' | 'foto_da_cor'; galleryImageId: string | null; signedUrl: string };
   const candidates: Candidate[] = [];
 
   for (const photo of (taggedGalleryImages || []) as { id: string; image_url: string }[]) {
     if (alreadyProcessedGalleryIds.has(photo.id)) continue;
-    candidates.push({ kind: 'galeria', galleryImageId: photo.id, signedUrl: photo.image_url, dual: dualPositionGalleryImageIds.has(photo.id) });
+    candidates.push({ kind: 'galeria', galleryImageId: photo.id, signedUrl: photo.image_url });
   }
 
   if (color.original_image_path && !ownPhotoAlreadyProcessed) {
@@ -100,7 +91,7 @@ export async function POST(
     if (ownSignError || !ownSigned?.signedUrl) {
       console.error('catalog_process_own_photo_sign_failed', { message: ownSignError?.message });
     } else {
-      candidates.push({ kind: 'foto_da_cor', galleryImageId: null, signedUrl: ownSigned.signedUrl, dual: ownPhotoIsDual });
+      candidates.push({ kind: 'foto_da_cor', galleryImageId: null, signedUrl: ownSigned.signedUrl });
     }
   }
 
@@ -131,12 +122,15 @@ export async function POST(
   for (const candidate of candidates) {
     if (Date.now() - startedAt > STEP_BUDGET_MS) { ranOutOfTime = true; break; }
     try {
-      const buffers = await cropGalleryPhoto(candidate.signedUrl, candidate.dual);
+      const buffers = await cropGalleryPhoto(candidate.signedUrl);
       for (const buffer of buffers) {
         const position = nextPosition;
         nextPosition += 1;
-        const path = `${productId}/display/${colorImageId}-${position}.png`;
-        const { error: uploadError } = await auth.admin.storage.from(BUCKET).upload(path, buffer, { contentType: 'image/png', upsert: true });
+        // .jpg (15/09/2026, 3ª rodada — ver seção 0.69): formato final
+        // passou de PNG pra JPEG (mais leve, com teto de 200KB garantido em
+        // gallery-photo-crop.ts).
+        const path = `${productId}/display/${colorImageId}-${position}.jpg`;
+        const { error: uploadError } = await auth.admin.storage.from(BUCKET).upload(path, buffer, { contentType: 'image/jpeg', upsert: true });
         if (uploadError) {
           console.error('catalog_display_image_upload_failed', { message: uploadError.message });
           failedCount += 1;
