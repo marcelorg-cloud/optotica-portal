@@ -30,6 +30,7 @@ type ColorImageRow = {
   catalog_product_color_display_images: DisplayImageRow[] | null;
 };
 type CatalogProductRow = { id: string; model_name: string; sku_optotica: string; catalog_product_color_images: ColorImageRow[] | null };
+type PatientDisplayImageRow = { product_id: string; color_name: string; image_path: string | null };
 type LaboratoryRow = { id: string; name: string; is_primary: boolean };
 type MenuTierRow = {
   lens_type: 'single_vision' | 'multifocal';
@@ -78,8 +79,8 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
     .maybeSingle();
   if (!order || order.client_id !== clientId) redirect('/profissional/pacientes');
 
-  const [{ data: client }, { data: prescription }, { data: quotesData }, { data: orderFrame }, { data: fulfillment }, { data: catalogProductsData }, { data: reactionsData }, { data: menuTiersData }, { data: laboratoriesData }] = await Promise.all([
-    admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe, dnp_photo_path, birth_date, cpf, tryon_face_status, tryon_face_processed_path').eq('id', clientId).maybeSingle(),
+  const [{ data: client }, { data: prescription }, { data: quotesData }, { data: orderFrame }, { data: fulfillment }, { data: catalogProductsData }, { data: reactionsData }, { data: menuTiersData }, { data: laboratoriesData }, { data: existingDisplaysData }] = await Promise.all([
+    admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe, dnp_photo_path, birth_date, cpf, tryon_face_status, tryon_face_processed_path, organization_id').eq('id', clientId).maybeSingle(),
     admin.from('prescriptions').select('prescription_data').eq('order_id', orderId).maybeSingle(),
     admin.from('quotes').select('id, total, quote_items(description, metadata)').eq('order_id', orderId),
     admin.from('order_frames').select('frame_name, sku, color, catalog_color_image_id').eq('order_id', orderId).maybeSingle(),
@@ -109,7 +110,12 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
           .eq('status', 'approved')
           .order('is_primary', { ascending: false })
           .order('name')
-      : Promise.resolve({ data: [] as unknown[] })
+      : Promise.resolve({ data: [] as unknown[] }),
+    // Prova online já gerada pra este paciente, por produto+cor (15/09/2026)
+    // — reaproveitada tanto se o próprio paciente já gerou pela área dele
+    // quanto se o profissional já gerou antes aqui na Etapa 3 (mesma tabela,
+    // ver lib/tryon/compose-server.ts).
+    admin.from('catalog_patient_display_images').select('product_id, color_name, image_path').eq('client_id', clientId)
   ]);
 
   const clientName = client?.full_name || 'Paciente';
@@ -135,6 +141,23 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
     facePhotoUrl = signed?.signedUrl || null;
   }
 
+  // Prova online na Etapa 3 (15/09/2026) — precisa da MESMA foto oficial de
+  // prova que a área do próprio paciente usa (bucket 'try-on-photos',
+  // "{org}/{client}/prova.<ext>" — só existe depois de validada na Etapa 1)
+  // e da DNP total, pra rodar a mesma detecção de pupilas + composição que
+  // /api/client/tryon/compose já faz (ver components/order/frame-step.tsx).
+  const dnpTotalMm = client?.dnp_od != null && client?.dnp_oe != null ? Number(client.dnp_od) + Number(client.dnp_oe) : null;
+  let tryonClientPhotoUrl: string | null = null;
+  if (client?.organization_id) {
+    const tryonFolder = `${client.organization_id}/${clientId}`;
+    const { data: tryonFiles } = await admin.storage.from('try-on-photos').list(tryonFolder);
+    const baseFile = tryonFiles?.find((f) => !f.name.startsWith('display/'));
+    if (baseFile) {
+      const { data: signedBase } = await admin.storage.from('try-on-photos').createSignedUrl(`${tryonFolder}/${baseFile.name}`, 3600);
+      tryonClientPhotoUrl = signedBase?.signedUrl || null;
+    }
+  }
+
   const rx = (prescription?.prescription_data || null) as { od?: Record<string, unknown>; oe?: Record<string, unknown> } | null;
   const toEye = (e?: Record<string, unknown>) => e ? {
     esferico: String(e.esferico ?? '0'), cilindrico: String(e.cilindrico ?? '0'),
@@ -158,11 +181,11 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   }));
 
   // Monta a lista de produtos/cores pra Etapa 3 (uma linha por modelo, um
-  // círculo por cor) — junta a "Foto de Prova" (processed_image_path) e a
-  // melhor "foto do óculos" (foto de exibição validada, menor `position`)
-  // de cada cor, e assina as duas de uma vez só (bucket privado
-  // 'catalog-product-photos', 1h de validade — tempo de sobra pra uma
-  // sessão de atendimento).
+  // círculo por cor) — junta a melhor "foto do óculos" (foto de exibição
+  // validada do catálogo, menor `position`, bucket 'catalog-product-photos')
+  // de cada cor. A "Foto de Prova" (rosto do paciente + óculos) vem de outro
+  // lugar — ver provaUrlByProductColor acima (bucket 'try-on-photos') — e é
+  // gerada na hora pelo frame-step.tsx quando ainda não existir.
   // ATIVAR/OCULTAR por cor (15/09/2026, migração 202609151700): só cores
   // com is_active=true entram aqui — nasce `false` em toda cor (nova ou já
   // existente), então nenhuma aparece até o master clicar ATIVAR no painel
@@ -171,7 +194,6 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   const pathsToSign = new Set<string>();
   for (const product of catalogProducts) {
     for (const color of (product.catalog_product_color_images || []).filter((c) => c.is_active)) {
-      if (color.processed_image_path) pathsToSign.add(color.processed_image_path);
       const bestDisplay = (color.catalog_product_color_display_images || [])
         .filter((d) => d.validated_at && d.image_path)
         .sort((a, b) => a.position - b.position)[0];
@@ -183,6 +205,27 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
     const { data: signedList } = await admin.storage.from('catalog-product-photos').createSignedUrls(Array.from(pathsToSign), 3600);
     for (const entry of signedList || []) {
       if (entry.path && entry.signedUrl) signedByPath.set(entry.path, entry.signedUrl);
+    }
+  }
+
+  // "Foto de Prova" real (rosto do paciente + óculos desta cor) — vem de
+  // catalog_patient_display_images, bucket 'try-on-photos' (diferente do
+  // bucket 'catalog-product-photos' acima), assinada à parte. Já vem pronta
+  // aqui se alguém (paciente ou profissional) já gerou essa combinação
+  // produto+cor antes — senão nasce null e o card gera na hora (ver
+  // components/order/frame-step.tsx).
+  const patientDisplays = (existingDisplaysData || []) as unknown as PatientDisplayImageRow[];
+  const provaUrlByProductColor = new Map<string, string>();
+  const displayPaths = patientDisplays.map((d) => d.image_path).filter((p): p is string => !!p);
+  if (displayPaths.length) {
+    const { data: signedDisplayList } = await admin.storage.from('try-on-photos').createSignedUrls(displayPaths, 3600);
+    const signedDisplayByPath = new Map<string, string>();
+    for (const entry of signedDisplayList || []) {
+      if (entry.path && entry.signedUrl) signedDisplayByPath.set(entry.path, entry.signedUrl);
+    }
+    for (const d of patientDisplays) {
+      const url = d.image_path ? signedDisplayByPath.get(d.image_path) : null;
+      if (url) provaUrlByProductColor.set(`${d.product_id}::${d.color_name}`, url);
     }
   }
   const reactionByColorImageId = new Map((reactionsData || []).map((r) => [r.catalog_color_image_id as string, r.status as string]));
@@ -216,7 +259,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
           colorPrincipal: color.color_principal,
           colorSecondary: color.color_secondary,
           colorVariantNumber: color.color_variant_number,
-          provaUrl: color.processed_image_path ? signedByPath.get(color.processed_image_path) || null : null,
+          provaUrl: provaUrlByProductColor.get(`${product.id}::${color.color_name}`) || null,
           fotoOculosUrl: bestDisplay?.image_path ? signedByPath.get(bestDisplay.image_path) || null : null,
           reaction: (reactionByColorImageId.get(color.id) || null) as 'gostei' | 'talvez' | 'oculto' | null,
           confirmed: confirmedColorImageId === color.id
@@ -335,7 +378,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
               {tag(hasFrame, current === 2)}
             </div>
             <div className="card-body">
-              <FrameStep orderId={order.id} models={armacaoModels} confirmedFrameName={orderFrame?.frame_name || null} confirmedColor={orderFrame?.color || null} locked={comandaDone} />
+              <FrameStep orderId={order.id} models={armacaoModels} confirmedFrameName={orderFrame?.frame_name || null} confirmedColor={orderFrame?.color || null} locked={comandaDone} clientPhotoUrl={tryonClientPhotoUrl} dnpTotalMm={dnpTotalMm} />
             </div>
           </section>
 
