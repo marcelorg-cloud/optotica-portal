@@ -30,7 +30,7 @@ export function ClientFrameStep({ orderId, choices, selectedColorId, selectedFra
   return <div className="stack">
     {selectedFrameName && <div className="notice">Sua escolha: <strong>{selectedFrameName}</strong> · {selectedColor}</div>}
     {locked && <div className="notice">Escolhas encerradas. Fale com seu profissional se precisar de ajuda.</div>}
-    {!locked && <a className="button secondary" href="#prova-online">Experimentar com minha foto</a>}
+    {!locked && <a className="button secondary" href="#armacao">Experimentar com minha foto</a>}
     {!choices.length && <p className="helper">Nenhuma armação disponível para novas escolhas no momento.</p>}
     <div className="grid grid-2">
       {choices.map((choice) => <div className="product-choice" key={choice.id}>

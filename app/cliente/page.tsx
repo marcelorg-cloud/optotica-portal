@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { createAdminSupabaseClient, createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { isOrderFinalized } from '@/lib/order-status';
 
-export const metadata: Metadata = { title: 'Área do cliente' };
+export const metadata: Metadata = { title: 'Área do paciente' };
 
 type ClientOrder = { id: string; order_number: number; status: string };
 
@@ -17,7 +17,7 @@ export default async function ClientPage() {
   const { data: client } = account
     ? await supabase.from('clients').select('id, full_name').eq('id', account.client_id).eq('status', 'active').maybeSingle()
     : { data: null };
-  if (!client) return <div className="page-shell narrow"><div className="setup-note">Seu acesso ainda não está vinculado a um cadastro de cliente.</div></div>;
+  if (!client) return <div className="page-shell narrow"><div className="setup-note">Seu acesso ainda não está vinculado a um cadastro de paciente.</div></div>;
 
   // 16/09/2026 — bug real (mesma causa da inconsistência corrigida em
   // app/profissional/page.tsx): esta consulta usava `supabase` (sessão do
@@ -38,7 +38,7 @@ export default async function ClientPage() {
     return (
       <div className="page-shell narrow">
         <section className="dashboard-head">
-          <div><p className="eyebrow">Área do cliente</p><h1>Olá, {client.full_name.split(' ')[0]}</h1></div>
+          <div><p className="eyebrow">Área do paciente</p><h1>Olá, {client.full_name.split(' ')[0]}</h1></div>
         </section>
         <div className="setup-note">Não foi possível carregar seus pedidos agora. Tente novamente em instantes.</div>
       </div>
@@ -50,7 +50,7 @@ export default async function ClientPage() {
     return (
       <div className="page-shell narrow">
         <section className="dashboard-head">
-          <div><p className="eyebrow">Área do cliente</p><h1>Olá, {client.full_name.split(' ')[0]}</h1><p className="muted">Acompanhe seus pedidos e escolhas.</p></div>
+          <div><p className="eyebrow">Área do paciente</p><h1>Olá, {client.full_name.split(' ')[0]}</h1><p className="muted">Acompanhe seus pedidos e escolhas.</p></div>
         </section>
         <div className="setup-note">Nenhum pedido disponível ainda. Assim que seu atendimento começar, ele aparecerá aqui.</div>
       </div>

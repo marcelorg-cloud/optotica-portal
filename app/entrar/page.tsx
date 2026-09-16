@@ -18,7 +18,7 @@ export default async function LoginPage() {
     <div className="page-shell narrow">
       <div className="login-grid">
         <section className="card login-card">
-          <p className="eyebrow">Área do cliente</p>
+          <p className="eyebrow">Área do paciente</p>
           <h1>Já é paciente Optótica?</h1>
           <p className="muted">Fale com a gente pelo seu WhatsApp cadastrado e receba seu link de acesso ao portal.</p>
           {whatsappUrl && qr ? <div className="patient-entry-options">

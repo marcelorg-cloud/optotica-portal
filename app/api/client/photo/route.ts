@@ -22,10 +22,10 @@ export async function POST(request: Request) {
 
   const admin = createAdminSupabaseClient();
   const { data: account } = await admin.from('client_user_accounts').select('client_id').eq('user_id', user.id).maybeSingle();
-  if (!account) return NextResponse.json({ message: 'Cadastro de cliente não encontrado.' }, { status: 403 });
+  if (!account) return NextResponse.json({ message: 'Cadastro de paciente não encontrado.' }, { status: 403 });
 
   const { data: client } = await admin.from('clients').select('id, organization_id').eq('id', account.client_id).eq('status', 'active').maybeSingle();
-  if (!client) return NextResponse.json({ message: 'Cadastro de cliente inativo.' }, { status: 403 });
+  if (!client) return NextResponse.json({ message: 'Cadastro de paciente inativo.' }, { status: 403 });
 
   const form = await request.formData().catch(() => null);
   const file = form?.get('photo');

@@ -18,10 +18,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
 
   const admin = createAdminSupabaseClient();
   const { data: account } = await admin.from('client_user_accounts').select('client_id').eq('user_id', user.id).maybeSingle();
-  if (!account) return NextResponse.json({ message: 'Cadastro de cliente não encontrado.' }, { status: 403 });
+  if (!account) return NextResponse.json({ message: 'Cadastro de paciente não encontrado.' }, { status: 403 });
 
   const { data: client } = await admin.from('clients').select('id').eq('id', account.client_id).eq('status', 'active').maybeSingle();
-  if (!client) return NextResponse.json({ message: 'Cadastro de cliente inativo.' }, { status: 403 });
+  if (!client) return NextResponse.json({ message: 'Cadastro de paciente inativo.' }, { status: 403 });
 
   const { data: order } = await admin.from('orders').select('id, organization_id, status').eq('id', orderId).eq('client_id', client.id).maybeSingle();
   if (!order) return NextResponse.json({ message: 'Pedido não encontrado.' }, { status: 404 });

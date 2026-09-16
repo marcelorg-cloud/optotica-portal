@@ -10,7 +10,6 @@ import { FrameStep, type ArmacaoModel } from '@/components/order/frame-step';
 import { ClientCartStep } from '@/components/client-area/cart-step';
 import { PhotoUpload } from '@/components/client-area/photo-upload';
 import { PrescriptionCard } from '@/components/client-area/prescription-card';
-import { TryonPanel, type TryonProduct } from '@/components/client-area/tryon-panel';
 import { isCurrentTryon, tryonRevision } from '@/lib/tryon/revision';
 import { patientPayment, patientTracking } from '@/lib/client-order-view';
 
@@ -164,37 +163,6 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
         : { data: null };
       return { id: row.id, productId: row.catalog_products!.id, modelName: row.catalog_products!.model_name, colorName: row.color_name, imageUrl: signed?.signedUrl || null };
     }));
-  // Largura pra escalar na prova online (13/09/2026, 8ª rodada, pedido do
-  // usuário): prefere `frame_total_width_mm` ("Frente Total" — medida de
-  // ponta a ponta da armação, mais precisa — campo novo e opcional, migração
-  // 202609130010) quando o master já preencheu; cai pra `lens_width_mm`
-  // quando ainda não foi preenchido, pra não tirar da prova online nenhum
-  // produto já publicado antes dessa medida existir.
-  const effectiveFrameWidthMm = (product: { lens_width_mm: number | null; frame_total_width_mm: number | null }) =>
-    product.frame_total_width_mm || product.lens_width_mm || null;
-  // Ordem de exibição (15/09/2026, migração 202609151800) — mesmo critério
-  // usado no painel de catálogo e na Etapa 3 "Escolha da armação": sem
-  // `display_order` (nunca reordenada) fica no fim.
-  const tryonProducts: TryonProduct[] = (
-    await Promise.all(
-      catalogColorRows
-        .filter((row) => row.processed_image_path && row.catalog_products && effectiveFrameWidthMm(row.catalog_products))
-        .sort((a, b) => (a.display_order ?? Number.MAX_SAFE_INTEGER) - (b.display_order ?? Number.MAX_SAFE_INTEGER))
-        .map(async (row) => {
-          const imageUrl = frameChoices.find((choice) => choice.id === row.id)?.imageUrl;
-          if (!imageUrl) return null;
-          return {
-            id: row.id,
-            productId: row.catalog_products!.id,
-            modelName: row.catalog_products!.model_name,
-            colorName: row.color_name,
-            lensWidthMm: Number(effectiveFrameWidthMm(row.catalog_products!)),
-            processedImageUrl: imageUrl
-          };
-        })
-    )
-  ).filter((p): p is TryonProduct => p !== null);
-
   // Carrinho (16/09/2026) — armações que o profissional marcou GOSTEI no
   // atendimento, com a mesma "foto de prova" (rosto do paciente + óculos,
   // catalog_patient_display_images, bucket 'try-on-photos') e "foto do
@@ -309,27 +277,26 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     { id: 'receita', label: 'Minha receita', hint: 'prescrição' },
     { id: 'armacao', label: 'Escolher armação', hint: 'catálogo' },
     { id: 'carrinho', label: 'Carrinho', hint: 'revisão' },
-    { id: 'prova-online', label: 'Prova online', hint: 'experimentar' },
     { id: 'status', label: 'Acompanhar pedido', hint: 'produção + entrega' }
   ];
   // Carrinho (16/09/2026) — mesmo critério de "concluído" do carrinho do
   // profissional (ver page.tsx do atendimento): pronto quando já há lente e
   // armação escolhidas, sem introduzir nenhum estado novo próprio.
-  const stepsDone = [true, hasQuote, hasRx, hasFrame, hasQuote && hasFrame, false, trackingDone];
-  const currentStep = cancelled ? -1 : stepsDone.findIndex((done, i) => !done && steps[i].id !== 'prova-online');
+  const stepsDone = [true, hasQuote, hasRx, hasFrame, hasQuote && hasFrame, trackingDone];
+  const currentStep = cancelled ? -1 : stepsDone.findIndex((done) => !done);
 
   const orderTabs = (allOrders || []).map((o) => ({ id: o.id, code: orderCode(clientName, o.order_number), status: o.status }));
 
   return (
     <div className="page-shell">
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap' }}>
-        <div><p className="eyebrow">Área do cliente</p><h1>Olá, {clientName.split(' ')[0]}</h1></div>
-        <div className="idbox"><span>ID do cliente · WhatsApp</span><strong>{whatsapp}</strong></div>
+        <div><p className="eyebrow">Área do paciente</p><h1>Olá, {clientName.split(' ')[0]}</h1></div>
+        <div className="idbox"><span>ID do paciente · WhatsApp</span><strong>{whatsapp}</strong></div>
       </div>
 
       <OrderTabs orders={orderTabs} activeOrderId={order.id} />
 
-      <nav className="flow-wrap" aria-label="Fluxo do cliente">
+      <nav className="flow-wrap" aria-label="Fluxo do paciente">
         <div className="flow flow-client">
           {steps.map((step, i) => (
             <a key={step.id} className={stepsDone[i] ? 'done' : i === currentStep ? 'current' : ''} href={`#${step.id}`}>
@@ -426,16 +393,6 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
             likedColors={likedColors}
             locked={locked}
           />
-        </div>
-      </section>
-
-      <section className="card" id="prova-online">
-        <div className="card-head">
-          <div><p className="eyebrow">Catálogo online</p><h2>Prova online — experimente armações com a sua foto</h2></div>
-          <span className="pending-tag">Opcional</span>
-        </div>
-        <div className="card-body">
-          <TryonPanel key={sourceRevision} sourceRevision={sourceRevision} clientPhotoUrl={photoUrl} dnpOd={client.dnp_od} dnpOe={client.dnp_oe} products={tryonProducts} />
         </div>
       </section>
 

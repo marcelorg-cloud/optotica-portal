@@ -42,7 +42,7 @@ export function ComandaStep({ orderId, clientName, dnp, lensDescription, laborat
   return (
     <form className="stack" ref={formRef} onSubmit={(e) => { e.preventDefault(); save(false); }}>
       <div className="grid grid-3">
-        <div className="subsection"><h3>Cliente</h3>
+        <div className="subsection"><h3>Paciente</h3>
           <div className="summary-row"><span>Nome</span><strong>{clientName}</strong></div>
           <div className="summary-row"><span>DNP</span><strong>{dnp}</strong></div>
         </div>

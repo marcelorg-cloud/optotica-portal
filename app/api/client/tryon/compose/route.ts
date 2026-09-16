@@ -30,14 +30,14 @@ export async function POST(request: Request) {
 
   const admin = createAdminSupabaseClient();
   const { data: account } = await admin.from('client_user_accounts').select('client_id').eq('user_id', user.id).maybeSingle();
-  if (!account) return NextResponse.json({ message: 'Cadastro de cliente não encontrado.' }, { status: 403 });
+  if (!account) return NextResponse.json({ message: 'Cadastro de paciente não encontrado.' }, { status: 403 });
 
   const { data: client } = await admin
     .from('clients')
     .select('id, organization_id, dnp_od, dnp_oe, dnp_measured_at, tryon_face_validated_at, status')
     .eq('id', account.client_id)
     .maybeSingle();
-  if (!client || client.status !== 'active') return NextResponse.json({ message: 'Cadastro de cliente inativo.' }, { status: 403 });
+  if (!client || client.status !== 'active') return NextResponse.json({ message: 'Cadastro de paciente inativo.' }, { status: 403 });
   if (client.dnp_od == null || client.dnp_oe == null) {
     return NextResponse.json({ message: 'Sua DNP ainda não foi medida pelo profissional — a prova online precisa dela.' }, { status: 409 });
   }

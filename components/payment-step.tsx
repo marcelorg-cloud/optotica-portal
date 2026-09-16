@@ -41,7 +41,7 @@ export function PaymentStep({ orderId, initialValue, initialMethod, confirmed }:
         <div className="field">
           <label className="required">Valor final da venda</label>
           <div className="money"><input name="value" type="number" step="0.01" min="0" placeholder="0,00" defaultValue={initialValue} /></div>
-          <div className="helper">O valor final apresentado ao cliente.</div>
+          <div className="helper">O valor final apresentado ao paciente.</div>
         </div>
         <div className="field">
           <label>Forma de pagamento</label>
