@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { parseAliexpressJson, type ParsedAliexpressColor } from '@/lib/catalog/parse-aliexpress-json';
@@ -34,6 +36,7 @@ export function CatalogProductsPanel() {
   const [showNewProduct, setShowNewProduct] = useState(false);
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  useProcessingFeedback(busy, 'Processando catálogo…');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 

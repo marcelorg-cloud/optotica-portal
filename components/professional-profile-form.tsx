@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -67,6 +69,7 @@ export function ProfessionalProfileForm({ initialValues = {}, locked = false }: 
   const router = useRouter();
   const [laboratories, setLaboratories] = useState<Laboratory[]>(() => initialValues.laboratories?.length ? initialValues.laboratories : []);
   const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
+  useProcessingFeedback(state === 'loading', 'Salvando perfil profissional…');
   const [message, setMessage] = useState('');
   const [errors, setErrors] = useState<FieldErrors>({});
 
@@ -390,6 +393,7 @@ function LabPriceListManager({ laboratoryId }: { laboratoryId: string }) {
   const [lists, setLists] = useState<PriceList[]>([]);
   const [loadState, setLoadState] = useState<'idle' | 'loading' | 'error' | 'done'>('loading');
   const [uploadState, setUploadState] = useState<'idle' | 'loading' | 'error'>('idle');
+  useProcessingFeedback(uploadState === 'loading', 'Enviando tabela de preços…');
   const [message, setMessage] = useState('');
   const [showHistory, setShowHistory] = useState(false);
 

@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { calculateDnp, type DnpPoints, type Point } from '@/lib/dnp';
 import { detectCardEdges, detectFacePoints } from '@/lib/dnp-vision';
@@ -113,6 +115,7 @@ export function DnpPhotoTool({ orderId, onSaved, onClose }: {
   const [detecting, setDetecting] = useState(false);
   const [detectionNotice, setDetectionNotice] = useState('');
   const [saving, setSaving] = useState(false);
+  useProcessingFeedback(saving, 'Salvando medidas DNP…');
   const [saveError, setSaveError] = useState('');
 
   // Libera a câmera se a ferramenta for desmontada com a câmera ainda ativa

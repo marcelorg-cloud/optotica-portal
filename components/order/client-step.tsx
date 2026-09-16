@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -31,6 +33,7 @@ export function ClientStep({
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [state, setState] = useState<'idle' | 'loading' | 'error' | 'success'>('idle');
+  useProcessingFeedback(state === 'loading', 'Salvando dados do paciente…');
   const [message, setMessage] = useState('');
   const [toolOpen, setToolOpen] = useState(false);
   const [dnpOd, setDnpOd] = useState(initialDnpOd);
@@ -49,6 +52,7 @@ export function ClientStep({
   const [facePhotoStatus, setFacePhotoStatus] = useState(initialFacePhotoStatus);
   const [facePhotoUrl, setFacePhotoUrl] = useState(initialFacePhotoUrl);
   const [faceBusy, setFaceBusy] = useState<'idle' | 'uploading' | 'validating'>('idle');
+  useProcessingFeedback(faceBusy !== 'idle', 'Preparando foto do paciente…');
   const [faceMessage, setFaceMessage] = useState('');
   const [faceMessageKind, setFaceMessageKind] = useState<'success' | 'error' | ''>('');
 

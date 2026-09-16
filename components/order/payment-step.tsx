@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -23,6 +25,7 @@ export function PaymentStep({ orderId, initialValue, initialMethod, initialDownV
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
+  useProcessingFeedback(state === 'loading', 'Salvando pagamento…');
   const [message, setMessage] = useState('');
 
   async function submit(confirm: boolean) {

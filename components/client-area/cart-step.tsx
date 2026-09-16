@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -40,6 +42,7 @@ export function ClientCartStep({ orderId, quotes, selectedQuoteId, likedColors, 
 }) {
   const router = useRouter();
   const [savingId, setSavingId] = useState<string | null>(null);
+  useProcessingFeedback(savingId !== null, 'Atualizando pedido…');
   const [message, setMessage] = useState('');
 
   async function select(quoteId: string) {

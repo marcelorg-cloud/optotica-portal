@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -10,6 +12,7 @@ export function QuotesStep({ orderId, quotes, selectedQuoteId, locked }: {
 }) {
   const router = useRouter();
   const [savingId, setSavingId] = useState<string | null>(null);
+  useProcessingFeedback(savingId !== null, 'Salvando orçamento selecionado…');
   const [message, setMessage] = useState('');
 
   async function select(quoteId: string) {

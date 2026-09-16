@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -21,6 +23,7 @@ export function ComandaStep({ orderId, clientName, dnp, lensDescription, laborat
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
+  useProcessingFeedback(state === 'loading', 'Salvando comanda…');
   const [message, setMessage] = useState('');
   // Atualização otimista do rótulo "confirmado": muda na hora, sem esperar o
   // refresh da página inteira — o refresh continua acontecendo em segundo

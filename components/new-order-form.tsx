@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { FormEvent, useState } from 'react';
 
 const LENS_TYPES = ['Visão simples', 'Multifocal', 'Solar com grau', 'Antirreflexo'];
@@ -22,6 +24,7 @@ function RxRow({ eye, label }: { eye: 'od' | 'oe'; label: string }) {
 
 export function NewOrderForm({ clientId }: { clientId: string }) {
   const [state, setState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  useProcessingFeedback(state === 'loading', 'Criando pedido…');
   const [message, setMessage] = useState('');
   const [orderNumber, setOrderNumber] = useState<number | null>(null);
 

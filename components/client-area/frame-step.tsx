@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -11,6 +13,7 @@ export function ClientFrameStep({ orderId, choices, selectedColorId, selectedFra
 }) {
   const router = useRouter();
   const [savingId, setSavingId] = useState<string | null>(null);
+  useProcessingFeedback(savingId !== null, 'Salvando armação selecionada…');
   const [message, setMessage] = useState('');
   async function select(colorId: string) {
     if (locked || savingId || selectedColorId === colorId) return;

@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -38,6 +40,7 @@ export function CartStep({ orderId, quotes, selectedQuoteId, likedColors, locked
 }) {
   const router = useRouter();
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  useProcessingFeedback(busyKey !== null, 'Atualizando pedido…');
   const [message, setMessage] = useState('');
 
   async function selectQuote(quoteId: string) {

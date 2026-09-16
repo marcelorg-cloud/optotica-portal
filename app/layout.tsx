@@ -1,3 +1,4 @@
+import { ProcessingProvider } from '@/components/processing-feedback';
 import type { Metadata } from 'next';
 import { SiteHeader } from '@/components/site-header';
 import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
@@ -28,9 +29,11 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   return (
     <html lang="pt-BR">
       <body>
+        <ProcessingProvider>
         <SiteHeader loggedIn={loggedIn} />
         <main>{children}</main>
         <footer className="site-footer">Optótica · infraestrutura independente e dados protegidos</footer>
+        </ProcessingProvider>
       </body>
     </html>
   );

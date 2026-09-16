@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { colorSwatchBackground, colorSwatchIsLight } from '@/lib/catalog/color-swatch-style';
@@ -102,6 +104,7 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
     Object.fromEntries(models.map((m) => [m.id, m.colors.find((c) => c.confirmed)?.id || m.colors[0]?.id || '']))
   );
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  useProcessingFeedback(busyKey !== null, 'Salvando escolha da armação…');
   const [message, setMessage] = useState('');
 
   // Foto e DNP não mudam durante a vida deste componente — a detecção de
@@ -110,6 +113,7 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
   const analysisCache = useRef<{ url: string; analysis: PhotoAnalysis } | null>(null);
   const [generatedProva, setGeneratedProva] = useState<Record<string, string>>({});
   const [provaStatus, setProvaStatus] = useState<Record<string, 'idle' | 'loading' | 'error'>>({});
+  useProcessingFeedback(Object.values(provaStatus).some(status => status === 'loading'), 'Gerando prova online…');
   const [provaMessage, setProvaMessage] = useState<Record<string, string>>({});
 
   function activeColorOf(model: ArmacaoModel): ColorOption | undefined {

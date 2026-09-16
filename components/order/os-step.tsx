@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -39,8 +41,10 @@ export function SuggestedLensesStep({ orderId, quotes, selectedQuoteId, locked, 
 }) {
   const router = useRouter();
   const [budgetState, setBudgetState] = useState<'idle' | 'loading' | 'error'>('idle');
+  useProcessingFeedback(budgetState === 'loading', 'Salvando orçamento…');
   const [budgetMessage, setBudgetMessage] = useState('');
   const [menuAddingKey, setMenuAddingKey] = useState<string | null>(null);
+  useProcessingFeedback(menuAddingKey !== null, 'Adicionando lentes ao orçamento…');
   const [menuMessage, setMenuMessage] = useState('');
   const [chosenLaboratoryId, setChosenLaboratoryId] = useState(laboratoryOptions.length === 1 ? laboratoryOptions[0].id : laboratoryOptions.find((lab) => lab.isPrimary)?.id || '');
   const laboratoryId = laboratoryOptions.some((lab) => lab.id === chosenLaboratoryId) ? chosenLaboratoryId : '';

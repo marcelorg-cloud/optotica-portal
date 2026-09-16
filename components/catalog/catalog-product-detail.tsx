@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useEffect, useRef, useState } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/browser-client';
 import { parseAliexpressJson, type ParsedAliexpressColor } from '@/lib/catalog/parse-aliexpress-json';
@@ -156,6 +158,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const messageRef = useRef<HTMLParagraphElement | null>(null);
   const [busy, setBusy] = useState(false);
+  useProcessingFeedback(busy, 'Processando catálogo…');
   const [normalizationBeforeUrl, setNormalizationBeforeUrl] = useState<string | null>(null);
   const [showNewColor, setShowNewColor] = useState(false);
 
@@ -275,6 +278,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const [colorOrderDraft, setColorOrderDraft] = useState<string[] | null>(null);
   const [draggingColorId, setDraggingColorId] = useState<string | null>(null);
   const [savingColorOrder, setSavingColorOrder] = useState(false);
+  useProcessingFeedback(savingColorOrder, 'Salvando ordem das cores…');
 
   // "Desfazer última ação" (15/09/2026, pedido do usuário depois do
   // incidente de 15/09 — cores sumindo/duplicando sem um jeito fácil de

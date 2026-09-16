@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -28,6 +30,7 @@ export function ProductionStep({ orderId, initialFrameStatus, initialFrameRef, i
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
+  useProcessingFeedback(state === 'loading', 'Atualizando produção…');
   const [message, setMessage] = useState('');
 
   async function submit() {

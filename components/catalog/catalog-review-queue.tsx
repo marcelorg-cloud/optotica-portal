@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useEffect, useState } from 'react';
 
 type Pending = {
@@ -22,6 +24,7 @@ export function CatalogReviewQueue() {
   const [pending, setPending] = useState<Pending[] | null>(null);
   const [recent, setRecent] = useState<Recent[]>([]);
   const [busy, setBusy] = useState(false);
+  useProcessingFeedback(busy, 'Processando catálogo…');
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
 
   function load() {

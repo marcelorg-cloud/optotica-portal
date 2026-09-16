@@ -1,9 +1,12 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { FormEvent, useState } from 'react';
 
 export function PatientInvitationForm() {
   const [state, setState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  useProcessingFeedback(state === 'loading', 'Gerando convite do paciente…');
   const [message, setMessage] = useState('');
   const [invitation, setInvitation] = useState<{ url: string; qr: string; expiresAt: string } | null>(null);
 

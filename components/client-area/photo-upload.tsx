@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useRef, useState, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -8,6 +10,7 @@ export function PhotoUpload({ initialPhotoUrl }: { initialPhotoUrl: string | nul
   const inputRef = useRef<HTMLInputElement>(null);
   const [photoUrl, setPhotoUrl] = useState(initialPhotoUrl);
   const [uploading, setUploading] = useState(false);
+  useProcessingFeedback(uploading, 'Enviando sua foto…');
   const [message, setMessage] = useState('');
 
   async function onChange(event: ChangeEvent<HTMLInputElement>) {

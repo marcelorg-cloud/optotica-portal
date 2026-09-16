@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -46,6 +48,7 @@ export function LogisticsStep({ orderId, frameShippedAt, frameReceivedAt, lensCo
 }) {
   const router = useRouter();
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  useProcessingFeedback(pendingKey !== null, 'Atualizando logística…');
   const [message, setMessage] = useState('');
 
   async function mark(key: string) {

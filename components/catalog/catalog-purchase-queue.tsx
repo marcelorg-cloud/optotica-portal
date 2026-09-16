@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useEffect, useState } from 'react';
 
 type PurchaseOrder = {
@@ -28,6 +30,7 @@ export function CatalogPurchaseQueue() {
   const [address, setAddress] = useState<MasterAddress>(null);
   const [editingAddress, setEditingAddress] = useState(false);
   const [busy, setBusy] = useState(false);
+  useProcessingFeedback(busy, 'Processando catálogo…');
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
 
   function applyLoad([ordersRes, addressRes]: Awaited<ReturnType<typeof loadPair>>) {

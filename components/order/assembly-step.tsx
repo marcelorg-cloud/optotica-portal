@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -18,6 +20,7 @@ export function AssemblyStep({ orderId, initialFrameReceived, initialLensReceive
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
+  useProcessingFeedback(state === 'loading', 'Salvando montagem…');
   const [message, setMessage] = useState('');
 
   async function submit() {

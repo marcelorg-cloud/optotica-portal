@@ -1,5 +1,7 @@
 'use client';
 
+import { useProcessingFeedback } from '@/components/processing-feedback';
+
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -37,8 +39,10 @@ export function PrescriptionStep({ orderId, initialOd, initialOe, initialObserva
 }) {
   const router = useRouter();
   const [rxState, setRxState] = useState<'idle' | 'loading' | 'error'>('idle');
+  useProcessingFeedback(rxState === 'loading', 'Salvando prescrição…');
   const [rxMessage, setRxMessage] = useState('');
   const [issuing, setIssuing] = useState(false);
+  useProcessingFeedback(issuing, 'Emitindo prescrição…');
   const [dirty, setDirty] = useState(false);
   async function issue() {
     setIssuing(true); setRxMessage('');
