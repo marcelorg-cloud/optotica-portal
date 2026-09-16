@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
 import { isOrderFinalized } from '@/lib/order-status';
 
-type FrameVariant = { color?: string; supplier_sku?: string; qty?: number; image?: string };
+type CatalogColor = { id: string; color_name: string; supplier_sku: string | null; catalog_products: { id: string; model_name: string } | null };
 
 export async function POST(request: Request, { params }: { params: Promise<{ orderId: string }> }) {
   const { orderId } = await params;
@@ -11,9 +11,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
   if (!user) return NextResponse.json({ message: 'Faça login para continuar.' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
-  const frameId = typeof body?.frameId === 'string' ? body.frameId : '';
-  const color = typeof body?.color === 'string' ? body.color : '';
-  if (!frameId || !color) return NextResponse.json({ message: 'Escolha uma armação e uma cor.' }, { status: 400 });
+  const colorId = typeof body?.catalogColorImageId === 'string' ? body.catalogColorImageId : '';
+  if (!colorId) return NextResponse.json({ message: 'Escolha uma armação e uma cor.' }, { status: 400 });
 
   const admin = createAdminSupabaseClient();
   const { data: account } = await admin.from('client_user_accounts').select('client_id').eq('user_id', user.id).maybeSingle();
@@ -31,29 +30,35 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
   // "!== 'in_progress'" para não travar por engano um status intermediário.
   if (isOrderFinalized(order.status)) return NextResponse.json({ message: 'Este pedido já foi concluído.' }, { status: 400 });
 
-  const { data: frame } = await admin.from('frames').select('id, name, sku, source, metadata').eq('id', frameId).maybeSingle();
-  if (!frame) return NextResponse.json({ message: 'Armação não encontrada.' }, { status: 404 });
+  const { data: fulfillment, error: fulfillmentError } = await admin.from('order_fulfillment')
+    .select('comanda_confirmed_at').eq('order_id', orderId).maybeSingle();
+  if (fulfillmentError) return NextResponse.json({ message: 'Não foi possível verificar a confirmação do pedido.' }, { status: 500 });
+  if (fulfillment?.comanda_confirmed_at) return NextResponse.json({ message: 'Pedido confirmado. Fale com seu profissional para solicitar alterações.' }, { status: 409 });
 
-  const variants: FrameVariant[] = Array.isArray((frame.metadata as { variants?: unknown })?.variants)
-    ? (frame.metadata as { variants: FrameVariant[] }).variants
-    : [];
-  const variant = variants.find((v) => v.color === color);
-  if (!variant) return NextResponse.json({ message: 'Cor indisponível para esta armação.' }, { status: 400 });
-  if (!variant.qty || variant.qty <= 0) return NextResponse.json({ message: 'Esta cor está indisponível no momento.' }, { status: 400 });
+  const { data: row, error: catalogError } = await admin.from('catalog_product_color_images')
+    .select('id, color_name, supplier_sku, catalog_products!inner(id, model_name, status)')
+    .eq('id', colorId).eq('is_active', true).eq('status', 'validada')
+    .eq('catalog_products.status', 'publicado').maybeSingle();
+  if (catalogError) return NextResponse.json({ message: 'Não foi possível consultar o catálogo.' }, { status: 500 });
+  const color = row as unknown as CatalogColor | null;
+  const product = color?.catalog_products;
+  if (!color || !product) return NextResponse.json({ message: 'Esta cor não está disponível no catálogo.' }, { status: 404 });
 
   const { error } = await admin.from('order_frames').upsert({
     order_id: order.id,
     organization_id: order.organization_id,
-    frame_id: frame.id,
-    frame_name: frame.name,
-    sku: variant.supplier_sku || frame.sku,
-    color,
-    source: frame.source
+    frame_id: null,
+    frame_name: product.model_name,
+    sku: color.supplier_sku,
+    color: color.color_name,
+    source: 'catalogo',
+    catalog_product_id: product.id,
+    catalog_color_image_id: color.id
   }, { onConflict: 'order_id' });
   if (error) {
     console.error('client_order_frame_save_failed', { code: error.code });
     return NextResponse.json({ message: 'Não foi possível registrar a armação.' }, { status: 500 });
   }
 
-  return NextResponse.json({ message: 'Armação selecionada.', frameName: frame.name, color });
+  return NextResponse.json({ message: 'Armação selecionada.', frameName: product.model_name, color: color.color_name });
 }

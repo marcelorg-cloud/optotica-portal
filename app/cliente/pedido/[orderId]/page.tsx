@@ -5,12 +5,13 @@ import { orderCode } from '@/lib/order-code';
 import { isOrderFinalized, orderStatusLabel } from '@/lib/order-status';
 import { OrderTabs } from '@/components/client-area/order-tabs';
 import { QuotesStep } from '@/components/client-area/quotes-step';
-import { ClientFrameStep } from '@/components/client-area/frame-step';
+import { ClientFrameStep, type PatientFrameChoice } from '@/components/client-area/frame-step';
 import { ClientCartStep } from '@/components/client-area/cart-step';
 import { PhotoUpload } from '@/components/client-area/photo-upload';
 import { PrescriptionCard } from '@/components/client-area/prescription-card';
 import { TryonPanel, type TryonProduct } from '@/components/client-area/tryon-panel';
 import { isCurrentTryon, tryonRevision } from '@/lib/tryon/revision';
+import { patientPayment, patientTracking } from '@/lib/client-order-view';
 
 export const metadata: Metadata = { title: 'Meu pedido' };
 
@@ -26,15 +27,12 @@ type CatalogColorRow = {
 };
 
 type QuoteRow = { id: string; total: number; quote_items: { description: string }[] | null };
-type FrameVariant = { color: string; image?: string; qty?: number };
-type FrameRow = { id: string; name: string; metadata: { kind?: string; variants?: FrameVariant[] } | null };
 // Carrinho (16/09/2026) — mesma ideia da tela nova do profissional (ver
 // components/order/cart-step.tsx): reúne, aqui na área do próprio paciente,
 // os orçamentos (já existia) e as armações que o profissional marcou GOSTEI
 // no atendimento (novo, só leitura — a confirmação final e a remoção de uma
-// cor curtida continuam sendo feitas pelo profissional; a escolha de
-// armação do PRÓPRIO paciente, mais abaixo nesta página, continua no
-// catálogo antigo `frames`, sem nenhuma mudança).
+// cor curtida continuam sendo feitas pelo profissional). A escolha do
+// paciente usa o mesmo catálogo publicado da prova online.
 type LikedReactionRow = {
   catalog_color_image_id: string;
   status: string;
@@ -89,7 +87,6 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     { data: quotesData },
     { data: orderFrame },
     { data: fulfillment },
-    { data: framesData },
     { data: catalogColorsData },
     { data: professional },
     { data: likedReactionsData },
@@ -100,7 +97,6 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     admin.from('quotes').select('id, total, quote_items(description)').eq('order_id', orderId),
     admin.from('order_frames').select('frame_name, sku, color, catalog_color_image_id').eq('order_id', orderId).maybeSingle(),
     admin.from('order_fulfillment').select('*').eq('order_id', orderId).maybeSingle(),
-    admin.from('frames').select('id, name, metadata').is('organization_id', null).eq('active', true).order('name'),
     admin
       .from('catalog_product_color_images')
       .select('id, color_name, processed_image_path, display_order, catalog_products!inner(id, model_name, lens_width_mm, frame_total_width_mm, status)')
@@ -130,8 +126,8 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
 
   const rx = (prescription?.prescription_data || null) as { od?: Record<string, unknown>; oe?: Record<string, unknown> } | null;
   const toEye = (e?: Record<string, unknown>) => e ? {
-    esferico: String(e.esferico ?? '0'), cilindrico: String(e.cilindrico ?? '0'),
-    eixo: String(e.eixo ?? '0'), adicao: String(e.adicao ?? '0')
+    esferico: String(e.esferico ?? ''), cilindrico: String(e.cilindrico ?? ''),
+    eixo: String(e.eixo ?? ''), adicao: String(e.adicao ?? '')
   } : null;
 
   const quotes = ((quotesData || []) as unknown as QuoteRow[]).map((q) => ({
@@ -139,14 +135,6 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
   }));
   const selectedQuote = quotes.find((q) => q.id === order.selected_quote_id) || null;
 
-  // Apenas cor/imagem/estoque chegam ao cliente — sku do fornecedor, custo e
-  // demais dados internos do metadata da armação nunca saem deste componente.
-  const frames = ((framesData || []) as unknown as FrameRow[]).map((f) => ({
-    id: f.id,
-    name: f.name,
-    kind: f.metadata?.kind || '',
-    variants: (f.metadata?.variants || []).map((v) => ({ color: v.color, image: v.image, qty: v.qty }))
-  }));
 
   // Foto de prova: guardada só no bucket try-on-photos (RLS já libera o próprio
   // cliente), sem depender da tabela `documents` — evita presumir colunas que
@@ -161,11 +149,17 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     photoUrl = signed?.signedUrl ? `${signed.signedUrl}&revision=${sourceRevision}` : null;
   }
 
-  // Prova online (seção 0.29): catálogo novo (AliExpress/dropshipping,
-  // migração 202609110020), separado do catálogo de armações em estoque
-  // (`frames`, usado em "Escolher armação" acima) — só entram aqui cores já
-  // validadas manualmente pelo master, com a foto de fundo já removido.
+  // Escolha e prova online compartilham as cores publicadas e validadas.
   const catalogColorRows = (catalogColorsData || []) as unknown as CatalogColorRow[];
+  const frameChoices: PatientFrameChoice[] = await Promise.all(catalogColorRows
+    .filter((row) => row.catalog_products)
+    .sort((a, b) => (a.display_order ?? Number.MAX_SAFE_INTEGER) - (b.display_order ?? Number.MAX_SAFE_INTEGER))
+    .map(async (row) => {
+      const { data: signed } = row.processed_image_path
+        ? await admin.storage.from(CATALOG_PHOTOS_BUCKET).createSignedUrl(row.processed_image_path, 3600)
+        : { data: null };
+      return { id: row.id, productId: row.catalog_products!.id, modelName: row.catalog_products!.model_name, colorName: row.color_name, imageUrl: signed?.signedUrl || null };
+    }));
   // Largura pra escalar na prova online (13/09/2026, 8ª rodada, pedido do
   // usuário): prefere `frame_total_width_mm` ("Frente Total" — medida de
   // ponta a ponta da armação, mais precisa — campo novo e opcional, migração
@@ -183,15 +177,15 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
         .filter((row) => row.processed_image_path && row.catalog_products && effectiveFrameWidthMm(row.catalog_products))
         .sort((a, b) => (a.display_order ?? Number.MAX_SAFE_INTEGER) - (b.display_order ?? Number.MAX_SAFE_INTEGER))
         .map(async (row) => {
-          const { data: signed } = await admin.storage.from(CATALOG_PHOTOS_BUCKET).createSignedUrl(row.processed_image_path!, 3600);
-          if (!signed?.signedUrl) return null;
+          const imageUrl = frameChoices.find((choice) => choice.id === row.id)?.imageUrl;
+          if (!imageUrl) return null;
           return {
             id: row.id,
             productId: row.catalog_products!.id,
             modelName: row.catalog_products!.model_name,
             colorName: row.color_name,
             lensWidthMm: Number(effectiveFrameWidthMm(row.catalog_products!)),
-            processedImageUrl: signed.signedUrl
+            processedImageUrl: imageUrl
           };
         })
     )
@@ -264,19 +258,16 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
   // engano um status intermediário (awaiting_quote/approved/in_production/
   // etc.) como pedido finalizado. isOrderFinalized só considera
   // 'delivered'/'cancelled' (ver lib/order-status.ts).
-  const locked = isOrderFinalized(order.status);
+  const locked = isOrderFinalized(order.status) || Boolean(ful?.comanda_confirmed_at);
+  const cancelled = order.status === 'cancelled';
+  const payment = patientPayment(ful, selectedQuote?.total ?? null);
+  const money = (value: number | null) => value === null ? 'A definir' : value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const hasQuote = Boolean(order.selected_quote_id);
   const hasFrame = Boolean(orderFrame);
-  const hasRx = Boolean(prescription);
+  const hasRx = Boolean(rx?.od && rx?.oe && [rx.od.esferico, rx.od.cilindrico, rx.oe.esferico, rx.oe.cilindrico]
+    .some((value) => value !== null && value !== undefined && String(value).trim() !== ''));
 
-  const stages = [
-    { label: 'Atendimento iniciado', hint: 'Cadastro e prescrição vinculados ao pedido.', done: hasRx },
-    { label: 'Escolhas do pedido', hint: 'Selecione a lente e a armação.', done: hasQuote && hasFrame },
-    { label: 'Pedido confirmado', hint: 'Confirmação da solução e do pagamento.', done: Boolean(ful?.comanda_confirmed_at) && Boolean(ful?.payment_confirmed_at) },
-    { label: 'Em produção', hint: 'Lentes e armação em preparação.', done: ful?.lens_production_status === 'pronta' && ful?.frame_production_status === 'confirmado_fornecedor' },
-    { label: 'Montagem', hint: 'Óculos em montagem e conferência.', done: ful?.assembly_status === 'concluida' },
-    { label: 'Pronto para entrega', hint: 'Acompanharemos a entrega até você.', done: Boolean(ful?.delivered_at) }
-  ];
+  const stages = patientTracking(order.status, ful, hasRx, hasQuote && hasFrame);
   const trackingCurrent = stages.findIndex((s) => !s.done);
   const trackingDone = trackingCurrent === -1;
 
@@ -286,13 +277,14 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     { id: 'receita', label: 'Minha receita', hint: 'prescrição' },
     { id: 'armacao', label: 'Escolher armação', hint: 'catálogo' },
     { id: 'carrinho', label: 'Carrinho', hint: 'revisão' },
+    { id: 'prova-online', label: 'Prova online', hint: 'experimentar' },
     { id: 'status', label: 'Acompanhar pedido', hint: 'produção + entrega' }
   ];
   // Carrinho (16/09/2026) — mesmo critério de "concluído" do carrinho do
   // profissional (ver page.tsx do atendimento): pronto quando já há lente e
   // armação escolhidas, sem introduzir nenhum estado novo próprio.
-  const stepsDone = [true, hasQuote, hasRx, hasFrame, hasQuote && hasFrame, trackingDone];
-  const currentStep = stepsDone.findIndex((d) => !d);
+  const stepsDone = [true, hasQuote, hasRx, hasFrame, hasQuote && hasFrame, false, trackingDone];
+  const currentStep = cancelled ? -1 : stepsDone.findIndex((done, i) => !done && steps[i].id !== 'prova-online');
 
   const orderTabs = (allOrders || []).map((o) => ({ id: o.id, code: orderCode(clientName, o.order_number), status: o.status }));
 
@@ -325,19 +317,27 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
           <div className="summary-grid">
             <div className="stat"><span>Lente</span><strong>{selectedQuote?.description || 'Escolha pendente'}</strong></div>
             <div className="stat"><span>Armação</span><strong>{orderFrame?.frame_name || 'Ainda não escolhida'}</strong></div>
-            <div className="stat"><span>Valor</span><strong>{selectedQuote ? `R$ ${selectedQuote.total.toFixed(2).replace('.', ',')}` : 'A definir'}</strong></div>
+            <div className="stat"><span>Valor final</span><strong>{money(payment.total)}</strong></div>
             <div className="stat"><span>Status</span><strong>{orderStatusLabel(order.status)}</strong></div>
+          </div>
+          <div className="patient-payment-summary">
+            <h3>Pagamento</h3>
+            <p className="helper">{payment.confirmed ? 'Condições de pagamento confirmadas pelo profissional.' : 'Condições de pagamento aguardando confirmação do profissional.'}</p>
+            <div className="summary-grid">
+              <div className="stat"><span>Entrada combinada</span><strong>{money(payment.down)}</strong></div>
+              <div className="stat"><span>Valor na retirada</span><strong>{money(payment.pickup)}</strong></div>
+            </div>
           </div>
         </div>
       </section>
 
       <section className="card" id="dados">
-        <div className="card-head"><div><p className="eyebrow">Cadastro</p><h2>Meus dados</h2></div><span className="complete-tag">Somente consulta</span></div>
+        <div className="card-head"><div><p className="eyebrow">Cadastro</p><h2>Meus dados</h2></div><span className="complete-tag">Dados do atendimento</span></div>
         <div className="card-body">
           <div className="summary-grid">
             <div className="stat"><span>Nome completo</span><strong>{clientName}</strong></div>
             <div className="stat"><span>WhatsApp</span><strong>{whatsapp}</strong></div>
-            <div className="stat"><span>E-mail</span><strong>{user.email || '—'}</strong></div>
+            {user.email && !user.email.endsWith('@whatsapp.optotica.invalid') && <div className="stat"><span>E-mail</span><strong>{user.email}</strong></div>}
             <div className="stat"><span>DNP OD</span><strong>{client.dnp_od != null ? `${client.dnp_od} mm` : '—'}</strong></div>
             <div className="stat"><span>DNP OE</span><strong>{client.dnp_oe != null ? `${client.dnp_oe} mm` : '—'}</strong></div>
           </div>
@@ -346,7 +346,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
       </section>
 
       <section className="card" id="orcamentos">
-        <div className="card-head"><div><p className="eyebrow">Preparados pelo profissional</p><h2>Orçamentos de lentes</h2></div><span className="pending-tag">Selecione uma opção</span></div>
+        <div className="card-head"><div><p className="eyebrow">Preparados pelo profissional</p><h2>Orçamentos de lentes</h2></div><span className={hasQuote ? 'complete-tag' : 'pending-tag'}>{locked ? 'Somente consulta' : hasQuote ? 'Opção selecionada' : 'Selecione uma opção'}</span></div>
         <div className="card-body">
           <QuotesStep orderId={order.id} quotes={quotes} selectedQuoteId={order.selected_quote_id} locked={locked} />
         </div>
@@ -369,11 +369,12 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
       </section>
 
       <section className="card" id="armacao">
-        <div className="card-head"><div><p className="eyebrow">Catálogo</p><h2>Escolha sua armação</h2></div><span className="pending-tag">Selecione um modelo</span></div>
+        <div className="card-head"><div><p className="eyebrow">Catálogo</p><h2>Escolha sua armação</h2></div><span className={hasFrame ? 'complete-tag' : 'pending-tag'}>{locked ? 'Somente consulta' : hasFrame ? 'Armação selecionada' : 'Selecione um modelo'}</span></div>
         <div className="card-body">
           <ClientFrameStep
             orderId={order.id}
-            frames={frames}
+            choices={frameChoices}
+            selectedColorId={confirmedColorImageId}
             selectedFrameName={orderFrame?.frame_name || null}
             selectedColor={orderFrame?.color || null}
             locked={locked}
@@ -382,7 +383,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
       </section>
 
       <section className="card" id="carrinho">
-        <div className="card-head"><div><p className="eyebrow">Revisão</p><h2>Carrinho</h2></div><span className="complete-tag">Somente consulta</span></div>
+        <div className="card-head"><div><p className="eyebrow">Revisão</p><h2>Carrinho</h2></div><span className="complete-tag">{locked ? 'Somente consulta' : 'Revise suas escolhas'}</span></div>
         <div className="card-body">
           <ClientCartStep
             orderId={order.id}
@@ -407,10 +408,10 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
       <section className="card" id="status">
         <div className="card-head">
           <div><p className="eyebrow">Seu pedido</p><h2>Acompanhamento</h2></div>
-          <span className={trackingDone ? 'complete-tag' : 'pending-tag'}>{trackingDone ? 'Concluído' : 'Em andamento'}</span>
+          <span className={trackingDone ? 'complete-tag' : 'pending-tag'}>{cancelled ? 'Cancelado' : trackingDone ? 'Entregue' : 'Em andamento'}</span>
         </div>
         <div className="card-body">
-          <div className="timeline">
+          {cancelled ? <p className="notice">Este pedido foi cancelado. Fale com seu profissional se precisar de ajuda.</p> : <div className="timeline">
             {stages.map((stage, i) => (
               <div className={`timeline-item${stage.done ? ' done' : i === trackingCurrent ? ' current' : ''}`} key={stage.label}>
                 <div className="timeline-icon">{stage.done ? '✓' : i + 1}</div>
@@ -418,7 +419,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
                 <div className="timeline-date">{stage.done ? 'Concluído' : i === trackingCurrent ? 'Agora' : '—'}</div>
               </div>
             ))}
-          </div>
+          </div>}
         </div>
       </section>
     </div>

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
+import { resolveProfessionalLaboratory } from '@/lib/professional-laboratory';
 
 const LENS_TYPES = ['Visão simples', 'Multifocal', 'Solar com grau', 'Antirreflexo'];
 const LENS_INDEXES = ['1.50', '1.56', '1.60', '1.67', '1.74'];
@@ -17,11 +18,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
   const lensIndex = typeof body?.lensIndex === 'string' && LENS_INDEXES.includes(body.lensIndex) ? body.lensIndex : '';
   const lensMaterial = typeof body?.lensMaterial === 'string' && LENS_MATERIALS.includes(body.lensMaterial) ? body.lensMaterial : '';
   const lensTreatment = typeof body?.lensTreatment === 'string' && LENS_TREATMENTS.includes(body.lensTreatment) ? body.lensTreatment : '';
-  const laboratory = typeof body?.laboratory === 'string' ? body.laboratory.trim().slice(0, 120) : '';
   const notes = typeof body?.notes === 'string' ? body.notes.trim().slice(0, 500) : '';
   const price = Number(body?.price);
 
-  if (!lensType || !lensIndex || !lensMaterial || !lensTreatment || !laboratory) {
+  if (!lensType || !lensIndex || !lensMaterial || !lensTreatment || !body?.laboratoryId) {
     return NextResponse.json({ message: 'Preencha os dados da lente e o laboratório.' }, { status: 400 });
   }
   if (!Number.isFinite(price) || price < 0 || price > 1_000_000) {
@@ -36,6 +36,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
     .eq('professional_id', user.id)
     .maybeSingle();
   if (!order) return NextResponse.json({ message: 'Pedido não encontrado.' }, { status: 404 });
+
+  const { data: lab, error: labError } = await resolveProfessionalLaboratory(admin, user.id, body.laboratoryId);
+  if (labError) return NextResponse.json({ message: 'Não foi possível consultar seus laboratórios.' }, { status: 500 });
+  if (!lab) return NextResponse.json({ message: 'Selecione um laboratório cadastrado no seu perfil.' }, { status: 400 });
 
   // Depois que a Comanda final (etapa 4) é confirmada, orçamento/receita/armação
   // ficam bloqueados.
@@ -69,7 +73,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
     description,
     quantity: 1,
     unit_price: price,
-    metadata: { lensType, lensIndex, lensMaterial, lensTreatment, laboratory, notes }
+    metadata: { lensType, lensIndex, lensMaterial, lensTreatment, laboratory: lab.name, laboratoryId: lab.id, notes }
   });
   if (itemError) {
     console.error('quote_item_create_failed', { code: itemError.code });

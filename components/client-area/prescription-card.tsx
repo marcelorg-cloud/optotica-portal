@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { orderCode } from '@/lib/order-code';
 
 type Eye = { esferico: string; cilindrico: string; eixo: string; adicao: string } | null;
@@ -10,12 +10,20 @@ export function PrescriptionCard({ orderNumber, clientName, whatsapp, dnp, od, o
   od: Eye; oe: Eye; professionalName: string; professionalRegistration: string;
 }) {
   const [open, setOpen] = useState(false);
-  const val = (v?: string) => (v && v !== '0' ? v : '—');
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (open) dialogRef.current?.showModal();
+    else dialogRef.current?.close();
+  }, [open]);
+  const val = (v?: string) => v?.trim() ? v : '—';
+  if (!od || !oe || ![od.esferico, od.cilindrico, oe.esferico, oe.cilindrico].some((value) => value.trim())) {
+    return <p className="notice">Sua receita ainda não está disponível. Ela aparecerá aqui após ser registrada pelo profissional.</p>;
+  }
 
   return (
     <>
       <div className="rx-actions">
-        <button className="button primary" type="button" onClick={() => setOpen(true)}>Gerar PDF da prescrição</button>
+        <button className="button primary" type="button" onClick={() => setOpen(true)}>Visualizar / salvar receita em PDF</button>
       </div>
       <div className="rx-scroll">
         <table className="rx-table">
@@ -27,18 +35,22 @@ export function PrescriptionCard({ orderNumber, clientName, whatsapp, dnp, od, o
         </table>
       </div>
 
-      <div
-        className={`modal${open ? ' active' : ''}`}
+      <dialog
+        ref={dialogRef}
+        className="patient-rx-dialog"
         id="rxModal"
+        aria-labelledby="patient-rx-title"
+        onCancel={() => setOpen(false)}
+        onClose={() => setOpen(false)}
         onClick={(event) => { if ((event.target as HTMLElement).id === 'rxModal') setOpen(false); }}
       >
         <div className="rx-doc">
           <div className="rx-doc-head">
-            <div><p className="eyebrow">Receituário óptico</p><h2>Prescrição de óculos</h2></div>
+            <div><p className="eyebrow">Receituário óptico</p><h2 id="patient-rx-title">Prescrição de óculos</h2></div>
             <strong>Pedido {orderCode(clientName, orderNumber)}</strong>
           </div>
           <div className="rx-doc-body">
-            <div className="summary-grid" style={{ gridTemplateColumns: 'repeat(3,minmax(0,1fr))' }}>
+            <div className="summary-grid patient-rx-summary">
               <div className="stat"><span>Paciente</span><strong>{clientName}</strong></div>
               <div className="stat"><span>WhatsApp</span><strong>{whatsapp}</strong></div>
               <div className="stat"><span>DNP</span><strong>{dnp}</strong></div>
@@ -63,7 +75,7 @@ export function PrescriptionCard({ orderNumber, clientName, whatsapp, dnp, od, o
             <button className="button primary" type="button" onClick={() => window.print()}>Imprimir / salvar PDF</button>
           </div>
         </div>
-      </div>
+      </dialog>
     </>
   );
 }

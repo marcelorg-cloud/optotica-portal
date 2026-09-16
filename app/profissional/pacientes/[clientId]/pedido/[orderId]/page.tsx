@@ -75,7 +75,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   if (!user) redirect('/entrar?profissional=1');
 
   const admin = createAdminSupabaseClient();
-  const { data: profile } = await admin.from('professional_profiles').select('status, organization_id').eq('user_id', user.id).maybeSingle();
+  const { data: profile } = await admin.from('professional_profiles').select('id, status, organization_id').eq('user_id', user.id).maybeSingle();
   if (!profile || profile.status !== 'approved') redirect('/profissional');
 
   const { data: assignment } = await admin
@@ -123,6 +123,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
       ? admin.from('professional_laboratories')
           .select('id, name, is_primary')
           .eq('organization_id', profile.organization_id)
+          .eq('professional_profile_id', profile.id)
           .eq('status', 'approved')
           .order('is_primary', { ascending: false })
           .order('name')
@@ -477,6 +478,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                 selectedQuoteId={order.selected_quote_id}
                 locked={comandaDone || orderFinalized}
                 menuTiers={menuTiers}
+                laboratoryOptions={((laboratoriesData || []) as unknown as LaboratoryRow[]).map((lab) => ({ id: lab.id, name: lab.name, isPrimary: Boolean(lab.is_primary) }))}
               />
             </div>
           </section>

@@ -17,16 +17,21 @@ export function PhotoUpload({ initialPhotoUrl }: { initialPhotoUrl: string | nul
     setMessage('');
     const form = new FormData();
     form.append('photo', file);
-    const response = await fetch('/api/client/photo', { method: 'POST', body: form });
-    const payload = await response.json().catch(() => ({}));
-    setUploading(false);
-    if (response.ok) {
-      setPhotoUrl(payload.photoUrl || null);
-      router.refresh();
-    } else {
-      setMessage(payload.message || 'Não foi possível salvar a foto.');
+    try {
+      const response = await fetch('/api/client/photo', { method: 'POST', body: form });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setPhotoUrl(payload.photoUrl || null);
+        router.refresh();
+      } else {
+        setMessage(payload.message || 'Não foi possível salvar a foto.');
+      }
+    } catch {
+      setMessage('Não foi possível enviar a foto. Confira sua conexão e tente novamente.');
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = '';
     }
-    if (inputRef.current) inputRef.current.value = '';
   }
 
   return (

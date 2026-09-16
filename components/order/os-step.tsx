@@ -7,7 +7,7 @@ const LENS_TYPES = ['Visão simples', 'Multifocal', 'Solar com grau', 'Antirrefl
 const LENS_INDEXES = ['1.50', '1.56', '1.60', '1.67', '1.74'];
 const LENS_MATERIALS = ['Resina', 'Policarbonato', 'Trivex', 'Outro'];
 const LENS_TREATMENTS = ['Antirreflexo', 'Verniz', 'Filtro azul', 'Fotossensível'];
-const LABORATORY_SUGGESTIONS = ['Laboratório A', 'Laboratório B', 'Laboratório C'];
+type LaboratoryOption = { id: string; name: string; isPrimary: boolean };
 
 type QuoteOption = { id: string; total: number; description: string; laboratory: string; notes: string };
 type MenuTierOption = {
@@ -29,27 +29,31 @@ const MENU_CATEGORY_LABELS: Record<MenuTierOption['lensType'], string> = {
 // ficou com o cardápio de lentes e os orçamentos, sem nenhuma mudança de
 // comportamento além da separação visual (mesmas rotas de API de sempre:
 // /quotes, /quotes/from-menu, /select-quote).
-export function SuggestedLensesStep({ orderId, quotes, selectedQuoteId, locked, menuTiers = [] }: {
+export function SuggestedLensesStep({ orderId, quotes, selectedQuoteId, locked, menuTiers = [], laboratoryOptions }: {
   orderId: string;
   quotes: QuoteOption[];
   selectedQuoteId: string | null;
   locked: boolean;
   menuTiers?: MenuTierOption[];
+  laboratoryOptions: LaboratoryOption[];
 }) {
   const router = useRouter();
   const [budgetState, setBudgetState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [budgetMessage, setBudgetMessage] = useState('');
   const [menuAddingKey, setMenuAddingKey] = useState<string | null>(null);
   const [menuMessage, setMenuMessage] = useState('');
+  const [chosenLaboratoryId, setChosenLaboratoryId] = useState(laboratoryOptions.length === 1 ? laboratoryOptions[0].id : laboratoryOptions.find((lab) => lab.isPrimary)?.id || '');
+  const laboratoryId = laboratoryOptions.some((lab) => lab.id === chosenLaboratoryId) ? chosenLaboratoryId : '';
 
   async function addFromMenu(lensType: MenuTierOption['lensType'], tierNumber: number) {
     const key = `${lensType}-${tierNumber}`;
     if (locked || menuAddingKey !== null) return;
+    if (!laboratoryId) { setMenuMessage('Selecione um laboratório cadastrado no seu perfil.'); return; }
     setMenuAddingKey(key);
     setMenuMessage('');
     const response = await fetch(`/api/professional/orders/${orderId}/quotes/from-menu`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lensType, tierNumber })
+      body: JSON.stringify({ lensType, tierNumber, laboratoryId })
     });
     const payload = await response.json().catch(() => ({}));
     setMenuAddingKey(null);
@@ -85,7 +89,7 @@ export function SuggestedLensesStep({ orderId, quotes, selectedQuoteId, locked, 
       body: JSON.stringify({
         lensType: form.get('lensType'), lensIndex: form.get('lensIndex'),
         lensMaterial: form.get('lensMaterial'), lensTreatment: form.get('lensTreatment'),
-        laboratory: form.get('laboratory'), price: form.get('price'), notes: form.get('notes')
+        laboratoryId, price: form.get('price'), notes: form.get('notes')
       })
     });
     const payload = await response.json().catch(() => ({}));
@@ -116,6 +120,13 @@ export function SuggestedLensesStep({ orderId, quotes, selectedQuoteId, locked, 
       {menuTiers.length > 0 && (
         <div className="subsection">
           <h3>Cardápio de lentes</h3>
+          <div className="field">
+            <label htmlFor="menu-laboratory">Laboratório do orçamento</label>
+            <select id="menu-laboratory" value={laboratoryId} onChange={(event) => setChosenLaboratoryId(event.target.value)} disabled={locked || !laboratoryOptions.length}>
+              <option value="" disabled>Selecione</option>
+              {laboratoryOptions.map((lab) => <option key={lab.id} value={lab.id}>{lab.name}</option>)}
+            </select>
+          </div>
           <div className="helper" style={{ marginBottom: 10 }}>
             Clique em um nível para adicionar um orçamento já pré-preenchido com a composição e o preço configurados. Você pode ajustar ou remover depois.
           </div>
@@ -186,8 +197,11 @@ export function SuggestedLensesStep({ orderId, quotes, selectedQuoteId, locked, 
                 </select>
               </div>
               <div className="field span-2"><label className="required" htmlFor="laboratory">Laboratório</label>
-                <input id="laboratory" name="laboratory" list="laboratory-suggestions" placeholder="Digite ou escolha um laboratório" required maxLength={120} />
-                <datalist id="laboratory-suggestions">{LABORATORY_SUGGESTIONS.map((o) => <option key={o} value={o} />)}</datalist>
+                <select id="laboratory" name="laboratoryId" required value={laboratoryId} onChange={(event) => setChosenLaboratoryId(event.target.value)} disabled={!laboratoryOptions.length}>
+                  <option value="" disabled>Selecione</option>
+                  {laboratoryOptions.map((lab) => <option key={lab.id} value={lab.id}>{lab.name}</option>)}
+                </select>
+                {!laboratoryOptions.length && <span className="field-hint">Cadastre um laboratório em <a href="/profissional/cadastro">Meu perfil</a> para adicionar orçamentos.</span>}
               </div>
             </div>
           </div>
@@ -206,7 +220,7 @@ export function SuggestedLensesStep({ orderId, quotes, selectedQuoteId, locked, 
         </div>
 
         <div className="actions">
-          <button className="button primary" type="submit" disabled={budgetState === 'loading'}>{budgetState === 'loading' ? 'Salvando…' : 'Adicionar orçamento'}</button>
+          <button className="button primary" type="submit" disabled={budgetState === 'loading' || !laboratoryId}>{budgetState === 'loading' ? 'Salvando…' : 'Adicionar orçamento'}</button>
         </div>
         {budgetMessage && budgetState === 'error' && <p className="form-message error">{budgetMessage}</p>}
         </fieldset>

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
+import { resolveProfessionalLaboratory } from '@/lib/professional-laboratory';
 
 // Cria um orçamento (quotes + quote_items) a partir de um nível já
 // configurado no cardápio de lentes da ótica (lens_menu_tiers), em vez do
@@ -34,6 +35,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
     .maybeSingle();
   if (!order) return NextResponse.json({ message: 'Pedido não encontrado.' }, { status: 404 });
 
+  const { data: lab, error: labError } = await resolveProfessionalLaboratory(admin, user.id, body?.laboratoryId);
+  if (labError) return NextResponse.json({ message: 'Não foi possível consultar seus laboratórios.' }, { status: 500 });
+  if (!lab) return NextResponse.json({ message: 'Selecione um laboratório cadastrado no seu perfil.' }, { status: 400 });
+
   const { data: fulfillment } = await admin.from('order_fulfillment').select('comanda_confirmed_at').eq('order_id', orderId).maybeSingle();
   if (fulfillment?.comanda_confirmed_at) {
     return NextResponse.json({ message: 'A Comanda final já foi confirmada — não é possível adicionar novos orçamentos.' }, { status: 409 });
@@ -53,7 +58,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
   const categoryLabel = lensType === 'multifocal' ? 'Multifocal' : 'Visão simples';
   const parts = [categoryLabel, tier.tier_name, tier.product_line, tier.lens_index, tier.ar_treatment].filter(Boolean);
   const description = parts.length ? parts.join(' · ') : `Cardápio — nível ${tierNumber}`;
-  const laboratory = tier.manufacturer || 'A definir';
 
   const { count: existingQuotes } = await admin
     .from('quotes')
@@ -87,7 +91,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
       productLine: tier.product_line,
       lensIndex: tier.lens_index,
       arTreatment: tier.ar_treatment,
-      laboratory,
+      laboratory: lab.name,
+      laboratoryId: lab.id,
       notes: tier.benefit_phrase || ''
     }
   });

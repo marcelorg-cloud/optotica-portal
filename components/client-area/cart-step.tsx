@@ -43,16 +43,18 @@ export function ClientCartStep({ orderId, quotes, selectedQuoteId, likedColors, 
   const [message, setMessage] = useState('');
 
   async function select(quoteId: string) {
-    if (locked || quoteId === selectedQuoteId) return;
+    if (locked || savingId || quoteId === selectedQuoteId) return;
     setSavingId(quoteId);
     setMessage('');
+    try {
     const response = await fetch(`/api/client/orders/${orderId}/select-quote`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quoteId })
     });
     const payload = await response.json().catch(() => ({}));
-    setSavingId(null);
     if (response.ok) router.refresh();
     else setMessage(payload.message || 'Não foi possível selecionar o orçamento.');
+    } catch { setMessage('Falha de conexão. Tente novamente.'); }
+    finally { setSavingId(null); }
   }
 
   return (
@@ -64,20 +66,21 @@ export function ClientCartStep({ orderId, quotes, selectedQuoteId, likedColors, 
             {quotes.map((quote) => {
               const selected = quote.id === selectedQuoteId;
               return (
-                <div
+                <button
                   key={quote.id}
                   className={`os-item budget-option${selected ? ' selected-budget' : ''}`}
                   onClick={() => select(quote.id)}
-                  role="button"
-                  tabIndex={0}
+                  type="button"
+                  disabled={locked || savingId !== null}
+                  aria-pressed={selected}
                   style={{ cursor: locked ? 'default' : 'pointer' }}
                 >
                   <div>
                     <strong>{quote.description}</strong>
-                    <small>{selected ? 'Selecionado' : savingId === quote.id ? 'Salvando…' : locked ? 'Pedido concluído' : 'Toque para selecionar'}</small>
+                    <small>{selected ? 'Selecionado' : savingId === quote.id ? 'Salvando…' : locked ? 'Somente consulta' : 'Toque para selecionar'}</small>
                   </div>
                   <span className="price">R$ {quote.total.toFixed(2).replace('.', ',')}</span>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -110,7 +113,7 @@ export function ClientCartStep({ orderId, quotes, selectedQuoteId, likedColors, 
             ))}
           </div>
         )}
-        <p className="notice">A confirmação final da armação é feita junto com seu optometrista, no atendimento.</p>
+        <p className="notice">Revise sua escolha em “Escolher armação”. O profissional confirma a comanda antes da produção.</p>
       </div>
     </div>
   );

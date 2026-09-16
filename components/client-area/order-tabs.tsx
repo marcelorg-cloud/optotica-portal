@@ -1,8 +1,8 @@
 import Link from 'next/link';
+import { orderStatusLabel } from '@/lib/order-status';
 
 type OrderTab = { id: string; code: string; status: string };
 
-const STATUS_LABEL: Record<string, string> = { in_progress: 'em andamento', completed: 'concluído' };
 
 export function OrderTabs({ orders, activeOrderId }: { orders: OrderTab[]; activeOrderId: string }) {
   if (orders.length < 2) return null;
@@ -13,9 +13,10 @@ export function OrderTabs({ orders, activeOrderId }: { orders: OrderTab[]; activ
           key={order.id}
           href={`/cliente/pedido/${order.id}`}
           className={`order-tab${order.id === activeOrderId ? ' active' : ''}`}
+          aria-current={order.id === activeOrderId ? 'page' : undefined}
         >
           Pedido {order.code}
-          <small>{STATUS_LABEL[order.status] || order.status}</small>
+          <small>{orderStatusLabel(order.status)}</small>
         </Link>
       ))}
     </div>

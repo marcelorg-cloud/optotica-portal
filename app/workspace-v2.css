@@ -145,4 +145,24 @@
   .tier-summary-price { white-space:normal; }
 }
 @media(prefers-reduced-motion:reduce) { .workspace-v2 * { scroll-behavior:auto; transition:none; } }
-@media print { .workspace-v2 { background:#fff; min-height:0; } }
+.client-workspace .patient-payment-summary { margin-top:24px; padding-top:20px; border-top:1px solid var(--line); }
+.client-workspace button.budget-option { width:100%; text-align:left; font:inherit; color:inherit; }
+.client-workspace .patient-rx-summary { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.patient-rx-dialog { border:0; padding:0; width:min(800px,calc(100% - 24px)); max-height:90vh; border-radius:16px; background:transparent; }
+.patient-rx-dialog::backdrop { background:rgba(0,0,0,.45); }
+.patient-rx-dialog .rx-doc { margin:0 auto; }
+@media(max-width:600px) {
+  .client-workspace .patient-rx-summary,.client-workspace .sig-grid { grid-template-columns:1fr; }
+  .client-workspace .photo-block { flex-wrap:wrap; }
+  .client-workspace .product-choice { grid-template-columns:1fr; }
+}
+@media print {
+  .workspace-v2 { background:#fff; min-height:0; }
+  body:has(.patient-rx-dialog[open]) .site-header,
+  body:has(.patient-rx-dialog[open]) .site-footer,
+  body:has(.patient-rx-dialog[open]) .client-workspace .page-shell > :not(#receita),
+  body:has(.patient-rx-dialog[open]) #receita > .card-head,
+  body:has(.patient-rx-dialog[open]) #receita .card-body > :not(.patient-rx-dialog) { display:none!important; }
+  .patient-rx-dialog:not([open]) { display:none!important; }
+  .patient-rx-dialog[open] { max-height:none; overflow:visible; border:0; }
+}

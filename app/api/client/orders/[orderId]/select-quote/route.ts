@@ -28,6 +28,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
   // intermediários que não devem ser tratados como finalizados.
   if (isOrderFinalized(order.status)) return NextResponse.json({ message: 'Este pedido já foi concluído.' }, { status: 400 });
 
+  const { data: fulfillment, error: fulfillmentError } = await admin.from('order_fulfillment')
+    .select('comanda_confirmed_at').eq('order_id', orderId).maybeSingle();
+  if (fulfillmentError) return NextResponse.json({ message: 'Não foi possível verificar a confirmação do pedido.' }, { status: 500 });
+  if (fulfillment?.comanda_confirmed_at) return NextResponse.json({ message: 'Pedido confirmado. Fale com seu profissional para solicitar alterações.' }, { status: 409 });
+
   const { data: quote } = await admin.from('quotes').select('id, total').eq('id', quoteId).eq('order_id', orderId).maybeSingle();
   if (!quote) return NextResponse.json({ message: 'Orçamento não encontrado neste pedido.' }, { status: 404 });
 
