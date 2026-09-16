@@ -207,7 +207,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   // "pegou" antes do usuário clicar em "Trocar foto"/"Adicionar foto".
   const [selectedFixFile, setSelectedFixFile] = useState<Record<string, File | null>>({});
   const [selectedReplaceFile, setSelectedReplaceFile] = useState<Record<string, File | null>>({});
-  // Foto de posição do produto (13/09/2026, 2ª rodada — ver migração
+  // Foto de medidas do produto (13/09/2026, 2ª rodada — ver migração
   // 202609130009): uma só por produto, compartilhada por todas as cores.
   // Mesmo padrão de captura por estado (não por ref/DOM) que corrigiu o
   // "Trocar foto" por cor.
@@ -373,7 +373,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     setBusy(true);
     setMessage(null);
     // try/finally (13/09/2026, 5ª rodada — achado em produção: "clico pra
-    // enviar e não acontece nada" no botão de foto de posição, sem nenhuma
+    // enviar e não acontece nada" no botão de foto de medidas, sem nenhuma
     // mensagem). Causa real: `busy` é um estado ÚNICO que desabilita TODOS os
     // botões da página — se qualquer chamada aqui lançar uma exceção (rede
     // caiu, a função da Vercel truncou a resposta no meio por demorar demais,
@@ -876,22 +876,22 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
   }
 
-  // Envio manual da foto de posição do produto (mesmo padrão do "Trocar
+  // Envio manual da foto de medidas do produto (mesmo padrão do "Trocar
   // foto" por cor: try/finally, arquivo lido de estado capturado no
   // onChange). Pedido do usuário (13/09/2026, 6ª rodada): esta seção passa a
   // ser SÓ upload manual — a opção de escolher direto da galeria do anúncio
   // foi removida da tela, já que aquelas fotos vêm cruas (sem recorte) e não
-  // servem mais aqui desde a 4ª rodada (a foto de posição precisa vir
+  // servem mais aqui desde a 4ª rodada (a foto de medidas precisa vir
   // recortada). A rota `.../position-photo` continua aceitando `imageUrl`
   // no corpo por compatibilidade, mas não é mais chamada por nenhum botão.
   async function handleUploadProductPosition() {
     const file = selectedPositionFile;
-    if (!file) { setMessage({ kind: 'error', text: 'Escolha um arquivo antes de clicar em "Salvar foto de posição".' }); return; }
+    if (!file) { setMessage({ kind: 'error', text: 'Escolha um arquivo antes de clicar em "Salvar foto de medidas".' }); return; }
     // Capturado ANTES da chamada (15/09/2026, "Desfazer última ação").
     // Simplificado na mesma data: esta rota deixou de resetar as cores como
     // efeito colateral (não alimenta mais nenhum processamento — ver
     // estado-consolidado.md seção 0.67), então desfazer só precisa
-    // restaurar a foto de posição em si.
+    // restaurar a foto de medidas em si.
     const beforePositionPath = product?.positionImagePath ?? null;
     setBusy(true);
     setMessage(null);
@@ -906,7 +906,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
       if (ok) {
         setLastAction({
-          label: 'salvar foto de posição do produto',
+          label: 'salvar foto de medidas do produto',
           undo: async () => {
             const { ok: posOk, payload: posPayload } = await fetchJson(`/api/admin/catalog/products/${productId}/position-photo`, {
               method: 'POST',
@@ -942,7 +942,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     // da Vercel estourar o tempo limite antes de terminar). Sem try/finally
     // aqui, uma falha dessas deixava `busy` travado em `true` pra sempre —
     // como `busy` desabilita TODOS os botões da página (não só este), o
-    // sintoma reportado foi "clico em Trocar foto de posição [um botão sem
+    // sintoma reportado foi "clico em Trocar foto de medidas [um botão sem
     // nenhuma relação] e não acontece nada", sem nenhuma mensagem — porque um
     // botão desabilitado nem chama a função ao ser clicado. Um F5 destravava
     // (recarregava o estado do zero), mas o clique em si nunca fazia nada até
@@ -1514,7 +1514,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         <button className="button primary" type="submit" disabled={busy}>Salvar alterações</button>
       </form>
 
-      {/* Foto de posição do produto (13/09/2026, 2ª rodada — depois mudou de
+      {/* Foto de medidas do produto (13/09/2026, 2ª rodada — depois mudou de
           sentido na 4ª rodada). SEM USO FUNCIONAL desde 15/09/2026 (fim da
           recolorização por IA — ver estado-consolidado.md seção 0.67): esta
           foto só alimentava aquele passo (dar a forma/pose pra IA recolorir
@@ -1524,33 +1524,33 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
           mais verdade; upload/armazenamento continuam idênticos. */}
       <div className="card catalog-position-card">
         <div className="preview">
-          {product.positionImageUrl ? <img src={product.positionImageUrl} alt="Foto de posição do produto" /> : 'sem foto de posição'}
+          {product.positionImageUrl ? <img src={product.positionImageUrl} alt="Foto de medidas do produto" /> : 'sem foto de medidas'}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <span className="section-label">Foto de posição (sem uso no processamento das cores no momento)</span>
-          <span className="helper">Guardada aqui pra uso futuro — hoje nenhuma cor deste produto usa esta foto pra processar nada.</span>
+          <span className="section-label">Foto de medidas do modelo</span>
+          <span className="helper">Exibida enquanto a prova online é gerada e ao passar o mouse ou tocar na foto de prova, nos painéis profissional e do paciente.</span>
           <input
             type="file"
-            accept="image/png"
+            accept="image/png,image/jpeg,image/webp"
             ref={positionFileInput}
             onChange={(e) => setSelectedPositionFile(e.target.files?.[0] || null)}
           />
           {selectedPositionFile ? (
             <span className="helper">Arquivo selecionado: {selectedPositionFile.name}</span>
           ) : (
-            <span className="helper">Envie aqui o PNG já recortado</span>
+            <span className="helper">Envie uma imagem com as medidas do modelo (PNG, JPG ou WebP).</span>
           )}
-          {/* Rótulo único "Salvar foto de posição", sem variante "Trocar"
+          {/* Rótulo único "Salvar foto de medidas", sem variante "Trocar"
               (13/09/2026, 8ª rodada, pedido do usuário): esse botão SEMPRE
               foi só upload manual do arquivo escolhido acima em "Escolher
               arquivo" — nunca consultou o AliExpress (isso só existe no
               "Trocar foto" por COR, seção mais abaixo, que tem miniaturas da
               galeria). O rótulo "Trocar" aqui só gerava confusão por
               parecer a mesma coisa. Comportamento não muda: salva o arquivo
-              selecionado, e se já havia uma foto de posição, ela é
+              selecionado, e se já havia uma foto de medidas, ela é
               substituída. */}
           <button className="button secondary small" type="button" disabled={busy} style={{ justifySelf: 'start' }} onClick={handleUploadProductPosition}>
-            Salvar foto de posição
+            Salvar foto de medidas
           </button>
         </div>
       </div>

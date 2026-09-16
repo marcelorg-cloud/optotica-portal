@@ -9,11 +9,11 @@ const EXT_BY_CONTENT_TYPE: Record<string, string> = {
   'image/webp': 'webp'
 };
 
-// Foto de posição do PRODUTO (13/09/2026, 2ª rodada — pedido do usuário):
+// Foto de medidas do PRODUTO (13/09/2026, 2ª rodada — pedido do usuário):
 // antes (migração 202609130008) cada COR tinha sua própria foto de
 // posição/pose, mais uma foto de "referência de cor" separada. O usuário
 // notou que o ângulo/pose é o MESMO pra todas as cores do mesmo modelo — só
-// a cor muda — então a foto de posição passou a ser UMA por produto (esta
+// a cor muda — então a foto de medidas passou a ser UMA por produto (esta
 // rota, grava em catalog_products.position_image_path — migração
 // 202609130009), e a "referência de cor" separada foi removida: a foto que
 // cada cor já tinha (original_image_path, ver .../images/[colorImageId]/
@@ -41,10 +41,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
   const requestedUrl = typeof body?.imageUrl === 'string' ? body.imageUrl : null;
   const uploadedPath = typeof body?.path === 'string' ? body.path : null;
   // `clear: true` (15/09/2026, botão "Desfazer última ação"): só usada pelo
-  // "desfazer" quando o produto NÃO tinha foto de posição antes da última
+  // "desfazer" quando o produto NÃO tinha foto de medidas antes da última
   // ação (não dá pra "desfazer para null" mandando `path`/`imageUrl`, já
   // que os dois exigem um valor). Nunca exposta como botão normal na tela —
-  // remover a foto de posição de propósito continua sendo só via SQL.
+  // remover a foto de medidas de propósito continua sendo só via SQL.
   const clear = body?.clear === true;
 
   if (clear) {
@@ -54,7 +54,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
       .update({ position_image_path: null, position_image_updated_at: now, updated_at: now })
       .eq('id', productId);
     if (clearError) return NextResponse.json({ message: 'Não foi possível desfazer.' }, { status: 500 });
-    return NextResponse.json({ message: 'Foto de posição removida.' });
+    return NextResponse.json({ message: 'Foto de medidas removida.' });
   }
 
   let path: string;
@@ -105,15 +105,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     .from('catalog_products')
     .update({ position_image_path: path, position_image_updated_at: now, updated_at: now })
     .eq('id', productId);
-  if (updateError) return NextResponse.json({ message: 'Não foi possível salvar a foto de posição.' }, { status: 500 });
+  if (updateError) return NextResponse.json({ message: 'Não foi possível salvar a foto de medidas.' }, { status: 500 });
 
   // Reset de todas as cores REMOVIDO (15/09/2026 — ver estado-consolidado.md
   // seção 0.67): existia porque "Processar com IA" usava esta foto de
   // posição como referência de forma para a recolorização — trocar a
   // posição invalidava o resultado já pintado de cada cor. A recolorização
-  // saiu de vez do sistema; esta foto de posição não alimenta mais nenhum
+  // saiu de vez do sistema; esta foto de medidas não alimenta mais nenhum
   // processamento (fica na tela só porque o usuário pediu pra manter,
   // mesmo sem uso funcional por enquanto) — então trocá-la não tem mais
   // nenhum efeito colateral sobre as cores.
-  return NextResponse.json({ message: 'Foto de posição salva.' });
+  return NextResponse.json({ message: 'Foto de medidas salva.' });
 }

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { colorSwatchBackground, colorSwatchIsLight } from '@/lib/catalog/color-swatch-style';
+import { FrameGallery, FrameProof } from '@/components/order/frame-media';
 import type { Point } from '@/lib/dnp';
 
 // Reescrita completa (15/09/2026) — redesenho pedido pelo usuário a partir
@@ -32,10 +33,11 @@ type ColorOption = {
   colorVariantNumber: number | null;
   provaUrl: string | null;
   fotoOculosUrl: string | null;
+  galleryUrls?: string[];
   reaction: 'gostei' | 'talvez' | 'oculto' | null;
   confirmed: boolean;
 };
-export type ArmacaoModel = { id: string; modelName: string; skuOptotica: string; colors: ColorOption[] };
+export type ArmacaoModel = { id: string; modelName: string; skuOptotica: string; measurementsUrl?: string | null; colors: ColorOption[] };
 
 const REACTIONS: { key: 'gostei' | 'talvez' | 'oculto'; label: string }[] = [
   { key: 'gostei', label: 'GOSTEI' },
@@ -219,7 +221,7 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
         <div className="notice">Armação confirmada: <strong>{confirmedFrameName}</strong> · cor {confirmedColor}</div>
       )}
       {models.length === 0 && <p className="helper">Nenhum modelo publicado no catálogo ainda.</p>}
-      <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0 }}>
+      <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
         <div className="stack" style={{ gap: 14 }}>
           {models.map((model) => {
             const active = activeColorOf(model);
@@ -227,7 +229,7 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
             const isHidden = active.reaction === 'oculto';
             return (
               <div className="frame-row professional-frame-row" key={model.id}>
-                <div className="frame-photo-box frame-photo-prova">
+                <FrameProof measurementsUrl={model.measurementsUrl} modelName={model.modelName} hasProof={Boolean(generatedProva[active.id] ?? active.provaUrl)}>
                   {(() => {
                     const provaUrl = generatedProva[active.id] ?? active.provaUrl;
                     if (provaUrl) return <img src={provaUrl} alt={`Prova da armação ${model.modelName} no rosto do paciente`} />;
@@ -237,7 +239,7 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
                     if (!dnpTotalMm) return <span>DNP do paciente pendente (Etapa 1)</span>;
                     return <span>Foto de<br />Prova</span>;
                   })()}
-                </div>
+                </FrameProof>
                 <div className="frame-row-top">
                   <div className="frame-row-head">
                     <strong>{model.modelName}</strong>
@@ -270,9 +272,7 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
 
                 <div className={`frame-card${isHidden ? ' is-hidden' : ''}`}>
                   <div className="frame-photos">
-                    <div className="frame-photo-box frame-photo-oculos">
-                      {active.fotoOculosUrl ? <img src={active.fotoOculosUrl} alt="Foto do óculos" /> : <span>Foto do óculos ainda sem foto</span>}
-                    </div>
+                    <FrameGallery key={active.id} images={active.galleryUrls?.length ? active.galleryUrls : active.fotoOculosUrl ? [active.fotoOculosUrl] : []} modelName={model.modelName} />
                   </div>
 
                   <div className="frame-actions">
@@ -281,14 +281,14 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
                         key={r.key}
                         type="button"
                         className={`frame-action-pill${active.reaction === r.key ? ' is-active' : ''}`}
-                        disabled={busyKey === `react-${active.id}`}
+                        disabled={locked || busyKey !== null}
                         onClick={() => react(active, r.key)}
                       >
                         {r.label}
                       </button>
                     ))}
                     {active.reaction === 'gostei' && !active.confirmed && (
-                      <button type="button" className="button primary small" disabled={busyKey === `confirm-${active.id}`} onClick={() => confirm(active)}>
+                      <button type="button" className="button primary small" disabled={locked || busyKey !== null} onClick={() => confirm(active)}>
                         {busyKey === `confirm-${active.id}` ? 'Confirmando…' : 'Confirmar esta cor'}
                       </button>
                     )}
