@@ -35,7 +35,7 @@ type ColorOption = {
   reaction: 'gostei' | 'talvez' | 'oculto' | null;
   confirmed: boolean;
 };
-type ArmacaoModel = { id: string; modelName: string; skuOptotica: string; colors: ColorOption[] };
+export type ArmacaoModel = { id: string; modelName: string; skuOptotica: string; colors: ColorOption[] };
 
 const REACTIONS: { key: 'gostei' | 'talvez' | 'oculto'; label: string }[] = [
   { key: 'gostei', label: 'GOSTEI' },
@@ -81,7 +81,8 @@ async function detectPatientPupils(photoUrl: string): Promise<PhotoAnalysis | nu
   return { pupilA: points.pupilA, pupilB: points.pupilB, nasalCenter: points.nasalCenter, photoWidth: canvas.width, photoHeight: canvas.height };
 }
 
-export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor, locked, clientPhotoUrl, dnpTotalMm, sourceRevision }: {
+export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor, locked, clientPhotoUrl, dnpTotalMm, sourceRevision, audience = 'professional' }: {
+  audience?: 'professional' | 'client';
   sourceRevision: string;
   orderId: string;
   models: ArmacaoModel[];
@@ -134,10 +135,11 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
         setProvaMessage((s) => ({ ...s, [color.id]: 'Não identificamos o rosto do paciente nesta foto.' }));
         return;
       }
-      const response = await fetch(`/api/professional/orders/${orderId}/client/tryon-compose`, {
+      const productId = models.find((model) => model.colors.some((item) => item.id === color.id))?.id;
+      const response = await fetch(audience === 'client' ? '/api/client/tryon/compose' : `/api/professional/orders/${orderId}/client/tryon-compose`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ catalogColorImageId: color.id, sourceRevision, ...analysis })
+        body: JSON.stringify({ catalogColorImageId: color.id, productId, colorName: color.colorName, sourceRevision, ...analysis })
       });
       const payload = await response.json().catch(() => ({}));
       if (response.ok && payload.imageUrl) {
@@ -177,33 +179,37 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
   }, []);
 
   async function react(color: ColorOption, status: 'gostei' | 'talvez' | 'oculto') {
-    if (locked) return;
+    if (locked || busyKey) return;
     const key = `react-${color.id}`;
     setBusyKey(key);
     setMessage('');
-    const response = await fetch(`/api/professional/orders/${orderId}/frame-reactions`, {
+    try {
+    const response = await fetch(`/api/${audience}/orders/${orderId}/frame-reactions`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ catalogColorImageId: color.id, status })
     });
     const payload = await response.json().catch(() => ({}));
-    setBusyKey(null);
     if (response.ok) router.refresh();
     else setMessage(payload.message || 'Não foi possível registrar a reação.');
+    } catch { setMessage('Falha de conexão. Tente novamente.'); }
+    finally { setBusyKey(null); }
   }
 
   async function confirm(color: ColorOption) {
-    if (locked) return;
+    if (locked || busyKey) return;
     const key = `confirm-${color.id}`;
     setBusyKey(key);
     setMessage('');
-    const response = await fetch(`/api/professional/orders/${orderId}/frame`, {
+    try {
+    const response = await fetch(`/api/${audience}/orders/${orderId}/frame`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ catalogColorImageId: color.id })
     });
     const payload = await response.json().catch(() => ({}));
-    setBusyKey(null);
     if (response.ok) router.refresh();
     else setMessage(payload.message || 'Não foi possível confirmar a armação.');
+    } catch { setMessage('Falha de conexão. Tente novamente.'); }
+    finally { setBusyKey(null); }
   }
 
   return (

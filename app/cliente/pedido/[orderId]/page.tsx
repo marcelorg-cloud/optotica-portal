@@ -5,7 +5,8 @@ import { orderCode } from '@/lib/order-code';
 import { isOrderFinalized, orderStatusLabel } from '@/lib/order-status';
 import { OrderTabs } from '@/components/client-area/order-tabs';
 import { QuotesStep } from '@/components/client-area/quotes-step';
-import { ClientFrameStep, type PatientFrameChoice } from '@/components/client-area/frame-step';
+import type { PatientFrameChoice } from '@/components/client-area/frame-step';
+import { FrameStep, type ArmacaoModel } from '@/components/order/frame-step';
 import { ClientCartStep } from '@/components/client-area/cart-step';
 import { PhotoUpload } from '@/components/client-area/photo-upload';
 import { PrescriptionCard } from '@/components/client-area/prescription-card';
@@ -21,9 +22,13 @@ const CATALOG_PHOTOS_BUCKET = 'catalog-product-photos';
 type CatalogColorRow = {
   id: string;
   color_name: string;
+  color_principal: string | null;
+  color_secondary: string | null;
+  color_variant_number: number | null;
+  catalog_product_color_display_images: { image_path: string | null; position: number; validated_at: string | null }[] | null;
   processed_image_path: string | null;
   display_order: number | null;
-  catalog_products: { id: string; model_name: string; lens_width_mm: number | null; frame_total_width_mm: number | null } | null;
+  catalog_products: { id: string; model_name: string; sku_optotica: string; lens_width_mm: number | null; frame_total_width_mm: number | null } | null;
 };
 
 type QuoteRow = { id: string; total: number; quote_items: { description: string }[] | null };
@@ -99,7 +104,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     admin.from('order_fulfillment').select('*').eq('order_id', orderId).maybeSingle(),
     admin
       .from('catalog_product_color_images')
-      .select('id, color_name, processed_image_path, display_order, catalog_products!inner(id, model_name, lens_width_mm, frame_total_width_mm, status)')
+      .select('id, color_name, color_principal, color_secondary, color_variant_number, processed_image_path, display_order, catalog_product_color_display_images(image_path, position, validated_at), catalog_products!inner(id, model_name, sku_optotica, lens_width_mm, frame_total_width_mm, status)')
       .eq('status', 'validada')
       // ATIVAR/OCULTAR por cor (15/09/2026, migração 202609151700) — só
       // cores que o master ativou explicitamente aparecem pro paciente.
@@ -115,8 +120,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     admin
       .from('order_frame_reactions')
       .select('catalog_color_image_id, status, catalog_product_color_images!inner(id, color_name, color_variant_number, processed_image_path, catalog_product_color_display_images(image_path, position, validated_at), catalog_products!inner(id, model_name, sku_optotica))')
-      .eq('order_id', orderId)
-      .eq('status', 'gostei'),
+      .eq('order_id', orderId),
     admin.from('catalog_patient_display_images').select('product_id, color_name, image_path').eq('client_id', client.id)
   ]);
 
@@ -196,12 +200,17 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
   // catalog_patient_display_images, bucket 'try-on-photos') e "foto do
   // óculos" (melhor foto de exibição validada, bucket 'catalog-product-photos')
   // já usadas na tela equivalente do profissional (components/order/cart-step.tsx).
-  const likedReactionRows = (likedReactionsData || []) as unknown as LikedReactionRow[];
+  const reactionRows = (likedReactionsData || []) as unknown as LikedReactionRow[];
+  const likedReactionRows = reactionRows.filter((row) => row.status === 'gostei');
   const patientDisplayRows = ((patientDisplaysData || []) as unknown as PatientDisplayImageRow[])
     .filter((display) => isCurrentTryon(display.image_path, sourceRevision));
   const confirmedColorImageId = (orderFrame as { catalog_color_image_id?: string | null } | null)?.catalog_color_image_id || null;
 
   const oculosPathsToSign = new Set<string>();
+  for (const color of catalogColorRows) {
+    const display = (color.catalog_product_color_display_images || []).filter((d) => d.validated_at && d.image_path).sort((a, b) => a.position - b.position)[0];
+    if (display?.image_path) oculosPathsToSign.add(display.image_path);
+  }
   for (const row of likedReactionRows) {
     const bestDisplay = (row.catalog_product_color_images?.catalog_product_color_display_images || [])
       .filter((d) => d.validated_at && d.image_path)
@@ -228,6 +237,29 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
       if (entry.path && entry.signedUrl) signedProvaByPath.set(entry.path, entry.signedUrl);
     }
   }
+
+  const modelMap = new Map<string, ArmacaoModel>();
+  for (const color of catalogColorRows) {
+    const product = color.catalog_products;
+    if (!product) continue;
+    let model = modelMap.get(product.id);
+    if (!model) {
+      model = { id: product.id, modelName: product.model_name, skuOptotica: product.sku_optotica, colors: [] };
+      modelMap.set(product.id, model);
+    }
+    const display = (color.catalog_product_color_display_images || []).filter((d) => d.validated_at && d.image_path).sort((a, b) => a.position - b.position)[0];
+    const provaPath = provaPathsByProductColor.get(`${product.id}::${color.color_name}`);
+    const reaction = reactionRows.find((row) => row.catalog_color_image_id === color.id)?.status;
+    model.colors.push({
+      id: color.id, colorName: color.color_name, colorPrincipal: color.color_principal,
+      colorSecondary: color.color_secondary, colorVariantNumber: color.color_variant_number,
+      provaUrl: provaPath ? signedProvaByPath.get(provaPath) || null : null,
+      fotoOculosUrl: (display?.image_path ? signedOculosByPath.get(display.image_path) : null) || frameChoices.find((choice) => choice.id === color.id)?.imageUrl || null,
+      reaction: reaction === 'gostei' || reaction === 'talvez' || reaction === 'oculto' ? reaction : null,
+      confirmed: confirmedColorImageId === color.id
+    });
+  }
+  const armacaoModels = Array.from(modelMap.values());
 
   const likedColors = likedReactionRows
     .map((row) => row.catalog_product_color_images)
@@ -371,12 +403,16 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
       <section className="card" id="armacao">
         <div className="card-head"><div><p className="eyebrow">Catálogo</p><h2>Escolha sua armação</h2></div><span className={hasFrame ? 'complete-tag' : 'pending-tag'}>{locked ? 'Somente consulta' : hasFrame ? 'Armação selecionada' : 'Selecione um modelo'}</span></div>
         <div className="card-body">
-          <ClientFrameStep
+          <FrameStep
+            key={sourceRevision}
+            audience="client"
+            sourceRevision={sourceRevision}
             orderId={order.id}
-            choices={frameChoices}
-            selectedColorId={confirmedColorImageId}
-            selectedFrameName={orderFrame?.frame_name || null}
-            selectedColor={orderFrame?.color || null}
+            models={armacaoModels}
+            confirmedFrameName={orderFrame?.frame_name || null}
+            confirmedColor={orderFrame?.color || null}
+            clientPhotoUrl={photoUrl}
+            dnpTotalMm={client.dnp_od != null && client.dnp_oe != null ? Number(client.dnp_od) + Number(client.dnp_oe) : null}
             locked={locked}
           />
         </div>
