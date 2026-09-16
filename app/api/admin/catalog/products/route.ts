@@ -29,9 +29,10 @@ export async function GET() {
   const { data: images } = productIds.length
     ? await auth.admin
         .from('catalog_product_color_images')
-        .select('product_id, status')
+        .select('product_id, status, processed_image_path, original_image_path, is_active, color_variant_number')
         .in('product_id', productIds)
-    : { data: [] as { product_id: string; status: string }[] };
+        .order('color_variant_number', { ascending: true, nullsFirst: false })
+    : { data: [] as { product_id: string; status: string; processed_image_path: string | null; original_image_path: string | null; is_active: boolean; color_variant_number: number | null }[] };
 
   const countsByProduct = new Map<string, Record<string, number>>();
   for (const image of images || []) {
@@ -39,6 +40,24 @@ export async function GET() {
     counts[image.status] = (counts[image.status] || 0) + 1;
     countsByProduct.set(image.product_id, counts);
   }
+
+  // Uma miniatura por modelo deixa a listagem do master visualmente
+  // auditável. Prioriza uma cor ativa/validada e reaproveita a foto já
+  // processada; não baixa nem reprocessa nenhuma imagem nesta rota.
+  const previewPathByProduct = new Map<string, string>();
+  const previewCandidates = [...(images || [])].sort((a, b) => {
+    const score = (row: typeof a) => (row.is_active ? 4 : 0) + (row.status === 'validada' ? 2 : 0) + (row.processed_image_path ? 1 : 0);
+    return score(b) - score(a);
+  });
+  for (const image of previewCandidates) {
+    const path = image.processed_image_path || image.original_image_path;
+    if (path && !previewPathByProduct.has(image.product_id)) previewPathByProduct.set(image.product_id, path);
+  }
+  const previewPaths = Array.from(new Set(previewPathByProduct.values()));
+  const { data: signedPreviews } = previewPaths.length
+    ? await auth.admin.storage.from('catalog-product-photos').createSignedUrls(previewPaths, 3600)
+    : { data: [] as { path: string; signedUrl: string }[] };
+  const previewUrlByPath = new Map((signedPreviews || []).map((row) => [row.path, row.signedUrl]));
 
   const result = (products || []).map((p) => ({
     id: p.id,
@@ -53,7 +72,8 @@ export async function GET() {
     status: p.status,
     supplierName: (p as unknown as { catalog_suppliers: { name: string } | null }).catalog_suppliers?.name || null,
     createdAt: p.created_at,
-    colorCounts: countsByProduct.get(p.id) || {}
+    colorCounts: countsByProduct.get(p.id) || {},
+    previewImageUrl: previewUrlByPath.get(previewPathByProduct.get(p.id) || '') || null
   }));
 
   return NextResponse.json({ products: result });

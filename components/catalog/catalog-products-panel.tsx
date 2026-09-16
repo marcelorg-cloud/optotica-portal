@@ -19,6 +19,7 @@ type Product = {
   supplierName: string | null;
   createdAt: string;
   colorCounts: Record<string, number>;
+  previewImageUrl: string | null;
 };
 
 const STATUS_LABEL: Record<string, string> = { em_triagem: 'Em triagem', publicado: 'Publicado', arquivado: 'Arquivado' };
@@ -39,6 +40,7 @@ export function CatalogProductsPanel() {
   useProcessingFeedback(busy, 'Processando catálogo…');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [sortBy, setSortBy] = useState<'recent' | 'name' | 'attention'>('recent');
 
   // "Colar JSON do AliExpress" (13/09/2026, pedido do usuário): em vez de
   // digitar nome do modelo/medidas à mão e depois cadastrar cor por cor
@@ -219,12 +221,21 @@ export function CatalogProductsPanel() {
 
   if (products === null) return <p className="muted">Carregando…</p>;
   const normalizedSearch = search.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const needsAttention = (product: Product) => (product.colorCounts.pendente || 0) + (product.colorCounts.incompleto || 0) + (product.colorCounts.rejeitada || 0);
   const visibleProducts = products.filter((product) => (!statusFilter || product.status === statusFilter) &&
-    `${product.modelName} ${product.skuOptotica} ${product.supplierName || ''}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().includes(normalizedSearch));
+    `${product.modelName} ${product.skuOptotica} ${product.supplierName || ''}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().includes(normalizedSearch))
+    .sort((a, b) => {
+      if (sortBy === 'name') return a.modelName.localeCompare(b.modelName, 'pt-BR');
+      if (sortBy === 'attention') return needsAttention(b) - needsAttention(a) || b.createdAt.localeCompare(a.createdAt);
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+  const publishedCount = products.filter((product) => product.status === 'publicado').length;
+  const triageCount = products.filter((product) => product.status === 'em_triagem').length;
+  const attentionCount = products.filter((product) => needsAttention(product) > 0).length;
 
   return (
     <div>
-      <div className="catalog-toolbar">
+      <div className="catalog-toolbar catalog-page-head">
         <div>
           <h1 style={{ margin: '8px 0', fontSize: 28, letterSpacing: '-.04em' }}>Catálogo de Produtos</h1>
           <p className="muted" style={{ margin: 0 }}>Modelos importados do AliExpress, curados manualmente pelo master.</p>
@@ -236,6 +247,13 @@ export function CatalogProductsPanel() {
       </div>
 
       {message && <p className={`form-message ${message.kind}`}>{message.text}</p>}
+
+      <section className="catalog-overview" aria-label="Resumo do catálogo">
+        <div><span>Modelos</span><strong>{products.length}</strong><small>total no catálogo</small></div>
+        <div><span>Publicados</span><strong>{publishedCount}</strong><small>visíveis nos painéis</small></div>
+        <div><span>Em triagem</span><strong>{triageCount}</strong><small>aguardando conclusão</small></div>
+        <div className={attentionCount ? 'needs-attention' : ''}><span>Com pendências</span><strong>{attentionCount}</strong><small>cores para revisar</small></div>
+      </section>
 
       {showNewSupplier && (
         <form className="card catalog-inline-form" style={{ padding: 16, marginBottom: 16 }} onSubmit={handleNewSupplier}>
@@ -330,11 +348,12 @@ export function CatalogProductsPanel() {
         <p className="helper" style={{ marginBottom: 16 }}>Nenhum fornecedor liberado ainda — libere um antes de criar produtos.</p>
       )}
 
-      <div className="catalog-toolbar" style={{ flexWrap: 'wrap', gap: 16, marginBottom: 20 }}>
+      <div className="catalog-filter-panel">
         <label className="field" style={{ flex: '1 1 260px' }}>Buscar modelo, SKU ou fornecedor<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Ex.: GE-AC-003" type="search" /></label>
         <label className="field">Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">Todos</option>{Object.entries(STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label className="field">Ordenar<select value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)}><option value="recent">Mais recentes</option><option value="name">Nome A–Z</option><option value="attention">Pendências primeiro</option></select></label>
         <span className="helper" role="status">{visibleProducts.length} de {products.length} modelos</span>
-        {(search || statusFilter) && <button className="button secondary small" type="button" onClick={() => { setSearch(''); setStatusFilter(''); }}>Limpar filtros</button>}
+        {(search || statusFilter || sortBy !== 'recent') && <button className="button secondary small" type="button" onClick={() => { setSearch(''); setStatusFilter(''); setSortBy('recent'); }}>Limpar filtros</button>}
       </div>
       {visibleProducts.length ? (
         <div className="catalog-grid">
@@ -343,19 +362,32 @@ export function CatalogProductsPanel() {
             const total = Object.values(counts).reduce((a, b) => a + b, 0);
             return (
               <Link key={product.id} href={`/admin/catalogo/${product.id}`} className="card catalog-product-card">
-                <div className="row">
-                  <h3>{product.modelName}</h3>
-                  <span className="pill">{STATUS_LABEL[product.status] || product.status}</span>
+                <div className="catalog-product-preview">
+                  {product.previewImageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={product.previewImageUrl} alt={`Armação ${product.modelName}`} />
+                  ) : <span>Sem foto processada</span>}
                 </div>
-                <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-                  SKU {product.skuOptotica} · {product.supplierName || 'sem fornecedor'} · {product.lensWidthMm ? `${product.lensWidthMm}mm` : 'sem medida'}
-                </p>
-                <div className="catalog-badges">
-                  {counts.validada ? <span className="catalog-badge validada">{counts.validada} validada{counts.validada > 1 ? 's' : ''}</span> : null}
-                  {counts.pendente ? <span className="catalog-badge pendente">{counts.pendente} pendente{counts.pendente > 1 ? 's' : ''}</span> : null}
-                  {counts.incompleto ? <span className="catalog-badge incompleto">{counts.incompleto} incompleta{counts.incompleto > 1 ? 's' : ''}</span> : null}
-                  {counts.rejeitada ? <span className="catalog-badge rejeitada">{counts.rejeitada} rejeitada{counts.rejeitada > 1 ? 's' : ''}</span> : null}
-                  {!total && <span className="catalog-badge">sem cores ainda</span>}
+                <div className="catalog-product-content">
+                  <div className="row">
+                    <div><span className="catalog-product-sku">{product.skuOptotica}</span><h3>{product.modelName}</h3></div>
+                    <span className={`pill catalog-status ${product.status}`}>{STATUS_LABEL[product.status] || product.status}</span>
+                  </div>
+                  <p className="catalog-product-meta">{product.supplierName || 'Sem fornecedor'}<span>•</span>{product.lensWidthMm ? `${product.lensWidthMm} mm de lente` : 'Medida pendente'}</p>
+                  {total > 0 && (
+                    <div className="catalog-progress" aria-label={`${counts.validada || 0} de ${total} cores validadas`}>
+                      <div><span>Cores validadas</span><strong>{counts.validada || 0}/{total}</strong></div>
+                      <progress max={total} value={counts.validada || 0} />
+                    </div>
+                  )}
+                  <div className="catalog-badges">
+                    {counts.pendente ? <span className="catalog-badge pendente">{counts.pendente} pendente{counts.pendente > 1 ? 's' : ''}</span> : null}
+                    {counts.incompleto ? <span className="catalog-badge incompleto">{counts.incompleto} incompleta{counts.incompleto > 1 ? 's' : ''}</span> : null}
+                    {counts.rejeitada ? <span className="catalog-badge rejeitada">{counts.rejeitada} rejeitada{counts.rejeitada > 1 ? 's' : ''}</span> : null}
+                    {!total && <span className="catalog-badge incompleto">Sem cores cadastradas</span>}
+                    {total > 0 && !needsAttention(product) && <span className="catalog-badge validada">Cores em dia</span>}
+                  </div>
+                  <div className="catalog-product-footer"><span>Criado em {new Intl.DateTimeFormat('pt-BR').format(new Date(product.createdAt))}</span><strong>Abrir produto →</strong></div>
                 </div>
               </Link>
             );

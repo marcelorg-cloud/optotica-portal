@@ -45,7 +45,7 @@ const JPEG_QUALITY_STEPS = [88, 78, 68, 58, 48, 38];
 
 const FACE_PROMPT = `This is a photo of a patient's face, meant to serve as the base image for a virtual eyeglasses try-on (a pair of eyeglasses will be composited on top of it afterward). Adjust the photo following exactly these rules, without changing the person's identity or real facial features:
 1. The person MUST be naturally UPRIGHT: forehead and hair at the top, chin at the bottom, and the line between the eyes approximately horizontal. Never return a sideways, tilted 90-degree, or upside-down face.
-2. Make a TIGHT, centered FACE portrait, approximately from the hairline/forehead to just below the chin. Keep the whole face visible and leave only a small safe margin around the hair, ears, and chin. Do not frame the torso and do not leave large empty areas around the head.
+2. Make a TIGHT, centered FACE portrait, approximately from the hairline/forehead to just below the chin. Keep the whole face visible and leave only a small safe margin around the hair, ears, and chin. Do not frame the torso and do not leave large empty areas around the head. Center the face geometrically in BOTH directions: the center of the face must be at 50% of the image width and 50% of the image height, with balanced space to the left/right and above/below. Do not place the head high, low, or off to either side.
 3. Output an EXACT 1:1 SQUARE photograph. Obtain the square by ZOOMING AND CROPPING the original framing, especially removing excess area above and below a tall rectangular photo. The photograph itself must fill all four edges. NEVER add gray/white/black bars, padding, letterboxing, pillarboxing, borders, or a smaller rectangular image inside a square canvas.
 4. Replace the background completely with a solid, neutral, uniform gray (no texture, no gradient, no shadow on the background) — approximate color #D9D9D9.
 5. Equalize the lighting on the face so it looks like even, soft, frontal lighting, without blowing out highlights or changing the person's real skin tone.
@@ -161,8 +161,12 @@ export async function standardizeFacePhoto(buffer: Buffer): Promise<Buffer> {
     // uniforme reconhecível.
   }
 
+  // `attention` considera contraste/saliência da imagem inteira e pode
+  // deslocar o recorte para cabelo, roupa ou uma área mais iluminada. Como
+  // o editor de IA acima já entrega o rosto no centro, o recorte final deve
+  // preservar exatamente o centro geométrico nos dois eixos.
   const pipeline = sharp(withoutUniformBorder)
-    .resize(OUTPUT_SIZE, OUTPUT_SIZE, { fit: 'cover', position: 'attention' });
+    .resize(OUTPUT_SIZE, OUTPUT_SIZE, { fit: 'cover', position: 'centre' });
 
   let smallest: Buffer | null = null;
   for (const quality of JPEG_QUALITY_STEPS) {

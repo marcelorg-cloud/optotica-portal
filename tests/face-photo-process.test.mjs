@@ -6,7 +6,7 @@ import test from 'node:test';
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
 const sharp = require('sharp');
-const module = { exports: {} };
+const testModule = { exports: {} };
 
 new Function(
   'require', 'module', 'exports',
@@ -14,9 +14,9 @@ new Function(
     fs.readFileSync(new URL('../lib/tryon/face-photo-process.ts', import.meta.url), 'utf8'),
     { compilerOptions: { module: ts.ModuleKind.CommonJS, esModuleInterop: true } }
   ).outputText
-)(require, module, module.exports);
+)(require, testModule, testModule.exports);
 
-const { normalizeUploadedFacePhoto, parseFaceRotation, standardizeFacePhoto } = module.exports;
+const { normalizeUploadedFacePhoto, parseFaceRotation, standardizeFacePhoto } = testModule.exports;
 
 test('accepts one unambiguous supported face rotation', () => {
   assert.equal(parseFaceRotation('0'), 0);
@@ -56,4 +56,18 @@ test('removes gray letterbox bars and fills an exact square with the photograph'
     assert.ok(data[offset + 2] > data[offset], 'corner must contain the blue photograph, not a gray bar');
   }
   assert.ok(result.byteLength <= 400 * 1024);
+});
+
+test('uses a geometric center crop on both axes', async () => {
+  const source = await sharp({ create: { width: 1200, height: 600, channels: 3, background: '#2458a6' } })
+    .composite([
+      { input: await sharp({ create: { width: 250, height: 600, channels: 3, background: '#ef4444' } }).png().toBuffer(), left: 0, top: 0 },
+      { input: await sharp({ create: { width: 250, height: 600, channels: 3, background: '#22c55e' } }).png().toBuffer(), left: 950, top: 0 }
+    ])
+    .png()
+    .toBuffer();
+  const result = await standardizeFacePhoto(source);
+  const { data, info } = await sharp(result).raw().toBuffer({ resolveWithObject: true });
+  const middle = ((Math.floor(info.height / 2) * info.width) + Math.floor(info.width / 2)) * info.channels;
+  assert.ok(data[middle + 2] > data[middle], 'the center of the original image must remain at the center of the square crop');
 });

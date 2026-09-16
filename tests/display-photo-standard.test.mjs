@@ -5,9 +5,9 @@ import test from 'node:test';
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
 const sharp = require('sharp');
-const module = { exports: {} };
-new Function('require', 'module', 'exports', ts.transpileModule(fs.readFileSync(new URL('../lib/catalog/display-photo-standard.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, esModuleInterop: true } }).outputText)(require, module, module.exports);
-const { standardizeDisplayPhoto } = module.exports;
+const testModule = { exports: {} };
+new Function('require', 'module', 'exports', ts.transpileModule(fs.readFileSync(new URL('../lib/catalog/display-photo-standard.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, esModuleInterop: true } }).outputText)(require, testModule, testModule.exports);
+const { standardizeDisplayPhoto } = testModule.exports;
 
 async function fixture(width, height, padding, background = '#ffffff') {
   const object = await sharp({ create: { width, height, channels: 3, background: '#284e85' } }).png().toBuffer();
