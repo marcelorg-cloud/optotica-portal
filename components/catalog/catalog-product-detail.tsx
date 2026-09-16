@@ -156,6 +156,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const messageRef = useRef<HTMLParagraphElement | null>(null);
   const [busy, setBusy] = useState(false);
+  const [normalizationBeforeUrl, setNormalizationBeforeUrl] = useState<string | null>(null);
   const [showNewColor, setShowNewColor] = useState(false);
 
   // "Importar/atualizar do AliExpress" (13/09/2026, pedido do usuário — "e os
@@ -932,6 +933,30 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   // da cor, e não apaga mais nada — só ACRESCENTA fotos de exibição novas
   // (a rota devolve `createdIds`, então desfazer é só apagar essas
   // mesmas linhas, sem precisar restaurar snapshot nenhum).
+  async function handleNormalizeDisplay(colorImageId: string, position: number, beforeUrl: string | null) {
+    if (busy) return;
+    setBusy(true);
+    setMessage({ kind: 'success', text: 'Padronizando com as referências deste modelo. Aguarde; a original será preservada.' });
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/normalize-display`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ position })
+      });
+      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
+      if (ok) {
+        setLastAction({ label: 'padronizar foto de exibição', undo: async () => {
+          const result = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/display-images`, {
+            method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: payload.createdId })
+          });
+          if (!result.ok) throw new Error(result.payload.message);
+        } });
+        await load();
+        setNormalizationBeforeUrl(beforeUrl);
+        setOpenDisplayImage({ colorImageId, position: payload.position, url: null, validatedAt: null });
+      }
+    } catch { setMessage({ kind: 'error', text: 'Falha de conexão durante a padronização. Atualize as fotos antes de tentar novamente.' }); }
+    finally { setBusy(false); }
+  }
+
   async function handleProcess(colorImageId: string) {
     setBusy(true);
     setMessage(null);
@@ -1555,6 +1580,13 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         </div>
       </div>
 
+      <section className="card" style={{ padding: 20 }} aria-label="Padronização das fotos do modelo">
+        <h3>Padrão visual deste modelo</h3>
+        <p className="helper">A IA usa fotos validadas deste modelo como referência, separando frente, lateral e perspectiva. Cada grupo mantém enquadramento e escala consistentes entre as cores, com fundo branco e margem de segurança.</p>
+        <p className="helper">{colors?.reduce((sum, color) => sum + color.displayImages.filter((photo) => photo.validatedAt).length, 0) || 0} fotos validadas · {colors?.reduce((sum, color) => sum + color.displayImages.filter((photo) => !photo.validatedAt).length, 0) || 0} aguardando conferência</p>
+        <p className="helper">Para corrigir uma foto antiga, abra a imagem e clique em “Padronizar com IA”. Compare a nova versão antes de validar. Se não houver referência do mesmo ângulo, é aplicado apenas o padrão geral de fundo, margens e tamanho.</p>
+      </section>
+
       {/* "Todas as fotos do anúncio" (13/09/2026, mockup do usuário +
           migração 202609131400 — "Substitui — só marcação manual daqui pra
           frente"): o master marca aqui, foto a foto, quais cores aparecem em
@@ -1885,7 +1917,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                           <button
                             type="button"
                             style={{ padding: 0, border: '1px solid var(--line)', borderRadius: 4, overflow: 'hidden', cursor: 'pointer', background: 'none' }}
-                            onClick={() => setOpenDisplayImage({ colorImageId: color.id, position: img.position, url: img.url, validatedAt: img.validatedAt })}
+                            onClick={() => { setNormalizationBeforeUrl(null); setOpenDisplayImage({ colorImageId: color.id, position: img.position, url: img.url, validatedAt: img.validatedAt }); }}
                             title={`${idx + 1}ª foto do catálogo — clique para ampliar`}
                           >
                             {img.url ? (
@@ -2016,7 +2048,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                               key={img.id}
                               type="button"
                               style={{ padding: 0, border: '1px solid var(--line)', borderRadius: 4, overflow: 'hidden', cursor: 'pointer', background: 'none', width: 64, height: 64 }}
-                              onClick={() => setOpenDisplayImage({ colorImageId: color.id, position: img.position, url: img.url, validatedAt: img.validatedAt })}
+                              onClick={() => { setNormalizationBeforeUrl(null); setOpenDisplayImage({ colorImageId: color.id, position: img.position, url: img.url, validatedAt: img.validatedAt }); }}
                               title="Clique para ampliar e validar"
                             >
                               {img.url ? (
@@ -2146,13 +2178,15 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}
           >
             <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 8, padding: 16, maxWidth: '92vw', maxHeight: '92vh', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+              {normalizationBeforeUrl && <figure style={{ margin: 0 }}><figcaption>Original preservada</figcaption><img src={normalizationBeforeUrl} alt="Foto original antes da padronização" style={{ maxWidth: '75vw', maxHeight: '25vh', objectFit: 'contain' }} /></figure>}
               {img.url ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={img.url} alt="Foto de exibição ampliada" style={{ maxWidth: '85vw', maxHeight: '70vh', objectFit: 'contain' }} />
+                <img src={img.url} alt="Foto de exibição ampliada" style={{ maxWidth: '85vw', maxHeight: normalizationBeforeUrl ? '35vh' : '70vh', objectFit: 'contain' }} />
               ) : (
                 <span className="helper">sem foto</span>
               )}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+                <button className="button secondary" type="button" disabled={busy} onClick={() => handleNormalizeDisplay(color.id, img.position, img.url)}>{busy ? 'Processando…' : 'Padronizar com IA'}</button>
                 {!img.validatedAt && (
                   <button className="button primary" type="button" disabled={busy} onClick={() => handleValidateDisplayImage(color.id, img.position)}>Validar</button>
                 )}

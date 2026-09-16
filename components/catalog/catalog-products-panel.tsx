@@ -34,6 +34,8 @@ export function CatalogProductsPanel() {
   const [showNewProduct, setShowNewProduct] = useState(false);
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
   // "Colar JSON do AliExpress" (13/09/2026, pedido do usuário): em vez de
   // digitar nome do modelo/medidas à mão e depois cadastrar cor por cor
@@ -213,6 +215,9 @@ export function CatalogProductsPanel() {
   }
 
   if (products === null) return <p className="muted">Carregando…</p>;
+  const normalizedSearch = search.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const visibleProducts = products.filter((product) => (!statusFilter || product.status === statusFilter) &&
+    `${product.modelName} ${product.skuOptotica} ${product.supplierName || ''}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().includes(normalizedSearch));
 
   return (
     <div>
@@ -322,9 +327,15 @@ export function CatalogProductsPanel() {
         <p className="helper" style={{ marginBottom: 16 }}>Nenhum fornecedor liberado ainda — libere um antes de criar produtos.</p>
       )}
 
-      {products.length ? (
+      <div className="catalog-toolbar" style={{ flexWrap: 'wrap', gap: 16, marginBottom: 20 }}>
+        <label className="field" style={{ flex: '1 1 260px' }}>Buscar modelo, SKU ou fornecedor<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Ex.: GE-AC-003" type="search" /></label>
+        <label className="field">Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">Todos</option>{Object.entries(STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <span className="helper" role="status">{visibleProducts.length} de {products.length} modelos</span>
+        {(search || statusFilter) && <button className="button secondary small" type="button" onClick={() => { setSearch(''); setStatusFilter(''); }}>Limpar filtros</button>}
+      </div>
+      {visibleProducts.length ? (
         <div className="catalog-grid">
-          {products.map((product) => {
+          {visibleProducts.map((product) => {
             const counts = product.colorCounts;
             const total = Object.values(counts).reduce((a, b) => a + b, 0);
             return (
@@ -348,7 +359,7 @@ export function CatalogProductsPanel() {
           })}
         </div>
       ) : (
-        <div className="catalog-empty">Nenhum produto no catálogo ainda. Crie o primeiro acima.</div>
+        <div className="catalog-empty">{products.length ? 'Nenhum modelo corresponde aos filtros. Ajuste a busca ou limpe os filtros.' : 'Nenhum produto no catálogo ainda. Crie o primeiro acima.'}</div>
       )}
     </div>
   );

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { requireMaster } from '@/lib/catalog/require-master';
 import { cropGalleryPhoto } from '@/lib/catalog/gallery-photo-crop';
+import { loadModelPhotoReferences } from '@/lib/catalog/model-photo-references';
+import type { DisplayReference } from '@/lib/catalog/display-photo-standard';
 
 const BUCKET = 'catalog-product-photos';
 
@@ -9,7 +11,7 @@ const BUCKET = 'catalog-product-photos';
 // anteriores deste arquivo: cada chamada de IA generativa pode demorar, e
 // se a função da Vercel for encerrada no meio, o navegador recebe uma
 // exceção de rede em vez de uma resposta HTTP normal.
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 // Reescrito de vez em 15/09/2026 (pedido do usuário — ver
 // estado-consolidado.md seção 0.67): a recolorização por IA saiu do
@@ -76,7 +78,7 @@ export async function POST(
   }
   const { data: referenceSigned, error: referenceSignError } = await auth.admin.storage
     .from(BUCKET)
-    .createSignedUrl(color.original_image_path, 300);
+    .createSignedUrl(color.original_image_path, 900);
   if (referenceSignError || !referenceSigned?.signedUrl) {
     console.error('catalog_process_reference_sign_failed', { message: referenceSignError?.message });
     return NextResponse.json({ message: 'Não foi possível preparar a "Foto da cor" como referência — tente de novo.' }, { status: 500 });
@@ -131,8 +133,11 @@ export async function POST(
   // passo de recolorização, que antes consumia a maior parte do tempo
   // disponível), então quase os 60s de `maxDuration` ficam livres pra isso.
   // Deixa uma margem pro upload/gravação no banco no final.
-  const STEP_BUDGET_MS = 50000;
+  const STEP_BUDGET_MS = 210000;
   const startedAt = Date.now();
+  let references: DisplayReference[];
+  try { references = await loadModelPhotoReferences(auth.admin, productId); }
+  catch { return NextResponse.json({ message: 'Não foi possível preparar as referências do modelo. Tente novamente.' }, { status: 502 }); }
   let ranOutOfTime = false;
 
   const rowsToInsert: {
@@ -157,7 +162,7 @@ export async function POST(
   for (const candidate of candidates) {
     if (Date.now() - startedAt > STEP_BUDGET_MS) { ranOutOfTime = true; break; }
     try {
-      const buffers = await cropGalleryPhoto(candidate.signedUrl, referenceUrl);
+      const buffers = await cropGalleryPhoto(candidate.signedUrl, referenceUrl, references);
       if (!buffers.length) noMatchCount += 1;
       for (const buffer of buffers) {
         const position = nextPosition;
@@ -165,8 +170,8 @@ export async function POST(
         // .jpg (15/09/2026, 3ª rodada — ver seção 0.69): formato final
         // passou de PNG pra JPEG (mais leve, com teto de 200KB garantido em
         // gallery-photo-crop.ts).
-        const path = `${productId}/display/${colorImageId}-${position}.jpg`;
-        const { error: uploadError } = await auth.admin.storage.from(BUCKET).upload(path, buffer, { contentType: 'image/jpeg', upsert: true });
+        const path = `${productId}/display/${colorImageId}-${crypto.randomUUID()}.jpg`;
+        const { error: uploadError } = await auth.admin.storage.from(BUCKET).upload(path, buffer, { contentType: 'image/jpeg', upsert: false });
         if (uploadError) {
           console.error('catalog_display_image_upload_failed', { message: uploadError.message });
           failedCount += 1;

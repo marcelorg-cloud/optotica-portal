@@ -49,6 +49,7 @@
 // ajusto o prompt.
 import Replicate from 'replicate';
 import sharp from 'sharp';
+import { DISPLAY_VIEWS, standardizeDisplayPhoto, type DisplayReference, type DisplayView } from './display-photo-standard';
 
 const CROP_MODEL = 'google/nano-banana';
 // Modelo de VQA (Visual Question Answering — pergunta em texto sobre uma
@@ -63,8 +64,7 @@ const DETECT_MODEL = 'lucataco/moondream2';
 // produto"). `fit: 'contain'` centraliza a armação sem cortar nada, sobra
 // vira padding branco (normalmente em cima/embaixo, já que a proporção é
 // bem mais larga que alta).
-const OUTPUT_WIDTH = 1040;
-const OUTPUT_HEIGHT = 320;
+
 
 // Teto de tamanho do arquivo final, em bytes (200KB — pedido do usuário).
 // Como a qualidade do JPEG é o único jeito prático de controlar o tamanho
@@ -73,8 +73,7 @@ const OUTPUT_HEIGHT = 320;
 // detalhada), usa o menor resultado mesmo assim — melhor entregar uma foto
 // um pouco acima do teto do que travar o processamento inteiro por causa
 // disso.
-const MAX_JPEG_BYTES = 200 * 1024;
-const JPEG_QUALITY_STEPS = [82, 72, 62, 52, 42, 32];
+
 
 // Altura de cada metade da imagem composta usada só pra detecção (não é o
 // resultado final — isso nunca é salvo nem mostrado, é só o que o modelo de
@@ -91,7 +90,7 @@ The first image may show the frame alone, being worn by a person, next to packag
 Output a new image that is the first photo cropped, following these rules:
 - Do not change the frame's color, material, shine, pattern, proportions, or shape/design — keep it exactly faithful to how it looks in the first photo. Only crop and clean; never redraw, resize/distort, retouch, or repaint the frame's appearance.
 - Remove any person, face, hands, background, packaging or other objects completely.
-- Fill the entire background with solid pure white (#FFFFFF), studio product-photo style.
+- Fill the entire background with solid pure white (#FFFFFF), studio product-photo style. Remove ALL gray borders, gradient panels, cast shadows and decorative frames. Keep the complete eyeglasses visible and centered with a consistent small safety margin. Keep front views straight and symmetric; preserve lateral and oblique views as their own views, never combine different angles.
 - The frame should occupy as much of the final image as possible — crop in tightly, leaving only a thin margin (a few percent of the image size) between the frame and the top/left/right edges. Do not leave large empty white areas around the frame. Do not let the frame touch the edges, but err on the side of cropping too tight rather than leaving extra empty space.
 - The final image must have the fixed wide, short rectangular proportion already defined (1040×320 pixels — much wider than tall).
 - If there is a sticker, label, or printed text stuck on top of a lens (common in supplier photos), remove it and restore that lens to look clear/transparent like the rest of the lens.
@@ -236,33 +235,24 @@ async function detectMatchingFrameCount(referenceUrl: string, candidateUrl: stri
  * quanto a IA deixou), garantindo a armação sempre do tamanho máximo possível
  * dentro do retângulo final — não depende mais só da IA "obedecer" o prompt.
  */
-async function standardizeDisplayImage(buffer: Buffer): Promise<Buffer> {
-  const flattened = await sharp(buffer).flatten({ background: { r: 255, g: 255, b: 255 } }).toBuffer();
+export async function classifyDisplayView(buffer: Buffer): Promise<DisplayView | null> {
+  const image = await sharp(buffer).resize({ width: 640, withoutEnlargement: true }).jpeg().toBuffer();
+  const output = await runReplicate(DETECT_MODEL, { image: `data:image/jpeg;base64,${image.toString('base64')}`, question: 'Classify this eyeglasses product photo. Reply with exactly one label: front (straight frontal symmetric view), side (strict lateral/profile), three_quarter (oblique perspective), detail (closeup), unknown (multiple frames, unclear or other angle). Do not guess front for an oblique view.' });
+  const text = (Array.isArray(output) ? output.join('') : String(output ?? '')).trim().toLowerCase();
+  return DISPLAY_VIEWS.find((view) => text === view) || null;
+}
 
-  // threshold mais alto que o padrão do sharp (10) pra tolerar ruído de
-  // compressão JPEG perto da borda da armação sem cortar o resultado inteiro
-  // à toa; se por algum motivo não sobrar nada pra recortar (imagem já sem
-  // nenhuma borda, ou alguma falha de decodificação), usa a imagem original
-  // sem recorte em vez de derrubar o processamento desta foto.
-  let trimmed = flattened;
-  try {
-    trimmed = await sharp(flattened).trim({ background: '#ffffff', threshold: 15 }).toBuffer();
-  } catch (err) {
-    console.error('catalog_standardize_trim_failed', { message: err instanceof Error ? err.message : String(err) });
-  }
-
-  const pipeline = sharp(trimmed)
-    .resize(OUTPUT_WIDTH, OUTPUT_HEIGHT, { fit: 'contain', background: { r: 255, g: 255, b: 255 } });
-
-  let smallest: Buffer | null = null;
-  for (const quality of JPEG_QUALITY_STEPS) {
-    const out = await pipeline.clone().jpeg({ quality, mozjpeg: true }).toBuffer();
-    if (!smallest || out.byteLength < smallest.byteLength) smallest = out;
-    if (out.byteLength <= MAX_JPEG_BYTES) return out;
-  }
-  // Nem a menor qualidade testada coube no teto — devolve o menor resultado
-  // conseguido mesmo assim (ver comentário de MAX_JPEG_BYTES acima).
-  return smallest as Buffer;
+async function finishDisplayPhoto(raw: Buffer, references: DisplayReference[]): Promise<Buffer> {
+  if (!references.length) return standardizeDisplayPhoto(raw);
+  const view = await classifyDisplayView(raw);
+  const reference = references.find((item) => item.view === view);
+  if (!reference) return standardizeDisplayPhoto(raw);
+  // The generated photo is the sole source of product identity. The layout
+  // reference may have another color and must never recolor the result.
+  const sourcePng = await sharp(raw).png().toBuffer();
+  const source = `data:image/png;base64,${sourcePng.toString('base64')}`;
+  const aligned = await runNanoBanana(source, reference.url, `The FIRST image is the product to preserve exactly. The SECOND is a layout reference of the SAME MODEL in the SAME ${view} view, possibly a DIFFERENT COLOR. Match only its framing, camera angle, centering and relative size. Never transfer its color, pattern, material, logos or texture. Do not invent hidden parts, distort proportions or mirror asymmetric details. Keep one complete frame, remove gray borders, shadows and external objects, use a solid pure white #FFFFFF background. Preserve transparent and light-colored frame edges. Output a clean product photo in a 1040x320 canvas.`);
+  return standardizeDisplayPhoto(aligned, reference.buffer);
 }
 
 /**
@@ -281,16 +271,21 @@ async function standardizeDisplayImage(buffer: Buffer): Promise<Buffer> {
  * Sem nenhum parâmetro manual — decisão inteira da IA (ver comentário no
  * topo do arquivo).
  */
-export async function cropGalleryPhoto(candidateUrl: string, referenceUrl: string): Promise<Buffer[]> {
+export async function cropGalleryPhoto(candidateUrl: string, referenceUrl: string, references: DisplayReference[] = []): Promise<Buffer[]> {
   const matchCount = await detectMatchingFrameCount(referenceUrl, candidateUrl);
   if (matchCount === 0) return [];
   if (matchCount === 1) {
     const raw = await runNanoBanana(candidateUrl, referenceUrl, CROP_PROMPT_SINGLE);
-    return [await standardizeDisplayImage(raw)];
+    return [await finishDisplayPhoto(raw, references)];
   }
   const first = await runNanoBanana(candidateUrl, referenceUrl, CROP_PROMPT_FIRST_OF_TWO);
   const second = await runNanoBanana(candidateUrl, referenceUrl, CROP_PROMPT_SECOND_OF_TWO);
-  return [await standardizeDisplayImage(first), await standardizeDisplayImage(second)];
+  return [await finishDisplayPhoto(first, references), await finishDisplayPhoto(second, references)];
+}
+
+export async function normalizeExistingDisplay(candidateUrl: string, references: DisplayReference[]): Promise<Buffer> {
+  const raw = await runNanoBanana(candidateUrl, candidateUrl, CROP_PROMPT_SINGLE);
+  return finishDisplayPhoto(raw, references);
 }
 
 // Mesmo tratamento defensivo de formato de saída já usado em
