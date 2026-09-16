@@ -171,6 +171,33 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ or
     return NextResponse.json({ message: 'Não foi possível publicar a foto como prova online oficial.', detail: uploadError.message }, { status: 500 });
   }
 
+  // 16/09/2026 — bug reportado: "troquei a foto da prova online mas não
+  // mudou na visualização do óculos". Causa: a composição "rosto + óculos"
+  // (lib/tryon/compose-server.ts) é gerada uma vez por combinação
+  // paciente+produto+cor e fica em cache (bucket 'try-on-photos', pasta
+  // "display/", + tabela `catalog_patient_display_images`) — a limpeza
+  // acima sempre preservou de propósito os arquivos "display*" (são o
+  // resultado, não a foto crua). O card de armação só gera uma composição
+  // nova quando NÃO existe uma em cache (`!active.provaUrl`, ver
+  // components/order/frame-step.tsx) — então trocar a foto de rosto nunca
+  // invalidava as composições já feitas com a foto antiga, e o paciente
+  // continuava vendo o rosto velho com o óculos por cima. Ao validar uma
+  // foto de rosto nova (é só aqui que a foto oficial realmente muda — a
+  // pendente do POST acima ainda não vale), apagamos todo o cache de
+  // composições deste cliente (arquivos "display/" + linhas de
+  // `catalog_patient_display_images`), pra próxima visualização de cada
+  // cor gerar de novo com o rosto atualizado. Mesmo cache é usado pela
+  // Etapa 3 do atendimento e pela área do próprio paciente (função
+  // compartilhada) — uma única limpeza cobre os dois lados.
+  const { data: displayFiles } = await admin.storage.from(TRYON_BUCKET).list(`${folder}/display`);
+  const displayToRemove = (displayFiles || []).map((f) => `${folder}/display/${f.name}`);
+  if (displayToRemove.length) {
+    const { error: displayRemoveError } = await admin.storage.from(TRYON_BUCKET).remove(displayToRemove);
+    if (displayRemoveError) console.error('face_photo_validate_display_cleanup_failed', { message: displayRemoveError.message });
+  }
+  const { error: displayRowsError } = await admin.from('catalog_patient_display_images').delete().eq('client_id', order.client_id);
+  if (displayRowsError) console.error('face_photo_validate_display_rows_cleanup_failed', { message: displayRowsError.message });
+
   const { error: updateError } = await admin.from('clients').update({
     tryon_face_status: 'validada',
     tryon_face_validated_at: new Date().toISOString()
