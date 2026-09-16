@@ -84,7 +84,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ or
     const value = numberOrNull(data.paymentValue, 0, 1_000_000);
     const downValue = numberOrNull(data.paymentDownValue, 0, 1_000_000);
     const pickupValue = numberOrNull(data.paymentPickupValue, 0, 1_000_000);
-    if (!method || value === undefined) return NextResponse.json({ message: 'Informe valor e forma de pagamento válidos.' }, { status: 400 });
+    if (!method || value === undefined || value === null) return NextResponse.json({ message: 'Informe valor e forma de pagamento válidos.' }, { status: 400 });
     if (downValue === undefined || pickupValue === undefined) {
       return NextResponse.json({ message: 'Valor de entrada ou de retirada inválido.' }, { status: 400 });
     }

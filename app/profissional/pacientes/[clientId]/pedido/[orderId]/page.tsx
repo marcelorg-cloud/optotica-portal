@@ -20,6 +20,18 @@ export const metadata: Metadata = { title: 'Atendimento' };
 
 type QuoteItemMeta = { lensType?: string; lensIndex?: string; lensMaterial?: string; lensTreatment?: string; laboratory?: string; notes?: string };
 type QuoteRow = { id: string; total: number; quote_items: { description: string; metadata: QuoteItemMeta }[] | null };
+type OrderFrameRow = {
+  frame_name: string | null;
+  sku: string | null;
+  color: string | null;
+  catalog_product_id: string | null;
+  catalog_color_image_id: string | null;
+  catalog_products: {
+    standard_height_mm: number | null;
+    bridge_mm: number | null;
+    lens_diagonal_mm: number | null;
+  } | null;
+};
 // Escolha da armação (Etapa 3) — 15/09/2026, redesenho pro catálogo novo
 // (ver migração 202609151600 e components/order/frame-step.tsx): cada
 // "Modelo" agora é um catalog_products publicado, com uma cor por
@@ -86,7 +98,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
     admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe, dnp_photo_path, birth_date, cpf, tryon_face_status, tryon_face_processed_path, organization_id').eq('id', clientId).maybeSingle(),
     admin.from('prescriptions').select('prescription_data').eq('order_id', orderId).maybeSingle(),
     admin.from('quotes').select('id, total, quote_items(description, metadata)').eq('order_id', orderId),
-    admin.from('order_frames').select('frame_name, sku, color, catalog_color_image_id').eq('order_id', orderId).maybeSingle(),
+    admin.from('order_frames').select('frame_name, sku, color, catalog_product_id, catalog_color_image_id, catalog_products(standard_height_mm, bridge_mm, lens_diagonal_mm)').eq('order_id', orderId).maybeSingle(),
     admin.from('order_fulfillment').select('*').eq('order_id', orderId).maybeSingle(),
     // Escolha da armação (15/09/2026) — catálogo novo em vez de `frames`.
     admin
@@ -294,6 +306,23 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
 
   const ful = fulfillment as Record<string, unknown> | null;
   const str = (v: unknown) => (v === null || v === undefined ? '' : String(v));
+  const selectedFrame = orderFrame as unknown as OrderFrameRow | null;
+  const productMeasurements = selectedFrame?.catalog_products || null;
+  // A Comanda começa com as medidas cadastradas no produto confirmado. Um
+  // rascunho já salvo sempre tem prioridade, para não apagar ajustes feitos
+  // especificamente para este paciente.
+  const savedOrProduct = (saved: unknown, productValue: unknown) =>
+    saved === null || saved === undefined ? str(productValue) : str(saved);
+  const comandaInitial = {
+    heightOd: savedOrProduct(ful?.measure_height_od, productMeasurements?.standard_height_mm),
+    heightOe: savedOrProduct(ful?.measure_height_oe, productMeasurements?.standard_height_mm),
+    bridge: savedOrProduct(ful?.measure_bridge, productMeasurements?.bridge_mm),
+    diagonal: savedOrProduct(ful?.measure_diagonal, productMeasurements?.lens_diagonal_mm),
+    notes: savedOrProduct(ful?.final_lab_notes, selectedQuote?.notes)
+  };
+  // O total selecionado é a sugestão inicial do pagamento. Se o profissional
+  // já salvou um valor de venda próprio, esse valor permanece intacto.
+  const paymentInitialValue = savedOrProduct(ful?.payment_value, selectedQuote?.total);
 
   // Estado das etapas (para o menu e as etiquetas de cada card)
   // 16/09/2026 — "OS / Orçamento" separada em duas etapas próprias, a
@@ -490,27 +519,18 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
               {tag(comandaDone, current === 5)}
             </div>
             <div className="card-body">
-              {/* 16/09/2026 — pedido do usuário: confirmar a armação no Carrinho e a
-                  lente em "Lentes sugeridas" já preenchia frameName/lensDescription/
-                  laboratory aqui (mesma fonte de dados, orderFrame/selectedQuote,
-                  já calculados acima — nenhuma mudança nisso). Faltavam cor e SKU
-                  da armação, e as observações do orçamento — os três já vinham
-                  junto de orderFrame/selectedQuote, só não eram passados pra
-                  ComandaStep. Valor do orçamento não entra (decisão do usuário). */}
               <ComandaStep
+                key={`${order.selected_quote_id || 'sem-orcamento'}:${selectedFrame?.catalog_product_id || 'sem-armacao'}:${selectedFrame?.catalog_color_image_id || 'sem-cor'}`}
                 orderId={order.id}
                 clientName={clientName}
                 dnp={dnp}
                 lensDescription={selectedQuote?.description || ''}
                 laboratory={selectedQuote?.laboratory || ''}
                 lensNotes={selectedQuote?.notes || ''}
-                frameName={orderFrame?.frame_name || ''}
-                frameColor={orderFrame?.color || ''}
-                frameSku={orderFrame?.sku || ''}
-                initial={{
-                  heightOd: str(ful?.measure_height_od), heightOe: str(ful?.measure_height_oe),
-                  bridge: str(ful?.measure_bridge), diagonal: str(ful?.measure_diagonal), notes: str(ful?.final_lab_notes)
-                }}
+                frameName={selectedFrame?.frame_name || ''}
+                frameColor={selectedFrame?.color || ''}
+                frameSku={selectedFrame?.sku || ''}
+                initial={comandaInitial}
                 confirmed={comandaDone || orderFinalized}
               />
             </div>
@@ -526,8 +546,9 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
             </div>
             <div className="card-body">
               <PaymentStep
+                key={`${order.selected_quote_id || 'sem-orcamento'}:${str(ful?.payment_value)}`}
                 orderId={order.id}
-                initialValue={str(ful?.payment_value)}
+                initialValue={paymentInitialValue}
                 initialMethod={str(ful?.payment_method)}
                 initialDownValue={str(ful?.payment_down_value)}
                 initialPickupValue={str(ful?.payment_pickup_value)}

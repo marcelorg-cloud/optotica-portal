@@ -90,10 +90,12 @@ export function ComandaStep({ orderId, clientName, dnp, lensDescription, laborat
         <div className="field"><label>Ponte (mm)</label><input name="bridge" type="number" step="0.5" min="0" max="60" defaultValue={initial.bridge} /></div>
         <div className="field"><label>Diagonal maior (mm)</label><input name="diagonal" type="number" step="0.5" min="0" max="80" defaultValue={initial.diagonal} /></div>
       </div>
+      <p className="helper">As medidas são preenchidas a partir da armação confirmada. Você pode ajustá-las para este atendimento antes de confirmar a comanda.</p>
 
       <div className="field">
         <label>Observações laboratoriais finais</label>
         <textarea name="notes" rows={3} maxLength={500} defaultValue={initial.notes} placeholder="Montagem, acabamento, conferência e instruções especiais..." />
+        <div className="helper">Começa com as observações do orçamento selecionado e pode ser complementada antes da confirmação.</div>
       </div>
 
       <div className="actions">

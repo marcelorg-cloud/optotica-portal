@@ -54,7 +54,7 @@ export function PaymentStep({ orderId, initialValue, initialMethod, initialDownV
         <div className="field">
           <label className="required">Valor final da venda</label>
           <div className="money"><input name="value" type="number" step="0.01" min="0" placeholder="0,00" defaultValue={initialValue} /></div>
-          <div className="helper">O valor final apresentado ao paciente.</div>
+          <div className="helper">Preenchido com o orçamento selecionado. Ajuste aqui somente se o valor final da venda for diferente.</div>
         </div>
         <div className="field">
           <label>Forma de pagamento</label>
