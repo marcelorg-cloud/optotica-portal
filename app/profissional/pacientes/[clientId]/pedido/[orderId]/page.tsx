@@ -17,6 +17,7 @@ import { ProductionStep } from '@/components/order/production-step';
 import { LogisticsStep } from '@/components/order/logistics-step';
 import { AssemblyStep } from '@/components/order/assembly-step';
 import { DeliveryStep } from '@/components/order/delivery-step';
+import { WhatsAppStagePanel } from '@/components/order/whatsapp-stage-panel';
 
 export const metadata: Metadata = { title: 'Atendimento' };
 
@@ -397,6 +398,8 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
         </div>
       )}
       <div className="stack">
+
+          <WhatsAppStagePanel orderId={order.id} />
 
           <section className="card step-section" id="cliente">
             <div className="card-head">

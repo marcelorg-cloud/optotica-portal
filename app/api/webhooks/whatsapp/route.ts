@@ -2,9 +2,16 @@ import crypto from 'node:crypto';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { createAdminSupabaseClient } from '@/lib/supabase/server';
-import { firstIncomingMessage, sendWhatsAppText, validMetaSignature } from '@/lib/meta';
+import { firstIncomingButtonReply, firstIncomingMessage, sendWhatsAppText, sendWhatsAppTextAndGetId, validMetaSignature } from '@/lib/meta';
 import { publicEnv, serverEnv } from '@/lib/env';
 import { toCanonicalWhatsAppE164 } from '@/lib/phone';
+import {
+  buildWhatsAppButtonFollowUp,
+  WHATSAPP_BUTTON_SECTION,
+  whatsappButtonNeedsAccessLink,
+  type WhatsAppButtonId,
+  type WhatsAppStageId
+} from '@/lib/order-whatsapp-stage';
 
 type AdminClient = SupabaseClient;
 
@@ -75,6 +82,62 @@ async function ensurePatientUser(admin: AdminClient, clientId: string, phone: st
   return user;
 }
 
+// A partir daqui: só o fluxo NOVO de mensagens de WhatsApp por estágio do
+// atendimento (16/09/2026, ver lib/order-whatsapp-stage.ts e
+// app/api/professional/orders/[orderId]/whatsapp-stage/route.ts). Nada
+// disto é chamado pelo fluxo de convite "OPTOTICA <código>" acima, que
+// continua exatamente como estava.
+
+/**
+ * Gera um link de acesso mágico de uso único para a área do paciente, já
+ * apontando para a seção certa (mesmo mecanismo de `generateLink` +
+ * `/auth/confirm` usado pelo fluxo de convite acima — só o destino final
+ * muda, via a coluna nova `whatsapp_access_requests.redirect_path`, que o
+ * fluxo de convite nunca preenche e cujo redirect por padrão continua
+ * "/cliente" quando ausente — ver app/auth/confirm/route.ts).
+ */
+async function buildClientAreaAccessLink(
+  admin: AdminClient,
+  organizationId: string,
+  clientId: string,
+  orderId: string,
+  section: string | null,
+  inboundMessageId: string
+): Promise<string | null> {
+  const { data: account } = await admin.from('client_user_accounts').select('user_id').eq('client_id', clientId).limit(1).maybeSingle();
+  if (!account?.user_id) return null;
+  const { data: userData } = await admin.auth.admin.getUserById(account.user_id);
+  if (!userData.user?.email) return null;
+
+  const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+    type: 'magiclink',
+    email: userData.user.email,
+    options: { redirectTo: `${publicEnv.appUrl()}/cliente` }
+  });
+  if (linkError || !linkData.properties?.hashed_token) return null;
+
+  const hashedToken = linkData.properties.hashed_token;
+  const tokenFingerprint = crypto.createHash('sha256').update(hashedToken).digest('hex');
+  const consentVersion = process.env.OPTOTICA_CONSENT_VERSION || '2026-09-01';
+  const redirectPath = `/cliente/pedido/${orderId}${section ? `#${section}` : ''}`;
+
+  const { error: accessError } = await admin.from('whatsapp_access_requests').upsert({
+    organization_id: organizationId,
+    client_id: clientId,
+    invitation_id: null,
+    whatsapp_message_id: inboundMessageId,
+    consent_version: consentVersion,
+    token_hash: tokenFingerprint,
+    status: 'pending',
+    consumed_at: null,
+    expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    redirect_path: redirectPath
+  }, { onConflict: 'whatsapp_message_id' });
+  if (accessError) return null;
+
+  return `${publicEnv.appUrl()}/auth/confirm?token_hash=${encodeURIComponent(hashedToken)}`;
+}
+
 export async function POST(request: Request) {
   const rawBody = await request.text();
   if (!validMetaSignature(rawBody, request.headers.get('x-hub-signature-256'))) return new NextResponse('Invalid signature', { status: 401 });
@@ -85,6 +148,82 @@ export async function POST(request: Request) {
   } catch {
     return new NextResponse('Invalid JSON', { status: 400 });
   }
+
+  // Toque em botão de RESPOSTA rápida (fluxo de mensagens por estágio,
+  // 16/09/2026) — tratado e encerrado aqui, ANTES de qualquer lógica do
+  // fluxo de convite "OPTOTICA <código>" abaixo, que fica inteiramente
+  // intocada (só mensagens de texto puro chegam até `firstIncomingMessage`).
+  const buttonReply = firstIncomingButtonReply(payload);
+  if (buttonReply) {
+    const admin = createAdminSupabaseClient();
+
+    // Contexto: de qual pedido/estágio este toque é resposta. `context.id` é
+    // o wamid da mensagem de estágio original, que a rota de envio sempre
+    // registra em order_whatsapp_messages (direction='outbound') antes de
+    // devolver sucesso ao profissional — "considerar o que está
+    // efetivamente salvo no atendimento", nenhum estado novo em memória.
+    const { data: origin } = await admin
+      .from('order_whatsapp_messages')
+      .select('order_id, client_id, organization_id, stage')
+      .eq('whatsapp_message_id', buttonReply.contextMessageId)
+      .eq('direction', 'outbound')
+      .maybeSingle();
+    if (!origin) return NextResponse.json({ received: true });
+
+    const stage = origin.stage as WhatsAppStageId;
+    const buttonId = buttonReply.buttonId as WhatsAppButtonId;
+
+    // Idempotência: reentrega do mesmo evento pela Meta não deve gerar uma
+    // segunda resposta automática. unique(whatsapp_message_id) faz o INSERT
+    // falhar na segunda tentativa — tratado como "já processado".
+    const { error: logInboundError } = await admin.from('order_whatsapp_messages').insert({
+      organization_id: origin.organization_id,
+      order_id: origin.order_id,
+      client_id: origin.client_id,
+      stage,
+      direction: 'inbound',
+      whatsapp_message_id: buttonReply.messageId,
+      button_id: buttonId,
+      body: buttonReply.buttonTitle
+    });
+    if (logInboundError) return NextResponse.json({ received: true });
+
+    // "Não oferecer condições fictícias a pacientes reais": revalidado aqui
+    // (não só no momento em que o botão "Ganhar cupom" foi mostrado) — se o
+    // paciente deixou de ser de teste entre o envio e o toque, a resposta
+    // de cupom não sai (ver buildWhatsAppButtonFollowUp).
+    const { data: client } = await admin.from('clients').select('is_test_patient').eq('id', origin.client_id).maybeSingle();
+    const isTestPatient = Boolean(client?.is_test_patient);
+
+    let accessLink: string | null = null;
+    if (whatsappButtonNeedsAccessLink(buttonId)) {
+      accessLink = await buildClientAreaAccessLink(
+        admin, origin.organization_id, origin.client_id, origin.order_id,
+        WHATSAPP_BUTTON_SECTION[buttonId], buttonReply.messageId
+      );
+    }
+
+    const followUpText = buildWhatsAppButtonFollowUp(buttonId, { accessLink, isTestPatient });
+    try {
+      const sentId = await sendWhatsAppTextAndGetId(buttonReply.phone, followUpText);
+      if (sentId) {
+        await admin.from('order_whatsapp_messages').insert({
+          organization_id: origin.organization_id,
+          order_id: origin.order_id,
+          client_id: origin.client_id,
+          stage,
+          direction: 'outbound',
+          whatsapp_message_id: sentId,
+          button_id: buttonId,
+          body: followUpText
+        });
+      }
+    } catch (error) {
+      console.error('whatsapp_button_followup_failed', { code: (error as Error)?.message });
+    }
+    return NextResponse.json({ received: true });
+  }
+
   const message = firstIncomingMessage(payload);
   if (!message) return NextResponse.json({ received: true });
   const phoneDigits = message.phone;
