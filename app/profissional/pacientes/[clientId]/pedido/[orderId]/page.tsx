@@ -1,3 +1,4 @@
+import { activePhoto } from '@/lib/tryon/active-photo';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
@@ -16,6 +17,7 @@ import { ProductionStep } from '@/components/order/production-step';
 import { LogisticsStep } from '@/components/order/logistics-step';
 import { AssemblyStep } from '@/components/order/assembly-step';
 import { DeliveryStep } from '@/components/order/delivery-step';
+import { WhatsAppStagePanel } from '@/components/order/whatsapp-stage-panel';
 
 export const metadata: Metadata = { title: 'Atendimento' };
 
@@ -45,7 +47,7 @@ type ColorImageRow = {
   color_variant_number: number | null; processed_image_path: string | null; status: string; is_active: boolean; display_order: number | null;
   catalog_product_color_display_images: DisplayImageRow[] | null;
 };
-type CatalogProductRow = { id: string; model_name: string; sku_optotica: string; catalog_product_color_images: ColorImageRow[] | null };
+type CatalogProductRow = { id: string; model_name: string; sku_optotica: string; position_image_path: string | null; catalog_product_color_images: ColorImageRow[] | null };
 type PatientDisplayImageRow = { product_id: string; color_name: string; image_path: string | null };
 type LaboratoryRow = { id: string; name: string; is_primary: boolean };
 type MenuTierRow = {
@@ -104,7 +106,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
     // Escolha da armação (15/09/2026) — catálogo novo em vez de `frames`.
     admin
       .from('catalog_products')
-      .select('id, model_name, sku_optotica, catalog_product_color_images(id, color_name, color_principal, color_secondary, color_variant_number, processed_image_path, status, is_active, display_order, catalog_product_color_display_images(image_path, position, validated_at))')
+      .select('id, model_name, sku_optotica, position_image_path, catalog_product_color_images(id, color_name, color_principal, color_secondary, color_variant_number, processed_image_path, status, is_active, display_order, catalog_product_color_display_images(image_path, position, validated_at))')
       .eq('status', 'publicado')
       .order('model_name'),
     admin.from('order_frame_reactions').select('catalog_color_image_id, status').eq('order_id', orderId),
@@ -147,37 +149,13 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
     dnpPhotoUrl = signed?.signedUrl || null;
   }
 
-  // "Foto de rosto para Prova Online" (15/09/2026) — mesma foto processada
-  // (bucket 'tryon-face-source-photos') serve de preview aqui esteja ela
-  // 'pendente' (ainda não validada) ou 'validada' (já é a oficial, só que a
-  // cópia que virou "prova.<ext>" em 'try-on-photos' não guarda a extensão
-  // aqui — mais simples reusar sempre este preview, que nunca é apagado).
-  let facePhotoUrl: string | null = null;
-  if (client?.tryon_face_processed_path) {
-    const { data: signed } = await admin.storage.from('tryon-face-source-photos').createSignedUrl(client.tryon_face_processed_path, 3600);
-    facePhotoUrl = signed?.signedUrl || null;
-  }
-
-  // Prova online na Etapa 3 (15/09/2026) — precisa da MESMA foto oficial de
-  // prova que a área do próprio paciente usa (bucket 'try-on-photos',
-  // "{org}/{client}/prova.<ext>" — só existe depois de validada na Etapa 1)
-  // e da DNP total, pra rodar a mesma detecção de pupilas + composição que
-  // /api/client/tryon/compose já faz (ver components/order/frame-step.tsx).
+  // Both panels and the composer use the same confirmed photo.
   const dnpTotalMm = client?.dnp_od != null && client?.dnp_oe != null ? Number(client.dnp_od) + Number(client.dnp_oe) : null;
   const sourceRevision = tryonRevision(client);
-  let tryonClientPhotoUrl: string | null = null;
-  if (client?.organization_id) {
-    const tryonFolder = `${client.organization_id}/${clientId}`;
-    const { data: tryonFiles } = await admin.storage.from('try-on-photos').list(tryonFolder);
-    // Sem barra (ver comentário em lib/tryon/compose-server.ts) — evita
-    // pegar o item-pasta "display" por engano depois que a primeira prova
-    // gerada já tiver criado essa subpasta.
-    const baseFile = tryonFiles?.find((f) => !f.name.startsWith('display'));
-    if (baseFile) {
-      const { data: signedBase } = await admin.storage.from('try-on-photos').createSignedUrl(`${tryonFolder}/${baseFile.name}`, 3600);
-      tryonClientPhotoUrl = signedBase?.signedUrl ? `${signedBase.signedUrl}&revision=${sourceRevision}` : null;
-    }
-  }
+  const active = client?.organization_id ? await activePhoto(admin, client.organization_id, clientId) : null;
+  const signedPhoto = active ? await admin.storage.from(active.bucket).createSignedUrl(active.path,3600) : null;
+  const facePhotoUrl = signedPhoto?.data?.signedUrl || null;
+  const tryonClientPhotoUrl = facePhotoUrl ? `${facePhotoUrl}&revision=${sourceRevision}` : null;
 
   const rx = (prescription?.prescription_data || null) as { od?: Record<string, unknown>; oe?: Record<string, unknown> } | null;
   const toEye = (e?: Record<string, unknown>) => e ? {
@@ -214,11 +192,11 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   const catalogProducts = (catalogProductsData || []) as unknown as CatalogProductRow[];
   const pathsToSign = new Set<string>();
   for (const product of catalogProducts) {
+    if (product.position_image_path) pathsToSign.add(product.position_image_path);
     for (const color of (product.catalog_product_color_images || []).filter((c) => c.is_active)) {
-      const bestDisplay = (color.catalog_product_color_display_images || [])
-        .filter((d) => d.validated_at && d.image_path)
-        .sort((a, b) => a.position - b.position)[0];
-      if (bestDisplay?.image_path) pathsToSign.add(bestDisplay.image_path);
+      for (const display of color.catalog_product_color_display_images || []) {
+        if (display.validated_at && display.image_path) pathsToSign.add(display.image_path);
+      }
     }
   }
   const signedByPath = new Map<string, string>();
@@ -271,6 +249,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
       id: product.id,
       modelName: product.model_name,
       skuOptotica: product.sku_optotica,
+      measurementsUrl: product.position_image_path ? signedByPath.get(product.position_image_path) || null : null,
       colors: product.catalog_product_color_images.map((color) => {
         const bestDisplay = (color.catalog_product_color_display_images || [])
           .filter((d) => d.validated_at && d.image_path)
@@ -283,6 +262,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
           colorVariantNumber: color.color_variant_number,
           provaUrl: provaUrlByProductColor.get(`${product.id}::${color.color_name}`) || null,
           fotoOculosUrl: bestDisplay?.image_path ? signedByPath.get(bestDisplay.image_path) || null : null,
+          galleryUrls: (color.catalog_product_color_display_images || []).filter((d) => d.validated_at && d.image_path).sort((a, b) => a.position - b.position).map((d) => signedByPath.get(d.image_path!) || null).filter((url): url is string => Boolean(url)),
           reaction: (reactionByColorImageId.get(color.id) || null) as 'gostei' | 'talvez' | 'oculto' | null,
           confirmed: confirmedColorImageId === color.id
         };
@@ -418,6 +398,8 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
         </div>
       )}
       <div className="stack">
+
+          <WhatsAppStagePanel orderId={order.id} />
 
           <section className="card step-section" id="cliente">
             <div className="card-head">

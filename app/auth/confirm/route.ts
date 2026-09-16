@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   const fingerprint = crypto.createHash('sha256').update(tokenHash).digest('hex');
   const { data: accessRequest } = await admin
     .from('whatsapp_access_requests')
-    .select('id, expires_at, status')
+    .select('id, expires_at, status, redirect_path')
     .eq('token_hash', fingerprint)
     .order('expires_at', { ascending: false })
     .limit(1)
@@ -30,7 +30,11 @@ export async function GET(request: Request) {
 
   if (accessRequest) {
     await admin.from('whatsapp_access_requests').update({ status: 'consumed', consumed_at: new Date().toISOString() }).eq('id', accessRequest.id).eq('status', 'pending');
-    return NextResponse.redirect(`${publicEnv.appUrl()}/cliente`);
+    // redirect_path (16/09/2026, fluxo de mensagens de estágio por WhatsApp):
+    // null em todo registro do fluxo de convite original (comportamento de
+    // sempre, preservado) — só o novo fluxo de botões preenche esse campo,
+    // para abrir a área do paciente já na seção certa.
+    return NextResponse.redirect(`${publicEnv.appUrl()}${accessRequest.redirect_path || '/cliente'}`);
   }
 
   const { data: { user } } = await supabase.auth.getUser();
