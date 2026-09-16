@@ -10,7 +10,7 @@ function parseEye(value: unknown): EyeRx | null {
   const cilindrico = Number(v.cilindrico);
   const eixo = Number(v.eixo);
   const adicao = Number(v.adicao);
-  if ([esferico, cilindrico, eixo, adicao].some((n) => Number.isNaN(n))) return null;
+  if ([esferico, cilindrico, eixo, adicao].some((n) => !Number.isFinite(n))) return null;
   if (esferico < -30 || esferico > 30) return null;
   if (cilindrico < -30 || cilindrico > 30) return null;
   if (eixo < 0 || eixo > 180) return null;
@@ -27,6 +27,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
   const body = await request.json().catch(() => null);
   const od = parseEye(body?.od);
   const oe = parseEye(body?.oe);
+  const observations = typeof body?.observations === 'string' ? body.observations.trim() : '';
+  if (observations.length > 1000) return NextResponse.json({ message: 'As observações devem ter até 1.000 caracteres.' }, { status: 400 });
   if (!od || !oe) return NextResponse.json({ message: 'Preencha a receita completa.' }, { status: 400 });
 
   const admin = createAdminSupabaseClient();
@@ -51,7 +53,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
     client_id: order.client_id,
     order_id: order.id,
     professional_id: user.id,
-    prescription_data: { od, oe }
+    prescription_data: { od, oe },
+    clinical_notes: observations
   }, { onConflict: 'order_id' });
   if (error) {
     console.error('prescription_save_failed', { code: error.code });

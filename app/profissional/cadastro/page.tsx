@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { ProfessionalProfileForm } from '@/components/professional-profile-form';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
@@ -56,6 +57,7 @@ export default async function ProfessionalRegistrationPage() {
         </div>
       </section>
       {profile?.review_notes && <div className="setup-note">Solicitação da equipe: {profile.review_notes}</div>}
+      {profile?.account_type === 'professional' && <div className="setup-note">Documentação e selo de conferência: <Link className="text-link" href="/profissional/verificacao">Abrir verificação profissional</Link></div>}
       <ProfessionalProfileForm initialValues={initialValues} locked={professionalFieldsLocked} />
     </div>
   );

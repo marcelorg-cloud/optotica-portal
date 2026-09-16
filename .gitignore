@@ -21,3 +21,5 @@ Thumbs.db
 /out/
 *.tsbuildinfo
 .vercel/
+
+/supabase/.temp/

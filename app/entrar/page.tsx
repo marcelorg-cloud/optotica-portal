@@ -1,19 +1,32 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ProfessionalLoginForm } from '@/components/professional-login-form';
+import Image from 'next/image';
+import QRCode from 'qrcode';
 
 export const metadata: Metadata = { title: 'Entrar' };
 
-export default function LoginPage() {
+export const dynamic = 'force-dynamic';
+
+export default async function LoginPage() {
+  const number = (process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '').replace(/\D/g, '');
+  const whatsappUrl = /^\d{10,15}$/.test(number)
+    ? `https://wa.me/${number}?text=${encodeURIComponent('Olá! Já sou paciente Optótica e quero acessar meu portal.')}`
+    : null;
+  const qr = whatsappUrl ? await QRCode.toDataURL(whatsappUrl, { width: 240, margin: 4, errorCorrectionLevel: 'M' }) : null;
   return (
     <div className="page-shell narrow">
       <div className="login-grid">
         <section className="card login-card">
           <p className="eyebrow">Área do cliente</p>
-          <h1>Use o convite do seu profissional</h1>
-          <p className="muted">O QR Code ou link de acesso é criado pelo profissional que realizou seu atendimento e permanece válido por 24 horas.</p>
-          <div className="setup-note">Abra o convite recebido, envie a mensagem pré-preenchida para o WhatsApp oficial da Optótica e receba seu link pessoal de acesso.</div>
-          <p className="fine-print">Não existe cadastro livre de paciente. Essa regra impede que outra pessoa crie um acesso para seus dados.</p>
+          <h1>Já é paciente Optótica?</h1>
+          <p className="muted">Fale com a gente pelo seu WhatsApp cadastrado e receba seu link de acesso ao portal.</p>
+          {whatsappUrl && qr ? <div className="patient-entry-options">
+            <a className="button whatsapp" href={whatsappUrl} target="_blank" rel="noopener noreferrer">Acessar pelo WhatsApp</a>
+            <figure><Image unoptimized src={qr} width={200} height={200} alt="QR Code para abrir o WhatsApp oficial da Optótica" /><figcaption>Está no computador? Aponte a câmera do celular.</figcaption></figure>
+          </div> : <p className="setup-note">O acesso pelo WhatsApp está temporariamente indisponível. Utilize seu convite ou fale com o profissional responsável.</p>}
+          <p className="fine-print">Envie a mensagem pelo mesmo número usado no cadastro. Seu link de acesso é pessoal e temporário.</p>
+          <details className="patient-first-access"><summary>É seu primeiro acesso?</summary><p className="muted">Abra o convite enviado pelo seu profissional e confirme seu número no WhatsApp. O convite é válido por 24 horas. Se ainda não recebeu ou ele expirou, solicite um novo ao profissional.</p></details>
         </section>
 
         <section className="card login-card">

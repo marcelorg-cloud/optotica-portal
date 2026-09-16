@@ -28,15 +28,28 @@ const EMPTY_EYE: EyeRx = { esferico: '0', cilindrico: '0', eixo: '0', adicao: '0
 // `/api/professional/orders/[orderId]/prescription` já salvava só a receita,
 // separado de `/quotes` — a separação sempre existiu no backend, só não na
 // tela.
-export function PrescriptionStep({ orderId, initialOd, initialOe, locked }: {
+export function PrescriptionStep({ orderId, initialOd, initialOe, initialObservations = '', locked }: {
   orderId: string;
   initialOd: EyeRx | null;
   initialOe: EyeRx | null;
   locked: boolean;
+  initialObservations?: string;
 }) {
   const router = useRouter();
   const [rxState, setRxState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [rxMessage, setRxMessage] = useState('');
+  const [issuing, setIssuing] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  async function issue() {
+    setIssuing(true); setRxMessage('');
+    try {
+      const response = await fetch(`/api/professional/orders/${orderId}/prescription/issue`, { method: 'POST' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message || 'Não foi possível emitir.');
+      router.push(payload.url);
+    } catch (error) { setRxMessage(error instanceof Error ? error.message : 'Não foi possível emitir.'); }
+    finally { setIssuing(false); }
+  }
 
   async function submitRx(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -48,19 +61,21 @@ export function PrescriptionStep({ orderId, initialOd, initialOe, locked }: {
       esferico: form.get(`${prefix}-esferico`), cilindrico: form.get(`${prefix}-cilindrico`),
       eixo: form.get(`${prefix}-eixo`), adicao: form.get(`${prefix}-adicao`)
     });
+    try {
     const response = await fetch(`/api/professional/orders/${orderId}/prescription`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ od: eye('od'), oe: eye('oe') })
+      body: JSON.stringify({ od: eye('od'), oe: eye('oe'), observations: form.get('observations') })
     });
     const payload = await response.json().catch(() => ({}));
-    if (response.ok) { setRxState('idle'); router.refresh(); }
+    if (response.ok) { setDirty(false); setRxState('idle'); setRxMessage('Receita salva. Você já pode emitir o documento.'); router.refresh(); }
     else { setRxState('error'); setRxMessage(payload.message || 'Não foi possível salvar a receita.'); }
+    } catch { setRxState('error'); setRxMessage('Não foi possível salvar. Confira sua conexão e tente novamente.'); }
   }
 
   return (
     <div className="stack">
       {locked && <div className="notice">🔒 Etapa bloqueada — Comanda final já confirmada.</div>}
-      <form className="subsection" onSubmit={submitRx}>
+      <form className="subsection" onSubmit={submitRx} onChange={() => setDirty(true)}>
         <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0 }}>
         <h3>Receita</h3>
         <div className="rx-scroll">
@@ -72,12 +87,15 @@ export function PrescriptionStep({ orderId, initialOd, initialOe, locked }: {
             </tbody>
           </table>
         </div>
+        <label>Observações da prescrição<textarea name="observations" maxLength={1000} defaultValue={initialObservations} placeholder="Orientações que devem constar no documento do paciente" /></label>
         <div className="actions">
           <button className="button primary" type="submit" disabled={rxState === 'loading'}>{rxState === 'loading' ? 'Salvando…' : 'Salvar receita'}</button>
         </div>
-        {rxMessage && rxState === 'error' && <p className="form-message error">{rxMessage}</p>}
+
         </fieldset>
       </form>
+      <div className="subsection"><h3>Documento com verificação</h3><p className="muted">Salve as alterações antes de emitir. A emissão usa os dados salvos, mantém o histórico e substitui a versão anterior quando houver mudanças.</p><button className="button secondary" type="button" disabled={dirty || issuing || rxState === 'loading' || !initialOd || !initialOe} onClick={issue}>{issuing ? 'Emitindo…' : 'Emitir / abrir prescrição com QR Code'}</button><p className="fine-print">Disponível para cadastro individual de profissional aprovado.</p></div>
+      {rxMessage && <p role="status">{rxMessage}</p>}
     </div>
   );
 }

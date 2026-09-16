@@ -126,9 +126,9 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
 
   const clientName = client.full_name || 'Paciente';
   const whatsapp = formatWhatsApp(client.whatsapp_e164);
-  const dnp = `OD ${client.dnp_od ?? '—'} · OE ${client.dnp_oe ?? '—'}`;
 
-  const rx = (prescription?.prescription_data || null) as { od?: Record<string, unknown>; oe?: Record<string, unknown> } | null;
+  const { data: issued } = await admin.from('issued_prescriptions').select('id,prescription_data').eq('order_id', orderId).eq('status', 'active').maybeSingle();
+  const rx = (issued?.prescription_data || prescription?.prescription_data || null) as { od?: Record<string, unknown>; oe?: Record<string, unknown> } | null;
   const toEye = (e?: Record<string, unknown>) => e ? {
     esferico: String(e.esferico ?? ''), cilindrico: String(e.cilindrico ?? ''),
     eixo: String(e.eixo ?? ''), adicao: String(e.adicao ?? '')
@@ -388,10 +388,8 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
         <div className="card-head"><div><p className="eyebrow">Prescrição enviada pelo profissional</p><h2>Minha receita de óculos</h2></div><span className="complete-tag">Somente consulta</span></div>
         <div className="card-body">
           <PrescriptionCard
-            orderNumber={order.order_number}
+            issuedId={issued?.id || null}
             clientName={clientName}
-            whatsapp={whatsapp}
-            dnp={dnp}
             od={toEye(rx?.od)}
             oe={toEye(rx?.oe)}
             professionalName={professional?.display_name || 'Optometrista responsável'}
