@@ -60,13 +60,17 @@ export default async function ProfessionalPatientsPage() {
     <div className="page-shell">
       <section className="dashboard-head">
         <div>
-          <p className="eyebrow">Área profissional</p>
+          <p className="eyebrow">Pacientes</p>
           <h1>Meus pacientes</h1>
-          <p className="muted">Pacientes que confirmaram o vínculo pelo WhatsApp. &quot;Novo pedido&quot; sempre inicia um atendimento novo; &quot;Continuar atendimento&quot; aparece quando já existe um em andamento.</p>
+          <p className="muted">Consulte seus pacientes vinculados e retome atendimentos em andamento.</p>
         </div>
         <Link className="button primary" href="/profissional/pacientes/novo">Convidar paciente</Link>
       </section>
-      <section className="card table-card">
+      <section className="patient-summary" aria-label="Resumo de pacientes">
+        <div><strong>{patients.length}</strong><span>{patients.length === 1 ? 'paciente vinculado' : 'pacientes vinculados'}</span></div>
+        <div><strong>{openOrderByClient.size}</strong><span>{openOrderByClient.size === 1 ? 'atendimento em andamento' : 'atendimentos em andamento'}</span></div>
+      </section>
+      <section className="card table-card patient-table">
         <div className="table-head"><span>Paciente</span><span>WhatsApp</span><span>Vinculado em</span><span></span></div>
         {patients.length ? patients.map((patient) => {
           const openOrderId = openOrderByClient.get(patient.client_id);
@@ -75,11 +79,11 @@ export default async function ProfessionalPatientsPage() {
               <strong>{patient.clients?.full_name || 'Paciente'}</strong>
               <span>{formatWhatsApp(patient.clients?.whatsapp_e164)}</span>
               <time>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(new Date(patient.created_at))}</time>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <div className="patient-actions">
                 {openOrderId && (
-                  <Link className="button secondary" href={`/profissional/pacientes/${patient.client_id}/pedido/${openOrderId}`}>Continuar atendimento</Link>
+                  <Link className="button primary" href={`/profissional/pacientes/${patient.client_id}/pedido/${openOrderId}`}>Continuar</Link>
                 )}
-                <Link className="button secondary" href={`/profissional/pacientes/${patient.client_id}/pedido/novo`}>Novo pedido</Link>
+                <Link className="button secondary" href={`/profissional/pacientes/${patient.client_id}/pedido/novo`}>{openOrderId ? 'Novo pedido' : 'Iniciar atendimento'}</Link>
               </div>
             </div>
           );

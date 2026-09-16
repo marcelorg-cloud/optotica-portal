@@ -39,19 +39,27 @@ export default async function ProfessionalPage() {
     .order('updated_at', { ascending: false })
     .limit(20);
   const orders = (data || []) as unknown as OrderSummary[];
+  const inProgress = orders.filter((order) => order.status === 'in_progress').length;
+  const completed = orders.filter((order) => ['completed', 'delivered'].includes(order.status)).length;
 
   return (
     <div className="page-shell">
-      <section className="dashboard-head">
-        <div><p className="eyebrow">Área profissional</p><h1>{profile.display_name}</h1><p className="muted">Você vê somente os pacientes que aceitaram os convites criados por esta conta.</p></div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <Link className="button primary" href="/profissional/pacientes">Iniciar novo atendimento</Link>
-          <Link className="button secondary" href="/profissional/pacientes">Meus pacientes</Link>
-          <Link className="button secondary" href="/profissional/pacientes/novo">Convidar paciente</Link>
-          <Link className="button secondary" href="/profissional/cardapio">Cardápio de lentes</Link>
-        </div>
+      <section className="dashboard-head professional-dashboard-head">
+        <div><p className="eyebrow">Visão geral</p><h1>Olá, {profile.display_name.split(' ')[0]}.</h1><p className="muted">Acompanhe seus atendimentos e acesse rapidamente as tarefas do dia.</p></div>
+        <Link className="button primary" href="/profissional/pacientes">Iniciar atendimento</Link>
       </section>
-      <section className="card table-card">
+      <section className="professional-stats" aria-label="Resumo dos pedidos">
+        <article><span>Pedidos recentes</span><strong>{orders.length}</strong><small>últimos registros</small></article>
+        <article><span>Em atendimento</span><strong>{inProgress}</strong><small>pedidos em andamento</small></article>
+        <article><span>Concluídos</span><strong>{completed}</strong><small>prontos ou entregues</small></article>
+      </section>
+      <section className="quick-actions" aria-label="Acessos rápidos">
+        <Link href="/profissional/pacientes"><span>01</span><strong>Meus pacientes</strong><small>Consultar vínculos e iniciar pedidos</small></Link>
+        <Link href="/profissional/pacientes/novo"><span>02</span><strong>Convidar paciente</strong><small>Gerar acesso pelo WhatsApp</small></Link>
+        <Link href="/profissional/cardapio"><span>03</span><strong>Cardápio de lentes</strong><small>Organizar opções e preços</small></Link>
+      </section>
+      <section className="section-heading"><div><p className="eyebrow">Atividade</p><h2>Pedidos recentes</h2></div><Link className="text-link" href="/profissional/pacientes">Ver pacientes</Link></section>
+      <section className="card table-card professional-table">
         <div className="table-head"><span>Pedido</span><span>Paciente</span><span>Status</span><span>Atualização</span></div>
         {orders.length ? orders.map(order => (
           <div className="table-row" key={order.id}>
@@ -60,7 +68,7 @@ export default async function ProfessionalPage() {
             <span className="pill">{order.status}</span>
             <time>{new Intl.DateTimeFormat('pt-BR').format(new Date(order.updated_at))}</time>
           </div>
-        )) : <div className="empty-state">Nenhum pedido cadastrado.</div>}
+        )) : <div className="empty-state"><strong>Nenhum pedido recente</strong><span>Escolha um paciente para iniciar o primeiro atendimento.</span><Link className="button secondary" href="/profissional/pacientes">Ver pacientes</Link></div>}
       </section>
     </div>
   );

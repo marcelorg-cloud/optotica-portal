@@ -6,6 +6,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: { default: 'Optótica', template: '%s · Optótica' },
   description: 'Portal independente de gestão óptica e acompanhamento de pedidos.',
+  icons: { icon: '/optotica-icon.png', apple: '/optotica-icon.png' },
   robots: { index: false, follow: false }
 };
 
