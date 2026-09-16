@@ -120,6 +120,13 @@ button,input,select,textarea{font:inherit}
    cinza; só fotos + botões de reação dentro dele). Ver
    components/order/frame-step.tsx. */
 .frame-row{display:flex;flex-direction:column;gap:12px}
+.professional-frame-row{display:grid;grid-template-columns:minmax(220px,320px) minmax(0,1fr);gap:16px 24px;padding:20px;border:1px solid var(--line);border-radius:20px;background:var(--soft)}
+.professional-frame-row>.frame-photo-prova{grid-column:1;grid-row:1/3;width:100%;height:auto;aspect-ratio:1;align-self:center;padding:10px}
+.professional-frame-row>.frame-row-top{grid-column:2;min-width:0}
+.professional-frame-row>.frame-card{grid-column:2;min-width:0;padding:0;border:0;background:transparent}
+.professional-frame-row .frame-photo-oculos{min-width:0}
+@media(max-width:1000px){.professional-frame-row{grid-template-columns:minmax(200px,280px) minmax(0,1fr)}.professional-frame-row>.frame-card{flex-direction:column}.professional-frame-row .frame-actions{width:100%;flex-direction:row;flex-wrap:wrap}}
+@media(max-width:800px){.professional-frame-row{grid-template-columns:minmax(0,1fr);padding:14px;gap:18px}.professional-frame-row>.frame-photo-prova{grid-column:1;grid-row:auto;width:100%;max-width:420px;height:auto;justify-self:center}.professional-frame-row>.frame-row-top,.professional-frame-row>.frame-card{grid-column:1}.professional-frame-row .frame-photo-oculos{height:180px}}
 .frame-row-top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .frame-row-head{display:flex;flex-direction:column;gap:4px}
 .frame-row-head .helper{font-size:10px;letter-spacing:.03em;text-transform:uppercase}

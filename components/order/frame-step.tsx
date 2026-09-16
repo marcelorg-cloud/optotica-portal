@@ -22,10 +22,8 @@ import type { Point } from '@/lib/dnp';
 //   como um botão "Confirmar esta cor" que aparece dentro do próprio card
 //   quando a cor ativa da linha está com reação "gostei".
 //
-// Layout (15/09/2026, 3ª rodada — pedido do usuário a partir de um print):
-// nome do modelo/SKU e os círculos de cor ficam FORA do card cinza, numa
-// linha só (`.frame-row-top`); só as duas fotos e os 3 botões de reação
-// entram no card (`.frame-card`) — ver app/globals.css.
+// Layout profissional: prova ampliada à esquerda; identificação, cores,
+// foto da armação e ações à direita. No celular, a prova vem primeiro.
 type ColorOption = {
   id: string;
   colorName: string;
@@ -221,11 +219,18 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
             if (!active) return null;
             const isHidden = active.reaction === 'oculto';
             return (
-              <div className="frame-row" key={model.id}>
-                {/* Cabeçalho (nome + SKU) e círculos de cor ficam FORA do
-                    card cinza — só as fotos e os botões de reação entram
-                    nele (layout pedido pelo usuário a partir de um print,
-                    15/09/2026, 3ª rodada). */}
+              <div className="frame-row professional-frame-row" key={model.id}>
+                <div className="frame-photo-box frame-photo-prova">
+                  {(() => {
+                    const provaUrl = generatedProva[active.id] ?? active.provaUrl;
+                    if (provaUrl) return <img src={provaUrl} alt={`Prova da armação ${model.modelName} no rosto do paciente`} />;
+                    if (provaStatus[active.id] === 'loading') return <span>Gerando prova com o rosto do paciente…</span>;
+                    if (provaStatus[active.id] === 'error') return <span>{provaMessage[active.id] || 'Não foi possível gerar a prova.'}</span>;
+                    if (!clientPhotoUrl) return <span>Foto de rosto do paciente pendente (Etapa 1)</span>;
+                    if (!dnpTotalMm) return <span>DNP do paciente pendente (Etapa 1)</span>;
+                    return <span>Foto de<br />Prova</span>;
+                  })()}
+                </div>
                 <div className="frame-row-top">
                   <div className="frame-row-head">
                     <strong>{model.modelName}</strong>
@@ -258,17 +263,6 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
 
                 <div className={`frame-card${isHidden ? ' is-hidden' : ''}`}>
                   <div className="frame-photos">
-                    <div className="frame-photo-box frame-photo-prova">
-                      {(() => {
-                        const provaUrl = generatedProva[active.id] ?? active.provaUrl;
-                        if (provaUrl) return <img src={provaUrl} alt="Foto de Prova" />;
-                        if (provaStatus[active.id] === 'loading') return <span>Gerando prova com o rosto do paciente…</span>;
-                        if (provaStatus[active.id] === 'error') return <span>{provaMessage[active.id] || 'Não foi possível gerar a prova.'}</span>;
-                        if (!clientPhotoUrl) return <span>Foto de rosto do paciente pendente (Etapa 1)</span>;
-                        if (!dnpTotalMm) return <span>DNP do paciente pendente (Etapa 1)</span>;
-                        return <span>Foto de<br />Prova</span>;
-                      })()}
-                    </div>
                     <div className="frame-photo-box frame-photo-oculos">
                       {active.fotoOculosUrl ? <img src={active.fotoOculosUrl} alt="Foto do óculos" /> : <span>Foto do óculos ainda sem foto</span>}
                     </div>
