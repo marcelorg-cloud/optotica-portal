@@ -6,6 +6,7 @@ import { orderCode } from '@/lib/order-code';
 import { ClientStep } from '@/components/order/client-step';
 import { OsStep } from '@/components/order/os-step';
 import { FrameStep } from '@/components/order/frame-step';
+import { CartStep } from '@/components/order/cart-step';
 import { ComandaStep } from '@/components/order/comanda-step';
 import { PaymentStep } from '@/components/order/payment-step';
 import { ProductionStep } from '@/components/order/production-step';
@@ -270,6 +271,25 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
       })
     }));
 
+  // Carrinho (16/09/2026) — lista plana das cores marcadas GOSTEI em
+  // qualquer modelo, derivada dos mesmos dados de `armacaoModels` já
+  // montados acima (nenhuma consulta nova) — é essa lista que a nova tela
+  // "Carrinho" mostra pra revisão/confirmação final (ver components/order/cart-step.tsx).
+  const likedColors = armacaoModels.flatMap((product) =>
+    product.colors
+      .filter((color) => color.reaction === 'gostei')
+      .map((color) => ({
+        colorId: color.id,
+        modelName: product.modelName,
+        skuOptotica: product.skuOptotica,
+        colorName: color.colorName,
+        colorVariantNumber: color.colorVariantNumber,
+        fotoOculosUrl: color.fotoOculosUrl,
+        provaUrl: color.provaUrl,
+        confirmed: color.confirmed
+      }))
+  );
+
   const ful = fulfillment as Record<string, unknown> | null;
   const str = (v: unknown) => (v === null || v === undefined ? '' : String(v));
 
@@ -283,14 +303,20 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   const assemblyDone = ful?.assembly_status === 'concluida';
   const deliveryDone = Boolean(ful?.delivered_at);
 
-  const stepsDone = [true, hasPrescriptionAndQuote, hasFrame, comandaDone, paymentDone, productionDone, logisticsDone, assemblyDone, deliveryDone];
+  // Carrinho (16/09/2026) — "concluído" segue o mesmo critério de finalidade
+  // já usado por OS/Orçamento + Armação (orçamento selecionado e cor
+  // confirmada): o carrinho não introduz nenhum estado novo próprio, só
+  // reúne e permite curar o que essas duas etapas já produzem.
+  const cartDone = hasPrescriptionAndQuote && hasFrame;
+  const stepsDone = [true, hasPrescriptionAndQuote, hasFrame, cartDone, comandaDone, paymentDone, productionDone, logisticsDone, assemblyDone, deliveryDone];
   const currentStepIndex = stepsDone.findIndex((done) => !done);
-  const current = currentStepIndex === -1 ? 8 : currentStepIndex;
+  const current = currentStepIndex === -1 ? 9 : currentStepIndex;
 
   const steps = [
     { id: 'cliente', label: 'Paciente', hint: 'dados + DNP' },
     { id: 'os', label: 'OS / Orçamento', hint: 'lente + laboratório' },
     { id: 'armacao', label: 'Armação', hint: 'catálogo' },
+    { id: 'carrinho', label: 'Carrinho', hint: 'revisão final' },
     { id: 'comanda', label: 'Comanda final', hint: 'consolidação' },
     { id: 'pagamento', label: 'Pagamento', hint: 'online / balcão' },
     { id: 'producao', label: 'Produção', hint: 'lente + armação' },
@@ -388,13 +414,32 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
             </div>
           </section>
 
-          <section className="card step-section" id="comanda">
+          <section className="card step-section" id="carrinho">
             <div className="card-head">
               <div className="step-title">
                 <span className="step-badge">4</span>
+                <div><p className="eyebrow">Etapa</p><h2>Carrinho</h2></div>
+              </div>
+              {tag(cartDone, current === 3)}
+            </div>
+            <div className="card-body">
+              <CartStep
+                orderId={order.id}
+                quotes={quotes}
+                selectedQuoteId={order.selected_quote_id}
+                likedColors={likedColors}
+                locked={comandaDone}
+              />
+            </div>
+          </section>
+
+          <section className="card step-section" id="comanda">
+            <div className="card-head">
+              <div className="step-title">
+                <span className="step-badge">5</span>
                 <div><p className="eyebrow">Etapa</p><h2>Comanda final</h2></div>
               </div>
-              {tag(comandaDone, current === 3)}
+              {tag(comandaDone, current === 4)}
             </div>
             <div className="card-body">
               <ComandaStep
@@ -416,10 +461,10 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
           <section className="card step-section" id="pagamento">
             <div className="card-head">
               <div className="step-title">
-                <span className="step-badge">5</span>
+                <span className="step-badge">6</span>
                 <div><p className="eyebrow">Etapa</p><h2>Pagamento</h2></div>
               </div>
-              {tag(paymentDone, current === 4)}
+              {tag(paymentDone, current === 5)}
             </div>
             <div className="card-body">
               <PaymentStep
@@ -436,10 +481,10 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
           <section className="card step-section" id="producao">
             <div className="card-head">
               <div className="step-title">
-                <span className="step-badge">6</span>
+                <span className="step-badge">7</span>
                 <div><p className="eyebrow">Etapa</p><h2>Produção</h2></div>
               </div>
-              {tag(productionDone, current === 5)}
+              {tag(productionDone, current === 6)}
             </div>
             <div className="card-body">
               <ProductionStep
@@ -457,10 +502,10 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
           <section className="card step-section" id="logistica">
             <div className="card-head">
               <div className="step-title">
-                <span className="step-badge">7</span>
+                <span className="step-badge">8</span>
                 <div><p className="eyebrow">Etapa</p><h2>Produção e logística</h2></div>
               </div>
-              {tag(logisticsDone, current === 6)}
+              {tag(logisticsDone, current === 7)}
             </div>
             <div className="card-body">
               <LogisticsStep
@@ -476,10 +521,10 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
           <section className="card step-section" id="montagem">
             <div className="card-head">
               <div className="step-title">
-                <span className="step-badge">8</span>
+                <span className="step-badge">9</span>
                 <div><p className="eyebrow">Etapa</p><h2>Montagem</h2></div>
               </div>
-              {tag(assemblyDone, current === 7)}
+              {tag(assemblyDone, current === 8)}
             </div>
             <div className="card-body">
               <AssemblyStep
@@ -495,10 +540,10 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
           <section className="card step-section" id="entrega">
             <div className="card-head">
               <div className="step-title">
-                <span className="step-badge">9</span>
+                <span className="step-badge">10</span>
                 <div><p className="eyebrow">Etapa</p><h2>Entrega</h2></div>
               </div>
-              {tag(deliveryDone, current === 8)}
+              {tag(deliveryDone, current === 9)}
             </div>
             <div className="card-body">
               <DeliveryStep

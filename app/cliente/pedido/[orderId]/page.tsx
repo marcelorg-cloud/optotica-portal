@@ -5,6 +5,7 @@ import { orderCode } from '@/lib/order-code';
 import { OrderTabs } from '@/components/client-area/order-tabs';
 import { QuotesStep } from '@/components/client-area/quotes-step';
 import { ClientFrameStep } from '@/components/client-area/frame-step';
+import { ClientCartStep } from '@/components/client-area/cart-step';
 import { PhotoUpload } from '@/components/client-area/photo-upload';
 import { PrescriptionCard } from '@/components/client-area/prescription-card';
 import { TryonPanel, type TryonProduct } from '@/components/client-area/tryon-panel';
@@ -26,6 +27,23 @@ type CatalogColorRow = {
 type QuoteRow = { id: string; total: number; quote_items: { description: string }[] | null };
 type FrameVariant = { color: string; image?: string; qty?: number };
 type FrameRow = { id: string; name: string; metadata: { kind?: string; variants?: FrameVariant[] } | null };
+// Carrinho (16/09/2026) — mesma ideia da tela nova do profissional (ver
+// components/order/cart-step.tsx): reúne, aqui na área do próprio paciente,
+// os orçamentos (já existia) e as armações que o profissional marcou GOSTEI
+// no atendimento (novo, só leitura — a confirmação final e a remoção de uma
+// cor curtida continuam sendo feitas pelo profissional; a escolha de
+// armação do PRÓPRIO paciente, mais abaixo nesta página, continua no
+// catálogo antigo `frames`, sem nenhuma mudança).
+type LikedReactionRow = {
+  catalog_color_image_id: string;
+  status: string;
+  catalog_product_color_images: {
+    id: string; color_name: string; color_variant_number: number | null; processed_image_path: string | null;
+    catalog_product_color_display_images: { image_path: string | null; position: number; validated_at: string | null }[] | null;
+    catalog_products: { id: string; model_name: string; sku_optotica: string } | null;
+  } | null;
+};
+type PatientDisplayImageRow = { product_id: string; color_name: string; image_path: string | null };
 
 function formatWhatsApp(e164?: string | null) {
   if (!e164) return '—';
@@ -72,12 +90,14 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     { data: fulfillment },
     { data: framesData },
     { data: catalogColorsData },
-    { data: professional }
+    { data: professional },
+    { data: likedReactionsData },
+    { data: patientDisplaysData }
   ] = await Promise.all([
     admin.from('orders').select('id, order_number, status').eq('client_id', client.id).order('order_number', { ascending: false }),
     admin.from('prescriptions').select('prescription_data').eq('order_id', orderId).maybeSingle(),
     admin.from('quotes').select('id, total, quote_items(description)').eq('order_id', orderId),
-    admin.from('order_frames').select('frame_name, sku, color').eq('order_id', orderId).maybeSingle(),
+    admin.from('order_frames').select('frame_name, sku, color, catalog_color_image_id').eq('order_id', orderId).maybeSingle(),
     admin.from('order_fulfillment').select('*').eq('order_id', orderId).maybeSingle(),
     admin.from('frames').select('id, name, metadata').is('organization_id', null).eq('active', true).order('name'),
     admin
@@ -91,7 +111,16 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
       .eq('catalog_products.status', 'publicado'),
     order.professional_id
       ? admin.from('professional_profiles').select('display_name, council_registration').eq('user_id', order.professional_id).maybeSingle()
-      : Promise.resolve({ data: null as { display_name: string; council_registration: string | null } | null })
+      : Promise.resolve({ data: null as { display_name: string; council_registration: string | null } | null }),
+    // Carrinho (16/09/2026) — cores marcadas GOSTEI pelo profissional
+    // (order_frame_reactions), pra exibir na nova seção "Carrinho" desta
+    // página (só leitura, ver comentário do tipo LikedReactionRow acima).
+    admin
+      .from('order_frame_reactions')
+      .select('catalog_color_image_id, status, catalog_product_color_images!inner(id, color_name, color_variant_number, processed_image_path, catalog_product_color_display_images(image_path, position, validated_at), catalog_products!inner(id, model_name, sku_optotica))')
+      .eq('order_id', orderId)
+      .eq('status', 'gostei'),
+    admin.from('catalog_patient_display_images').select('product_id, color_name, image_path').eq('client_id', client.id)
   ]);
 
   const clientName = client.full_name || 'Paciente';
@@ -165,6 +194,64 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     )
   ).filter((p): p is TryonProduct => p !== null);
 
+  // Carrinho (16/09/2026) — armações que o profissional marcou GOSTEI no
+  // atendimento, com a mesma "foto de prova" (rosto do paciente + óculos,
+  // catalog_patient_display_images, bucket 'try-on-photos') e "foto do
+  // óculos" (melhor foto de exibição validada, bucket 'catalog-product-photos')
+  // já usadas na tela equivalente do profissional (components/order/cart-step.tsx).
+  const likedReactionRows = (likedReactionsData || []) as unknown as LikedReactionRow[];
+  const patientDisplayRows = (patientDisplaysData || []) as unknown as PatientDisplayImageRow[];
+  const confirmedColorImageId = (orderFrame as { catalog_color_image_id?: string | null } | null)?.catalog_color_image_id || null;
+
+  const oculosPathsToSign = new Set<string>();
+  for (const row of likedReactionRows) {
+    const bestDisplay = (row.catalog_product_color_images?.catalog_product_color_display_images || [])
+      .filter((d) => d.validated_at && d.image_path)
+      .sort((a, b) => a.position - b.position)[0];
+    if (bestDisplay?.image_path) oculosPathsToSign.add(bestDisplay.image_path);
+  }
+  const signedOculosByPath = new Map<string, string>();
+  if (oculosPathsToSign.size) {
+    const { data: signedOculosList } = await admin.storage.from(CATALOG_PHOTOS_BUCKET).createSignedUrls(Array.from(oculosPathsToSign), 3600);
+    for (const entry of signedOculosList || []) {
+      if (entry.path && entry.signedUrl) signedOculosByPath.set(entry.path, entry.signedUrl);
+    }
+  }
+
+  const provaPathsByProductColor = new Map<string, string>();
+  for (const d of patientDisplayRows) {
+    if (d.image_path) provaPathsByProductColor.set(`${d.product_id}::${d.color_name}`, d.image_path);
+  }
+  const provaPaths = Array.from(new Set(Array.from(provaPathsByProductColor.values())));
+  const signedProvaByPath = new Map<string, string>();
+  if (provaPaths.length) {
+    const { data: signedProvaList } = await admin.storage.from(BUCKET).createSignedUrls(provaPaths, 3600);
+    for (const entry of signedProvaList || []) {
+      if (entry.path && entry.signedUrl) signedProvaByPath.set(entry.path, entry.signedUrl);
+    }
+  }
+
+  const likedColors = likedReactionRows
+    .map((row) => row.catalog_product_color_images)
+    .filter((color): color is NonNullable<LikedReactionRow['catalog_product_color_images']> => Boolean(color && color.catalog_products))
+    .map((color) => {
+      const product = color.catalog_products!;
+      const bestDisplay = (color.catalog_product_color_display_images || [])
+        .filter((d) => d.validated_at && d.image_path)
+        .sort((a, b) => a.position - b.position)[0];
+      const provaPath = provaPathsByProductColor.get(`${product.id}::${color.color_name}`);
+      return {
+        colorId: color.id,
+        modelName: product.model_name,
+        skuOptotica: product.sku_optotica,
+        colorName: color.color_name,
+        colorVariantNumber: color.color_variant_number,
+        fotoOculosUrl: bestDisplay?.image_path ? signedOculosByPath.get(bestDisplay.image_path) || null : null,
+        provaUrl: provaPath ? signedProvaByPath.get(provaPath) || null : null,
+        confirmed: confirmedColorImageId === color.id
+      };
+    });
+
   const ful = fulfillment as Record<string, unknown> | null;
   const locked = order.status === 'completed';
   const hasQuote = Boolean(order.selected_quote_id);
@@ -187,9 +274,13 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     { id: 'orcamentos', label: 'Escolher lente', hint: 'orçamentos' },
     { id: 'receita', label: 'Minha receita', hint: 'prescrição' },
     { id: 'armacao', label: 'Escolher armação', hint: 'catálogo' },
+    { id: 'carrinho', label: 'Carrinho', hint: 'revisão' },
     { id: 'status', label: 'Acompanhar pedido', hint: 'produção + entrega' }
   ];
-  const stepsDone = [true, hasQuote, hasRx, hasFrame, trackingDone];
+  // Carrinho (16/09/2026) — mesmo critério de "concluído" do carrinho do
+  // profissional (ver page.tsx do atendimento): pronto quando já há lente e
+  // armação escolhidas, sem introduzir nenhum estado novo próprio.
+  const stepsDone = [true, hasQuote, hasRx, hasFrame, hasQuote && hasFrame, trackingDone];
   const currentStep = stepsDone.findIndex((d) => !d);
 
   const orderTabs = (allOrders || []).map((o) => ({ id: o.id, code: orderCode(clientName, o.order_number), status: o.status }));
@@ -274,6 +365,19 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
             frames={frames}
             selectedFrameName={orderFrame?.frame_name || null}
             selectedColor={orderFrame?.color || null}
+            locked={locked}
+          />
+        </div>
+      </section>
+
+      <section className="card" id="carrinho">
+        <div className="card-head"><div><p className="eyebrow">Revisão</p><h2>Carrinho</h2></div><span className="complete-tag">Somente consulta</span></div>
+        <div className="card-body">
+          <ClientCartStep
+            orderId={order.id}
+            quotes={quotes}
+            selectedQuoteId={order.selected_quote_id}
+            likedColors={likedColors}
             locked={locked}
           />
         </div>
