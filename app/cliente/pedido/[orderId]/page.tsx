@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createAdminSupabaseClient, createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { orderCode } from '@/lib/order-code';
+import { isOrderFinalized, orderStatusLabel } from '@/lib/order-status';
 import { OrderTabs } from '@/components/client-area/order-tabs';
 import { QuotesStep } from '@/components/client-area/quotes-step';
 import { ClientFrameStep } from '@/components/client-area/frame-step';
@@ -14,7 +15,6 @@ export const metadata: Metadata = { title: 'Meu pedido' };
 
 const BUCKET = 'try-on-photos';
 const CATALOG_PHOTOS_BUCKET = 'catalog-product-photos';
-const STATUS_LABEL: Record<string, string> = { in_progress: 'Em andamento', completed: 'Concluído' };
 
 type CatalogColorRow = {
   id: string;
@@ -253,7 +253,14 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     });
 
   const ful = fulfillment as Record<string, unknown> | null;
-  const locked = order.status === 'completed';
+  // 16/09/2026 — 'completed' nunca é um valor real de orders.status, então
+  // este bloqueio nunca funcionava de verdade. A constraint real do banco
+  // (orders_status_check) aceita mais valores do que só
+  // 'in_progress'/'delivered' — travar em "!== 'in_progress'" trataria por
+  // engano um status intermediário (awaiting_quote/approved/in_production/
+  // etc.) como pedido finalizado. isOrderFinalized só considera
+  // 'delivered'/'cancelled' (ver lib/order-status.ts).
+  const locked = isOrderFinalized(order.status);
   const hasQuote = Boolean(order.selected_quote_id);
   const hasFrame = Boolean(orderFrame);
   const hasRx = Boolean(prescription);
@@ -308,14 +315,14 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
       <section className="card">
         <div className="card-head">
           <div><p className="eyebrow">Visão geral</p><h2>Pedido {orderCode(clientName, order.order_number)}</h2></div>
-          <span className={locked ? 'complete-tag' : 'pending-tag'}>{STATUS_LABEL[order.status] || order.status}</span>
+          <span className={locked ? 'complete-tag' : 'pending-tag'}>{orderStatusLabel(order.status)}</span>
         </div>
         <div className="card-body">
           <div className="summary-grid">
             <div className="stat"><span>Lente</span><strong>{selectedQuote?.description || 'Escolha pendente'}</strong></div>
             <div className="stat"><span>Armação</span><strong>{orderFrame?.frame_name || 'Ainda não escolhida'}</strong></div>
             <div className="stat"><span>Valor</span><strong>{selectedQuote ? `R$ ${selectedQuote.total.toFixed(2).replace('.', ',')}` : 'A definir'}</strong></div>
-            <div className="stat"><span>Status</span><strong>{STATUS_LABEL[order.status] || order.status}</strong></div>
+            <div className="stat"><span>Status</span><strong>{orderStatusLabel(order.status)}</strong></div>
           </div>
         </div>
       </section>

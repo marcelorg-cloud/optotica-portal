@@ -10,8 +10,8 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
 }
 
-function Timeline({ title, milestones, onMark, pendingKey }: {
-  title: string; milestones: Milestone[]; onMark: (key: string) => void; pendingKey: string | null;
+function Timeline({ title, milestones, onMark, pendingKey, locked }: {
+  title: string; milestones: Milestone[]; onMark: (key: string) => void; pendingKey: string | null; locked: boolean;
 }) {
   return (
     <div className="subsection">
@@ -23,7 +23,7 @@ function Timeline({ title, milestones, onMark, pendingKey }: {
             <div>
               <strong>{m.label}</strong>
               <small>{m.hint}</small>
-              {!m.at && (
+              {!m.at && !locked && (
                 <div style={{ marginTop: 6 }}>
                   <button className="button secondary" type="button" disabled={pendingKey === m.key} onClick={() => onMark(m.key)} style={{ minHeight: 34, padding: '0 12px', fontSize: 11 }}>
                     {pendingKey === m.key ? 'Salvando…' : 'Marcar concluído'}
@@ -39,14 +39,17 @@ function Timeline({ title, milestones, onMark, pendingKey }: {
   );
 }
 
-export function LogisticsStep({ orderId, frameShippedAt, frameReceivedAt, lensConfirmedAt, lensReadyAt }: {
+export function LogisticsStep({ orderId, frameShippedAt, frameReceivedAt, lensConfirmedAt, lensReadyAt, locked = false }: {
   orderId: string; frameShippedAt: string | null; frameReceivedAt: string | null; lensConfirmedAt: string | null; lensReadyAt: string | null;
+  /** Atendimento finalizado (16/09/2026) — antes esta etapa nunca travava. */
+  locked?: boolean;
 }) {
   const router = useRouter();
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [message, setMessage] = useState('');
 
   async function mark(key: string) {
+    if (locked) return;
     setPendingKey(key);
     setMessage('');
     const response = await fetch(`/api/professional/orders/${orderId}/fulfillment`, {
@@ -61,11 +64,13 @@ export function LogisticsStep({ orderId, frameShippedAt, frameReceivedAt, lensCo
 
   return (
     <div className="stack">
+      {locked && <div className="notice">🔒 Atendimento finalizado — somente consulta.</div>}
       <div className="grid grid-2">
         <Timeline
           title="Armação"
           pendingKey={pendingKey}
           onMark={mark}
+          locked={locked}
           milestones={[
             { key: 'frame_shipped', label: 'Em trânsito', hint: 'Fornecedor enviou o pedido.', at: frameShippedAt },
             { key: 'frame_received', label: 'Recebida', hint: 'Disponível para montagem.', at: frameReceivedAt }
@@ -75,6 +80,7 @@ export function LogisticsStep({ orderId, frameShippedAt, frameReceivedAt, lensCo
           title="Lentes"
           pendingKey={pendingKey}
           onMark={mark}
+          locked={locked}
           milestones={[
             { key: 'lens_confirmed', label: 'Laboratório confirmou', hint: 'OS aceita para produção.', at: lensConfirmedAt },
             { key: 'lens_ready', label: 'Prontas', hint: 'Lentes disponíveis para montagem.', at: lensReadyAt }

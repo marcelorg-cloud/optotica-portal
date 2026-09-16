@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
+import { isOrderFinalized } from '@/lib/order-status';
 
 export async function POST(request: Request, { params }: { params: Promise<{ orderId: string }> }) {
   const { orderId } = await params;
@@ -20,7 +21,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
 
   const { data: order } = await admin.from('orders').select('id, status').eq('id', orderId).eq('client_id', client.id).maybeSingle();
   if (!order) return NextResponse.json({ message: 'Pedido não encontrado.' }, { status: 404 });
-  if (order.status === 'completed') return NextResponse.json({ message: 'Este pedido já foi concluído.' }, { status: 400 });
+  // 16/09/2026 — 'completed' nunca é um valor real de orders.status, então
+  // esta trava nunca funcionava de verdade. Usa isOrderFinalized (só
+  // 'delivered'/'cancelled' travam — ver lib/order-status.ts) em vez de
+  // "!== 'in_progress'", já que a constraint do banco aceita outros valores
+  // intermediários que não devem ser tratados como finalizados.
+  if (isOrderFinalized(order.status)) return NextResponse.json({ message: 'Este pedido já foi concluído.' }, { status: 400 });
 
   const { data: quote } = await admin.from('quotes').select('id, total').eq('id', quoteId).eq('order_id', orderId).maybeSingle();
   if (!quote) return NextResponse.json({ message: 'Orçamento não encontrado neste pedido.' }, { status: 404 });

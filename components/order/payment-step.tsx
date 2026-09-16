@@ -10,13 +10,15 @@ const METHODS: Array<{ value: string; label: string }> = [
   { value: 'maquina', label: 'Máquina de cartão' }
 ];
 
-export function PaymentStep({ orderId, initialValue, initialMethod, initialDownValue, initialPickupValue, confirmed }: {
+export function PaymentStep({ orderId, initialValue, initialMethod, initialDownValue, initialPickupValue, confirmed, locked = false }: {
   orderId: string;
   initialValue: string;
   initialMethod: string;
   initialDownValue: string;
   initialPickupValue: string;
   confirmed: boolean;
+  /** Atendimento finalizado (16/09/2026) — antes esta etapa nunca travava. */
+  locked?: boolean;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -24,7 +26,7 @@ export function PaymentStep({ orderId, initialValue, initialMethod, initialDownV
   const [message, setMessage] = useState('');
 
   async function submit(confirm: boolean) {
-    if (!formRef.current) return;
+    if (locked || !formRef.current) return;
     setState('loading');
     setMessage('');
     const form = new FormData(formRef.current);
@@ -46,6 +48,8 @@ export function PaymentStep({ orderId, initialValue, initialMethod, initialDownV
 
   return (
     <form className="stack" ref={formRef} onSubmit={(e) => e.preventDefault()}>
+      {locked && <div className="notice">🔒 Atendimento finalizado — somente consulta.</div>}
+      <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0 }}>
       <div className="grid grid-2">
         <div className="field">
           <label className="required">Valor final da venda</label>
@@ -81,6 +85,7 @@ export function PaymentStep({ orderId, initialValue, initialMethod, initialDownV
           {confirmed ? 'Pagamento confirmado ✓' : 'Confirmar pagamento'}
         </button>
       </div>
+      </fieldset>
       {message && state === 'error' && <p className="form-message error">{message}</p>}
     </form>
   );

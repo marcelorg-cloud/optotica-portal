@@ -10,8 +10,10 @@ const STATUSES = [
   { value: 'concluida', label: 'Concluída' }
 ];
 
-export function AssemblyStep({ orderId, initialFrameReceived, initialLensReceived, initialStatus, initialNotes }: {
+export function AssemblyStep({ orderId, initialFrameReceived, initialLensReceived, initialStatus, initialNotes, locked = false }: {
   orderId: string; initialFrameReceived: boolean; initialLensReceived: boolean; initialStatus: string; initialNotes: string;
+  /** Atendimento finalizado (16/09/2026) — antes esta etapa nunca travava. */
+  locked?: boolean;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -19,7 +21,7 @@ export function AssemblyStep({ orderId, initialFrameReceived, initialLensReceive
   const [message, setMessage] = useState('');
 
   async function submit() {
-    if (!formRef.current) return;
+    if (locked || !formRef.current) return;
     setState('loading');
     setMessage('');
     const form = new FormData(formRef.current);
@@ -41,6 +43,8 @@ export function AssemblyStep({ orderId, initialFrameReceived, initialLensReceive
 
   return (
     <form className="stack" ref={formRef} onSubmit={(e) => { e.preventDefault(); submit(); }}>
+      {locked && <div className="notice">🔒 Atendimento finalizado — somente consulta.</div>}
+      <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0 }}>
       <div className="grid grid-3">
         <div className="field"><label>Armação recebida</label>
           <select name="frameReceived" defaultValue={initialFrameReceived ? 'sim' : 'nao'}><option value="nao">Não</option><option value="sim">Sim</option></select>
@@ -56,6 +60,7 @@ export function AssemblyStep({ orderId, initialFrameReceived, initialLensReceive
         <textarea name="notes" rows={3} maxLength={500} defaultValue={initialNotes} placeholder="Conferência de grau, eixo, DNP, altura, acabamento e integridade da armação..." />
       </div>
       <div className="actions"><button className="button primary" type="submit" disabled={state === 'loading'}>{state === 'loading' ? 'Salvando…' : 'Salvar montagem'}</button></div>
+      </fieldset>
       {message && state === 'error' && <p className="form-message error">{message}</p>}
     </form>
   );

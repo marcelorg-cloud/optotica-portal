@@ -9,8 +9,10 @@ const DESTINATIONS = [
   { value: 'cliente_final', label: 'Paciente final' }
 ];
 
-export function DeliveryStep({ orderId, initialDestination, initialDate, initialReceivedBy, initialNotes, confirmed }: {
+export function DeliveryStep({ orderId, initialDestination, initialDate, initialReceivedBy, initialNotes, confirmed, locked = false }: {
   orderId: string; initialDestination: string; initialDate: string; initialReceivedBy: string; initialNotes: string; confirmed: boolean;
+  /** Atendimento finalizado (16/09/2026) — antes esta etapa nunca travava. */
+  locked?: boolean;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -18,7 +20,7 @@ export function DeliveryStep({ orderId, initialDestination, initialDate, initial
   const [message, setMessage] = useState('');
 
   async function save(confirm: boolean) {
-    if (!formRef.current) return;
+    if (locked || !formRef.current) return;
     setState('loading');
     setMessage('');
     const form = new FormData(formRef.current);
@@ -39,6 +41,8 @@ export function DeliveryStep({ orderId, initialDestination, initialDate, initial
 
   return (
     <form className="stack" ref={formRef} onSubmit={(e) => { e.preventDefault(); save(false); }}>
+      {locked && <div className="notice">🔒 Atendimento finalizado — somente consulta.</div>}
+      <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0 }}>
       <div className="grid grid-3">
         <div className="field"><label>Destino</label>
           <select name="destination" defaultValue={initialDestination || 'loja'}>{DESTINATIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}</select>
@@ -55,6 +59,7 @@ export function DeliveryStep({ orderId, initialDestination, initialDate, initial
           {confirmed ? 'Atendimento finalizado ✓' : 'Finalizar atendimento'}
         </button>
       </div>
+      </fieldset>
       {message && state === 'error' && <p className="form-message error">{message}</p>}
     </form>
   );

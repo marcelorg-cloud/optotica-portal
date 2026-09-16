@@ -19,9 +19,11 @@ const LENS_STATUSES = [
 
 export type LaboratoryOption = { id: string; name: string; isPrimary: boolean };
 
-export function ProductionStep({ orderId, initialFrameStatus, initialFrameRef, initialLensStatus, initialLensRef, laboratoryOptions, initialLaboratoryId }: {
+export function ProductionStep({ orderId, initialFrameStatus, initialFrameRef, initialLensStatus, initialLensRef, laboratoryOptions, initialLaboratoryId, locked = false }: {
   orderId: string; initialFrameStatus: string; initialFrameRef: string; initialLensStatus: string; initialLensRef: string;
   laboratoryOptions: LaboratoryOption[]; initialLaboratoryId: string;
+  /** Atendimento finalizado (16/09/2026) — antes esta etapa nunca travava. */
+  locked?: boolean;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -29,7 +31,7 @@ export function ProductionStep({ orderId, initialFrameStatus, initialFrameRef, i
   const [message, setMessage] = useState('');
 
   async function submit() {
-    if (!formRef.current) return;
+    if (locked || !formRef.current) return;
     setState('loading');
     setMessage('');
     const form = new FormData(formRef.current);
@@ -51,6 +53,8 @@ export function ProductionStep({ orderId, initialFrameStatus, initialFrameRef, i
 
   return (
     <form className="stack" ref={formRef} onSubmit={(e) => { e.preventDefault(); submit(); }}>
+      {locked && <div className="notice">🔒 Atendimento finalizado — somente consulta.</div>}
+      <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0 }}>
       <div className="grid grid-2">
         <div className="subsection">
           <h3>Pedido da armação</h3>
@@ -85,6 +89,7 @@ export function ProductionStep({ orderId, initialFrameStatus, initialFrameRef, i
         </div>
       </div>
       <div className="actions"><button className="button primary" type="submit" disabled={state === 'loading'}>{state === 'loading' ? 'Salvando…' : 'Salvar status de produção'}</button></div>
+      </fieldset>
       {message && state === 'error' && <p className="form-message error">{message}</p>}
     </form>
   );

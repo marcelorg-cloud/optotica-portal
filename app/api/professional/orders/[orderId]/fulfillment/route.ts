@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
+import { isOrderFinalized } from '@/lib/order-status';
 
 const FRAME_PRODUCTION_STATUSES = ['aguardando_pedido', 'pedido_realizado', 'confirmado_fornecedor', 'indisponivel'];
 const LENS_PRODUCTION_STATUSES = ['aguardando_envio', 'enviado_laboratorio', 'confirmado_laboratorio', 'em_producao', 'pronta'];
@@ -37,8 +38,23 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ or
   const data = (body?.data && typeof body.data === 'object') ? body.data as Record<string, unknown> : {};
 
   const admin = createAdminSupabaseClient();
-  const { data: order } = await admin.from('orders').select('id, organization_id').eq('id', orderId).eq('professional_id', user.id).maybeSingle();
+  const { data: order } = await admin.from('orders').select('id, organization_id, status').eq('id', orderId).eq('professional_id', user.id).maybeSingle();
   if (!order) return NextResponse.json({ message: 'Pedido não encontrado.' }, { status: 404 });
+
+  // Atendimento finalizado (16/09/2026) — antes, só a seção "comanda" travava
+  // (via comanda_confirmed_at, verificado abaixo); Pagamento/Produção/
+  // Logística/Montagem/Entrega ficavam editáveis pra sempre, mesmo depois do
+  // pedido já ter sido entregue. `orders_status_check` (constraint do banco)
+  // na verdade aceita bem mais valores do que só 'in_progress'/'delivered'
+  // (awaiting_quote/awaiting_choice/approved/in_production/ready/cancelled
+  // também são permitidos) — nenhum deles além de 'delivered' é gravado por
+  // este app hoje, mas travar em "!== 'in_progress'" trataria um pedido
+  // legado/externo nesses status intermediários como finalizado por engano.
+  // `isOrderFinalized` só considera 'delivered'/'cancelled' (os dois valores
+  // realmente terminais) — ver lib/order-status.ts.
+  if (isOrderFinalized(order.status)) {
+    return NextResponse.json({ message: 'Este atendimento já foi finalizado — nenhuma etapa pode mais ser alterada.' }, { status: 409 });
+  }
 
   const patch: Record<string, unknown> = { order_id: order.id, organization_id: order.organization_id };
 

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createAdminSupabaseClient, createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { orderCode } from '@/lib/order-code';
+import { isOrderFinalized } from '@/lib/order-status';
 import { ClientStep } from '@/components/order/client-step';
 import { OsStep } from '@/components/order/os-step';
 import { FrameStep } from '@/components/order/frame-step';
@@ -296,6 +297,20 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   // Estado das etapas (para o menu e as etiquetas de cada card)
   const hasPrescriptionAndQuote = Boolean(prescription && order.selected_quote_id);
   const hasFrame = Boolean(orderFrame);
+  // Atendimento finalizado (16/09/2026, correção da listagem de pedidos):
+  // até agora só Paciente/OS/Armação/Carrinho/Comanda final travavam depois
+  // de confirmados (via comanda_confirmed_at, ver comandaDone abaixo) —
+  // Pagamento/Produção/Logística/Montagem/Entrega ficavam editáveis pra
+  // sempre, mesmo com o pedido já entregue. `orders_status_check` (constraint
+  // do banco) aceita mais valores do que só 'in_progress'/'delivered'
+  // (awaiting_quote/awaiting_choice/approved/in_production/ready/cancelled) —
+  // nenhum deles além de 'delivered' é gravado por este app hoje, mas
+  // isOrderFinalized só trata 'delivered'/'cancelled' como realmente
+  // finalizados, para não travar por engano um pedido num status
+  // intermediário (ver lib/order-status.ts e o mesmo ajuste em
+  // app/api/professional/orders/[orderId]/fulfillment/route.ts e
+  // app/cliente/pedido/[orderId]/page.tsx).
+  const orderFinalized = isOrderFinalized(order.status);
   const comandaDone = Boolean(ful?.comanda_confirmed_at);
   const paymentDone = Boolean(ful?.payment_confirmed_at);
   const productionDone = ful?.lens_production_status === 'pronta' && ful?.frame_production_status === 'confirmado_fornecedor';
@@ -352,6 +367,12 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
           das etapas passam a usar toda a largura da tela, sem a coluna
           lateral fixa (ver app/globals.css: antes era `.overview` com
           grid-template-columns:minmax(0,1fr) 320px). */}
+      {orderFinalized && (
+        <div className="notice" style={{ marginBottom: 16 }}>
+          🔒 Atendimento finalizado (entregue) — este pedido está aberto somente para consulta. Nenhuma etapa
+          pode mais ser editada.
+        </div>
+      )}
       <div className="stack">
 
           <section className="card step-section" id="cliente">
@@ -373,7 +394,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                 initialBirthDate={str(client?.birth_date)}
                 initialCpf={str(client?.cpf)}
                 frameName={orderFrame?.frame_name || ''}
-                locked={comandaDone}
+                locked={comandaDone || orderFinalized}
                 initialFacePhotoStatus={(client?.tryon_face_status as 'pendente' | 'validada' | null) || null}
                 initialFacePhotoUrl={facePhotoUrl}
               />
@@ -395,7 +416,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                 initialOe={toEye(rx?.oe)}
                 quotes={quotes}
                 selectedQuoteId={order.selected_quote_id}
-                locked={comandaDone}
+                locked={comandaDone || orderFinalized}
                 menuTiers={menuTiers}
               />
             </div>
@@ -410,7 +431,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
               {tag(hasFrame, current === 2)}
             </div>
             <div className="card-body">
-              <FrameStep orderId={order.id} models={armacaoModels} confirmedFrameName={orderFrame?.frame_name || null} confirmedColor={orderFrame?.color || null} locked={comandaDone} clientPhotoUrl={tryonClientPhotoUrl} dnpTotalMm={dnpTotalMm} />
+              <FrameStep orderId={order.id} models={armacaoModels} confirmedFrameName={orderFrame?.frame_name || null} confirmedColor={orderFrame?.color || null} locked={comandaDone || orderFinalized} clientPhotoUrl={tryonClientPhotoUrl} dnpTotalMm={dnpTotalMm} />
             </div>
           </section>
 
@@ -428,7 +449,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                 quotes={quotes}
                 selectedQuoteId={order.selected_quote_id}
                 likedColors={likedColors}
-                locked={comandaDone}
+                locked={comandaDone || orderFinalized}
               />
             </div>
           </section>
@@ -453,7 +474,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                   heightOd: str(ful?.measure_height_od), heightOe: str(ful?.measure_height_oe),
                   bridge: str(ful?.measure_bridge), diagonal: str(ful?.measure_diagonal), notes: str(ful?.final_lab_notes)
                 }}
-                confirmed={comandaDone}
+                confirmed={comandaDone || orderFinalized}
               />
             </div>
           </section>
@@ -474,6 +495,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                 initialDownValue={str(ful?.payment_down_value)}
                 initialPickupValue={str(ful?.payment_pickup_value)}
                 confirmed={paymentDone}
+                locked={orderFinalized}
               />
             </div>
           </section>
@@ -495,6 +517,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                 initialLensRef={str(ful?.lens_lab_reference)}
                 initialLaboratoryId={str(ful?.laboratory_id)}
                 laboratoryOptions={((laboratoriesData || []) as unknown as LaboratoryRow[]).map((lab) => ({ id: lab.id, name: lab.name, isPrimary: Boolean(lab.is_primary) }))}
+                locked={orderFinalized}
               />
             </div>
           </section>
@@ -514,6 +537,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                 frameReceivedAt={(ful?.frame_received_at as string) || null}
                 lensConfirmedAt={(ful?.lens_confirmed_at as string) || null}
                 lensReadyAt={(ful?.lens_ready_at as string) || null}
+                locked={orderFinalized}
               />
             </div>
           </section>
@@ -533,6 +557,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                 initialLensReceived={Boolean(ful?.lens_received_check)}
                 initialStatus={str(ful?.assembly_status) || 'aguardando'}
                 initialNotes={str(ful?.assembly_notes)}
+                locked={orderFinalized}
               />
             </div>
           </section>
@@ -553,6 +578,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                 initialReceivedBy={str(ful?.delivery_received_by)}
                 initialNotes={str(ful?.delivery_notes)}
                 confirmed={deliveryDone}
+                locked={orderFinalized}
               />
             </div>
           </section>

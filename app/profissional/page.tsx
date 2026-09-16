@@ -3,12 +3,26 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createAdminSupabaseClient, createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { orderCode } from '@/lib/order-code';
+import { ORDER_STATUS_LABEL, orderStatusLabel } from '@/lib/order-status';
 
 export const metadata: Metadata = { title: 'Área profissional' };
 
-type OrderSummary = { id: string; order_number: number; status: string; total: number | null; updated_at: string; clients: { full_name: string } | null };
+type OrderSummary = {
+  id: string;
+  order_number: number;
+  status: string;
+  total: number | null;
+  created_at: string;
+  updated_at: string;
+  client_id: string;
+  clients: { full_name: string } | null;
+};
 
-export default async function ProfessionalPage() {
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(new Date(value));
+}
+
+export default async function ProfessionalPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
   if (!isSupabaseConfigured()) {
     return <div className="page-shell narrow"><div className="setup-note">Configure as variáveis do Supabase para ativar a área profissional.</div></div>;
   }
@@ -33,11 +47,76 @@ export default async function ProfessionalPage() {
     return <div className="page-shell narrow"><div className="setup-note"><strong>{labels[profile.status] || 'Acesso indisponível.'}</strong>{profile.review_notes && <p>{profile.review_notes}</p>}</div></div>;
   }
 
-  const { data } = await supabase
+  const params = await searchParams;
+  const readParam = (key: string) => {
+    const raw = params[key];
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    return typeof value === 'string' ? value.trim() : '';
+  };
+  const paciente = readParam('paciente');
+  const status = readParam('status');
+  const de = readParam('de');
+  const ate = readParam('ate');
+  const filtersActive = Boolean(paciente || status || de || ate);
+
+  // 16/09/2026 — correção da causa raiz da inconsistência reportada: esta
+  // consulta usava `supabase` (sessão do usuário, sujeita a RLS) sem nenhum
+  // filtro de `professional_id`. A tabela `orders` tem política de RLS
+  // habilitada, mas só existem políticas de INSERT (`orders_add`) e UPDATE
+  // (`orders_change`) — não existe NENHUMA política de SELECT (conferido em
+  // todas as migrations rastreadas). Com RLS ativo e sem política de leitura,
+  // a consulta sempre devolvia zero linhas, mesmo com pedidos reais no banco
+  // — por isso "Meus pacientes" (que já usava `admin` + filtro explícito de
+  // `professional_id`, igual a todas as outras consultas de `orders` deste
+  // projeto) mostrava "Continuar atendimento" para pedidos que aqui apareciam
+  // como "Nenhum pedido cadastrado". Corrigido para o mesmo padrão: `admin` +
+  // `.eq('professional_id', user.id)`, que é o mecanismo real de autorização
+  // usado em todo o restante do código (RLS nunca foi a proteção efetiva
+  // desta tabela).
+  //
+  // Sobre "data de atendimento": nenhuma linha deste projeto, em nenhuma
+  // migration rastreada, já selecionou ou usou uma coluna de data em
+  // `orders` além de `updated_at` — a tabela é anterior ao histórico de
+  // migrations rastreado. Confirmado com o usuário (16/09/2026, consulta a
+  // information_schema.columns) o uso de `created_at` como "data de
+  // atendimento" — a data em que o atendimento/pedido foi aberto. NÃO
+  // presumimos silenciosamente `updated_at` como substituto — foi
+  // explicitamente perguntado e confirmado antes de publicar.
+  //
+  // A mesma consulta também revelou que `orders_status_check` aceita bem
+  // mais valores do que só 'in_progress'/'delivered' (ver
+  // lib/order-status.ts) — o filtro de status abaixo lista todos eles,
+  // ainda que só 'in_progress'/'delivered' sejam gravados por este app hoje.
+  let query = admin
     .from('orders')
-    .select('id, order_number, status, total, updated_at, clients(full_name)')
-    .order('updated_at', { ascending: false })
-    .limit(20);
+    .select('id, order_number, status, total, created_at, updated_at, client_id, clients(full_name)')
+    .eq('professional_id', user.id);
+
+  if (status) query = query.eq('status', status);
+  if (de) query = query.gte('created_at', `${de}T00:00:00`);
+  if (ate) query = query.lte('created_at', `${ate}T23:59:59`);
+
+  let patientFilterHadNoMatch = false;
+  if (paciente) {
+    const { data: matches } = await admin
+      .from('professional_client_assignments')
+      .select('client_id, clients!inner(full_name)')
+      .eq('professional_user_id', user.id)
+      .eq('active', true)
+      .ilike('clients.full_name', `%${paciente}%`);
+    const clientIds = (matches || []).map((m) => m.client_id);
+    if (clientIds.length) {
+      query = query.in('client_id', clientIds);
+    } else {
+      patientFilterHadNoMatch = true;
+    }
+  }
+
+  query = query.order('created_at', { ascending: false });
+
+  const { data, error } = patientFilterHadNoMatch ? { data: [] as OrderSummary[], error: null } : await query;
+  const loadFailed = Boolean(error);
+  if (error) console.error('professional_orders_load_failed', { code: error.code });
   const orders = (data || []) as unknown as OrderSummary[];
 
   return (
@@ -51,16 +130,61 @@ export default async function ProfessionalPage() {
           <Link className="button secondary" href="/profissional/cardapio">Cardápio de lentes</Link>
         </div>
       </section>
-      <section className="card table-card">
-        <div className="table-head"><span>Pedido</span><span>Paciente</span><span>Status</span><span>Atualização</span></div>
-        {orders.length ? orders.map(order => (
+
+      <section className="card table-card orders-table">
+        <form className="filter-bar" method="get">
+          <div className="field">
+            <label htmlFor="f-paciente">Paciente</label>
+            <input id="f-paciente" type="text" name="paciente" defaultValue={paciente} placeholder="Buscar por nome" />
+          </div>
+          <div className="field">
+            <label htmlFor="f-status">Status</label>
+            <select id="f-status" name="status" defaultValue={status}>
+              <option value="">Todos</option>
+              {Object.entries(ORDER_STATUS_LABEL).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="f-de">Atendimento de</label>
+            <input id="f-de" type="date" name="de" defaultValue={de} />
+          </div>
+          <div className="field">
+            <label htmlFor="f-ate">Atendimento até</label>
+            <input id="f-ate" type="date" name="ate" defaultValue={ate} />
+          </div>
+          <div className="filter-actions">
+            <button className="button primary" type="submit">Filtrar</button>
+            {filtersActive && <Link className="text-button" href="/profissional">Limpar filtros</Link>}
+          </div>
+        </form>
+
+        <div className="table-head"><span>Pedido</span><span>Paciente</span><span>Atendimento</span><span>Status</span><span>Atualização</span></div>
+
+        {loadFailed && (
+          <div className="setup-note" style={{ margin: 20 }}>
+            Não foi possível carregar a lista de pedidos agora. Tente novamente em instantes.
+          </div>
+        )}
+
+        {!loadFailed && orders.length > 0 && orders.map((order) => (
           <div className="table-row" key={order.id}>
             <strong>{orderCode(order.clients?.full_name || 'Paciente', order.order_number)}</strong>
             <span>{order.clients?.full_name || 'Paciente'}</span>
-            <span className="pill">{order.status}</span>
-            <time>{new Intl.DateTimeFormat('pt-BR').format(new Date(order.updated_at))}</time>
+            <time>{formatDate(order.created_at)}</time>
+            <Link className="status-link" href={`/profissional/pacientes/${order.client_id}/pedido/${order.id}`}>
+              <span className="pill">{orderStatusLabel(order.status)}</span>
+            </Link>
+            <time>{formatDate(order.updated_at)}</time>
           </div>
-        )) : <div className="empty-state">Nenhum pedido cadastrado.</div>}
+        ))}
+
+        {!loadFailed && orders.length === 0 && (
+          <div className="empty-state">
+            {filtersActive ? 'Nenhum pedido encontrado para os filtros selecionados.' : 'Nenhum pedido cadastrado ainda.'}
+          </div>
+        )}
       </section>
     </div>
   );
