@@ -1,3 +1,4 @@
+import { activePhoto } from '@/lib/tryon/active-photo';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createAdminSupabaseClient, createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
@@ -142,15 +143,10 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
   // Foto de prova: guardada só no bucket try-on-photos (RLS já libera o próprio
   // cliente), sem depender da tabela `documents` — evita presumir colunas que
   // esta sessão não pôde confirmar.
-  const photoFolder = `${client.organization_id}/${client.id}`;
-  const { data: photoFiles } = await admin.storage.from(BUCKET).list(photoFolder);
-  let photoUrl: string | null = null;
   const sourceRevision = tryonRevision(client);
-  const basePhoto = photoFiles?.find((file) => !file.name.startsWith('display'));
-  if (basePhoto) {
-    const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(`${photoFolder}/${basePhoto.name}`, 3600);
-    photoUrl = signed?.signedUrl ? `${signed.signedUrl}&revision=${sourceRevision}` : null;
-  }
+  const active = await activePhoto(admin, client.organization_id, client.id);
+  const signedPhoto = active ? await admin.storage.from(active.bucket).createSignedUrl(active.path,3600) : null;
+  const photoUrl = signedPhoto?.data?.signedUrl ? `${signedPhoto.data.signedUrl}&revision=${sourceRevision}` : null;
 
   // Escolha e prova online compartilham as cores publicadas e validadas.
   const catalogColorRows = (catalogColorsData || []) as unknown as CatalogColorRow[];
