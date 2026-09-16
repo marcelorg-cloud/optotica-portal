@@ -61,8 +61,7 @@
 .workspace-v2 .flow strong { font-size:14px; line-height:1.35; }
 .workspace-v2 .flow small { font-size:12px; }
 .workspace-v2 .flow-wrap { background:rgba(247,249,251,.97); }
-.workspace-v2 :is(.step-section,.client-workspace section[id]) { scroll-margin-top:115px; }
-.client-workspace section[id] { scroll-margin-top:115px; }
+.workspace-v2 .step-section,.client-workspace section[id] { scroll-margin-top:180px; }
 .workspace-v2 .card-head { align-items:center; padding:22px 24px; flex-wrap:wrap; }
 .workspace-v2 .card-body { padding:24px; }
 .workspace-v2 .step-title { min-width:0; }
@@ -81,6 +80,7 @@
   .workspace-v2 .dashboard-head { align-items:flex-start; flex-direction:column; }
   .workspace-v2 .workspace-patients .table-head { display:none; }
   .workspace-v2 .workspace-patients .table-row { grid-template-columns:1fr 1fr; }
+  .workspace-v2 .workspace-patients .table-row [data-label]::before { content:attr(data-label); display:block; margin-bottom:5px; font-size:12px; font-weight:500; color:var(--muted); }
   .workspace-v2 .patient-row-actions { justify-content:flex-start; grid-column:1/-1; }
   .workspace-v2 .overview { grid-template-columns:minmax(0,1fr); }
   .workspace-v2 .sidebar { position:static; }
