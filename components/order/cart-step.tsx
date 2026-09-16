@@ -90,9 +90,8 @@ export function CartStep({ orderId, quotes, selectedQuoteId, likedColors, locked
     <div className="stack">
       {locked && <div className="notice">🔒 Etapa bloqueada — Comanda final já confirmada.</div>}
       <p className="helper">
-        Reúne num só lugar os orçamentos cadastrados em &quot;OS/Orçamento&quot; e as armações marcadas
-        GOSTEI em &quot;Escolha da armação&quot;. Marque a opção final de cada um e remova o que não for mais
-        considerar — para adicionar orçamentos novos ou reagir a mais cores, use as etapas originais.
+        Revise os orçamentos de &quot;Lentes sugeridas&quot; e as armações marcadas GOSTEI em
+        &quot;Escolha da armação&quot;. Selecione a combinação final para o pedido.
       </p>
 
       <div className="subsection">
@@ -121,7 +120,7 @@ export function CartStep({ orderId, quotes, selectedQuoteId, likedColors, locked
                 </button>
               </div>
             </div>
-          )) : <div className="empty-budget">Nenhum orçamento adicionado ainda — cadastre na etapa &quot;OS/Orçamento&quot;.</div>}
+          )) : <div className="empty-budget">Nenhum orçamento adicionado ainda — cadastre na etapa &quot;Lentes sugeridas&quot;.</div>}
         </div>
       </div>
 
