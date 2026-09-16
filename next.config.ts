@@ -30,7 +30,11 @@ const nextConfig: NextConfig = {
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=()' }
         ]
-      }
+      },
+      { source: '/prescricao/:path*', headers: [
+        { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+        { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" }
+      ] }
     ];
   }
 };

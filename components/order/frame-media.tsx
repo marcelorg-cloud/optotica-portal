@@ -17,16 +17,28 @@ export function FrameGallery({ images, modelName }: { images: string[]; modelNam
   </div>;
 }
 
-export function FrameProof({ measurementsUrl, modelName, hasProof, children }: {
-  measurementsUrl?: string | null; modelName: string; hasProof: boolean; children: ReactNode;
+export function FrameProof({ measurementsUrl, modelName, proofUrl, generating, children }: {
+  measurementsUrl?: string | null; modelName: string; proofUrl: string | null; generating: boolean; children: ReactNode;
 }) {
   const [showMeasures, setShowMeasures] = useState(false);
-  if (!measurementsUrl) return <div className="frame-photo-box frame-photo-prova">{children}</div>;
-  return <div className={`frame-photo-box frame-photo-prova frame-proof-toggle${!hasProof || showMeasures ? ' show-measures' : ''}`}>
-    <button type="button" aria-label={showMeasures ? 'Voltar à prova da armação' : 'Ver medidas do modelo'} aria-pressed={showMeasures} onClick={() => setShowMeasures((value) => !value)}>
-      <span className="frame-proof-result">{children}</span>
-      <img className="frame-measurements-image" src={measurementsUrl} alt={`Medidas de ${modelName}`} />
-      <span className="frame-measurements-hint">{!hasProof ? children : showMeasures ? 'Toque para voltar à prova' : 'Passe o mouse ou toque para ver medidas'}</span>
+  const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const waiting = generating || Boolean(proofUrl && !ready && !failed);
+  const measuresVisible = Boolean(measurementsUrl && (waiting || (ready && showMeasures)));
+  return <div className={`frame-photo-box frame-photo-prova frame-proof-toggle${measuresVisible ? ' show-measures' : ''}`}>
+    <button type="button" aria-label={measuresVisible ? 'Medidas do modelo — toque para voltar à prova' : 'Ver medidas do modelo'} aria-pressed={measuresVisible}
+      onPointerEnter={(event) => { if (event.pointerType === 'mouse' && ready) setShowMeasures(true); }}
+      onPointerLeave={(event) => { if (event.pointerType === 'mouse') setShowMeasures(false); }}
+      onPointerUp={(event) => { if (event.pointerType !== 'mouse' && ready) setShowMeasures(value => !value); }}
+      onClick={(event) => { if (event.detail === 0 && ready) setShowMeasures(value => !value); }}>
+      <span className="frame-proof-result">
+        {proofUrl && !failed ? <img src={proofUrl} alt={`Prova da armação ${modelName} no rosto do paciente`}
+          onLoad={() => { setReady(true); setShowMeasures(false); }} onError={() => { setFailed(true); setReady(false); }} />
+          : failed ? <span>Não foi possível carregar a prova. Atualize a página para tentar novamente.</span> : children}
+      </span>
+      {measurementsUrl && <img className="frame-measurements-image" src={measurementsUrl} alt={`Medidas de ${modelName}`} />}
+      {waiting ? <span className="frame-measurements-hint" role="status">Preparando prova online…</span>
+        : ready && measurementsUrl ? <span className="frame-measurements-hint">{showMeasures ? 'Retire o mouse ou toque para voltar à prova' : 'Passe o mouse ou toque para ver medidas'}</span> : null}
     </button>
   </div>;
 }

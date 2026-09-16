@@ -9,8 +9,9 @@ import { formatPrescriptionDate } from '@/lib/prescription-verification';
 import { PrescriptionPrintButton } from '@/components/prescription-print-button';
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Prescrição óptica', robots: { index: false, follow: false } };
-export default async function PrescriptionDocument({ params }: { params: Promise<{ id: string }> }) {
+export default async function PrescriptionDocument({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ preview?: string }> }) {
   const { id } = await params;
+  const preview = (await searchParams).preview === '1';
   const actor = await verificationActor();
   if (!actor) redirect('/entrar');
   const { data: rx } = await actor.admin.from('issued_prescriptions').select('*').eq('id', id).maybeSingle();
@@ -26,8 +27,8 @@ export default async function PrescriptionDocument({ params }: { params: Promise
     const n = Number(input);
     return Number.isFinite(n) ? axis ? `${n}°` : `${n > 0 ? '+' : ''}${n.toFixed(2).replace('.', ',')}` : '—';
   };
-  return <><div className="rx-issued-actions"><PrescriptionPrintButton /><Link className="button secondary" href={`/verificar/${rx.verification_code}`}>Verificar emissão</Link></div>
-    <article className="rx-issued-paper">
+  return <><div className="rx-issued-actions"><PrescriptionPrintButton /><Link className="button secondary" href={`/verificar/${rx.verification_code}`} target={preview ? '_blank' : undefined} rel={preview ? 'noopener noreferrer' : undefined}>Verificar emissão</Link></div>
+    <article className={`rx-issued-paper${preview ? ' rx-preview-document' : ''}`}>
       <Image className="rx-issued-logo" src="/optotica-logo-transparent.png" width={1200} height={628} alt="Optótica" priority />
       <h1>AVALIAÇÃO OPTOMÉTRICA</h1><h2>PRESCRIÇÃO ÓPTICA</h2>
       {!active && <p role="alert"><strong>{rx.status === 'superseded' ? 'PRESCRIÇÃO SUBSTITUÍDA' : 'PRESCRIÇÃO CANCELADA'} — solicite a versão atual.</strong></p>}

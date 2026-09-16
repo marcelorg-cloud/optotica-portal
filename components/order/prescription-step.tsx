@@ -2,6 +2,8 @@
 
 import { useProcessingFeedback } from '@/components/processing-feedback';
 
+import { PrescriptionPreview } from '@/components/prescription-preview';
+
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -41,16 +43,19 @@ export function PrescriptionStep({ orderId, initialOd, initialOe, initialObserva
   const [rxState, setRxState] = useState<'idle' | 'loading' | 'error'>('idle');
   useProcessingFeedback(rxState === 'loading', 'Salvando prescrição…');
   const [rxMessage, setRxMessage] = useState('');
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [issuing, setIssuing] = useState(false);
   useProcessingFeedback(issuing, 'Emitindo prescrição…');
   const [dirty, setDirty] = useState(false);
   async function issue() {
+    if (issuing) return;
     setIssuing(true); setRxMessage('');
     try {
       const response = await fetch(`/api/professional/orders/${orderId}/prescription/issue`, { method: 'POST' });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message || 'Não foi possível emitir.');
-      router.push(payload.url);
+      if (typeof payload.url !== 'string' || !/^\/prescricao\/[a-f0-9-]+$/i.test(payload.url)) throw new Error('Documento indisponível. Tente novamente.');
+      setPreviewUrl(payload.url);
     } catch (error) { setRxMessage(error instanceof Error ? error.message : 'Não foi possível emitir.'); }
     finally { setIssuing(false); }
   }
@@ -78,6 +83,7 @@ export function PrescriptionStep({ orderId, initialOd, initialOe, initialObserva
 
   return (
     <div className="stack">
+      {previewUrl && <PrescriptionPreview key={previewUrl} url={previewUrl} onClose={() => setPreviewUrl(null)} />}
       {locked && <div className="notice">🔒 Etapa bloqueada — Comanda final já confirmada.</div>}
       <form className="subsection" onSubmit={submitRx} onChange={() => setDirty(true)}>
         <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0 }}>

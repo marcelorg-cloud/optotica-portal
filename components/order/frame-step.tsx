@@ -114,6 +114,8 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
   const [generatedProva, setGeneratedProva] = useState<Record<string, string>>({});
   const [provaStatus, setProvaStatus] = useState<Record<string, 'idle' | 'loading' | 'error'>>({});
   useProcessingFeedback(Object.values(provaStatus).some(status => status === 'loading'), 'Gerando prova online…');
+  const inFlightProofs = useRef(new Set<string>());
+  const autoAttemptedProofs = useRef(new Set<string>());
   const [provaMessage, setProvaMessage] = useState<Record<string, string>>({});
 
   function activeColorOf(model: ArmacaoModel): ColorOption | undefined {
@@ -131,7 +133,8 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
 
   async function generateProva(color: ColorOption) {
     if (!clientPhotoUrl || !dnpTotalMm) return;
-    if (provaStatus[color.id] === 'loading') return;
+    if (inFlightProofs.current.has(color.id)) return;
+    inFlightProofs.current.add(color.id);
     setProvaStatus((s) => ({ ...s, [color.id]: 'loading' }));
     setProvaMessage((s) => ({ ...s, [color.id]: '' }));
     try {
@@ -158,6 +161,8 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
     } catch {
       setProvaStatus((s) => ({ ...s, [color.id]: 'error' }));
       setProvaMessage((s) => ({ ...s, [color.id]: 'Não foi possível gerar a prova.' }));
+    } finally {
+      inFlightProofs.current.delete(color.id);
     }
   }
 
@@ -174,15 +179,20 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
   // adiado pra fora do corpo síncrono do efeito (setState de generateProva
   // não pode rodar direto dentro do efeito — regra react-hooks/set-state-in-effect).
   useEffect(() => {
+    if (!clientPhotoUrl || !dnpTotalMm) return;
     const timer = setTimeout(() => {
       for (const model of models) {
         const active = activeColorOf(model);
-        if (active && !active.provaUrl) generateProva(active);
+        if (!active || active.provaUrl || generatedProva[active.id]) continue;
+        const attemptKey = `${sourceRevision}:${active.id}`;
+        if (autoAttemptedProofs.current.has(attemptKey)) continue;
+        autoAttemptedProofs.current.add(attemptKey);
+        void generateProva(active);
       }
     }, 0);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [clientPhotoUrl, dnpTotalMm, sourceRevision, models, activeColorByModel, generatedProva]);
 
   async function react(color: ColorOption, status: 'gostei' | 'talvez' | 'oculto') {
     if (locked || busyKey) return;
@@ -233,10 +243,8 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
             const isHidden = active.reaction === 'oculto';
             return (
               <div className="frame-row professional-frame-row" key={model.id}>
-                <FrameProof measurementsUrl={model.measurementsUrl} modelName={model.modelName} hasProof={Boolean(generatedProva[active.id] ?? active.provaUrl)}>
+                <FrameProof key={`${active.id}:${generatedProva[active.id] ?? active.provaUrl ?? sourceRevision}`} measurementsUrl={model.measurementsUrl} modelName={model.modelName} proofUrl={generatedProva[active.id] ?? active.provaUrl ?? null} generating={provaStatus[active.id] === 'loading'}>
                   {(() => {
-                    const provaUrl = generatedProva[active.id] ?? active.provaUrl;
-                    if (provaUrl) return <img src={provaUrl} alt={`Prova da armação ${model.modelName} no rosto do paciente`} />;
                     if (provaStatus[active.id] === 'loading') return <span>Gerando prova com o rosto do paciente…</span>;
                     if (provaStatus[active.id] === 'error') return <span>{provaMessage[active.id] || 'Não foi possível gerar a prova.'}</span>;
                     if (!clientPhotoUrl) return <span>Foto de rosto do paciente pendente (Etapa 1)</span>;

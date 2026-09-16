@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
+import { PrescriptionPreview } from '@/components/prescription-preview';
 
 type Eye = { esferico: string; cilindrico: string; eixo: string; adicao: string } | null;
 
@@ -8,11 +10,13 @@ export function PrescriptionCard({ issuedId, od, oe }: {
   issuedId: string | null; clientName: string;
   od: Eye; oe: Eye; professionalName: string; professionalRegistration: string;
 }) {
+  const [previewOpen, setPreviewOpen] = useState(false);
   const val = (v?: string) => v?.trim() ? v : '—';
   if (!od || !oe) return <p className="notice">Sua receita ainda não está disponível.</p>;
   return <>
+    {previewOpen && issuedId && <PrescriptionPreview url={`/prescricao/${issuedId}`} onClose={() => setPreviewOpen(false)} />}
     <div className="rx-actions">{issuedId
-      ? <Link className="button primary" href={`/prescricao/${issuedId}`}>Visualizar / salvar prescrição com QR Code</Link>
+      ? <Link className="button primary" href={`/prescricao/${issuedId}`} onClick={(event) => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); setPreviewOpen(true); } }}>Visualizar / salvar prescrição com QR Code</Link>
       : <p className="notice">Receita registrada. O documento com QR Code ficará disponível após a emissão pelo profissional.</p>}
     </div>
     <div className="rx-scroll"><table className="rx-table"><thead><tr><th></th><th>Esférico</th><th>Cilíndrico</th><th>Eixo</th><th>Adição</th></tr></thead><tbody>
