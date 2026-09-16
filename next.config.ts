@@ -20,10 +20,12 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      { source: '/verificar/:path*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }, { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' }, { key: 'Cache-Control', value: 'private, no-store' }] },
+      { source: '/prescricao/:path*', headers: [{ key: 'Cache-Control', value: 'private, no-store' }] },
       {
         source: '/(.*)',
         headers: [
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Referrer-Policy', value: 'no-referrer' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=()' }

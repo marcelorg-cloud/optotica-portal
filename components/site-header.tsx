@@ -20,7 +20,8 @@ export function SiteHeader({ loggedIn }: { loggedIn: boolean }) {
     { href: '/profissional/pacientes', label: 'Pacientes', active: Boolean(pathname?.startsWith('/profissional/pacientes') && pathname !== '/profissional/pacientes/novo') },
     { href: '/profissional/pacientes/novo', label: 'Convidar paciente', active: pathname === '/profissional/pacientes/novo' },
     { href: '/profissional/cardapio', label: 'Cardápio de lentes', active: pathname === '/profissional/cardapio' },
-    { href: '/profissional/cadastro', label: 'Meu perfil', active: pathname === '/profissional/cadastro' }
+    { href: '/profissional/cadastro', label: 'Meu perfil', active: pathname === '/profissional/cadastro' },
+    { href: '/profissional/verificacao', label: 'Verificação', active: pathname === '/profissional/verificacao' }
   ];
 
   async function handleSignOut() {

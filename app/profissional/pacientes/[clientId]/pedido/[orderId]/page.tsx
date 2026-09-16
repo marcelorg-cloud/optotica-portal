@@ -97,7 +97,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
 
   const [{ data: client }, { data: prescription }, { data: quotesData }, { data: orderFrame }, { data: fulfillment }, { data: catalogProductsData }, { data: reactionsData }, { data: menuTiersData }, { data: laboratoriesData }, { data: existingDisplaysData }] = await Promise.all([
     admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe, dnp_measured_at, tryon_face_validated_at, dnp_photo_path, birth_date, cpf, tryon_face_status, tryon_face_processed_path, organization_id').eq('id', clientId).maybeSingle(),
-    admin.from('prescriptions').select('prescription_data').eq('order_id', orderId).maybeSingle(),
+    admin.from('prescriptions').select('prescription_data,clinical_notes').eq('order_id', orderId).maybeSingle(),
     admin.from('quotes').select('id, total, quote_items(description, metadata)').eq('order_id', orderId),
     admin.from('order_frames').select('frame_name, sku, color, catalog_product_id, catalog_color_image_id, catalog_products(standard_height_mm, bridge_mm, lens_diagonal_mm)').eq('order_id', orderId).maybeSingle(),
     admin.from('order_fulfillment').select('*').eq('order_id', orderId).maybeSingle(),
@@ -458,6 +458,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
                 orderId={order.id}
                 initialOd={toEye(rx?.od)}
                 initialOe={toEye(rx?.oe)}
+                initialObservations={prescription?.clinical_notes || ''}
                 locked={comandaDone || orderFinalized}
               />
             </div>

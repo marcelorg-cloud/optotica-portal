@@ -186,6 +186,7 @@ function ProfileReviewCard({ profile }: { profile: ProfileReview }) {
 
       {profile.review_notes && <div className="setup-note" style={{ marginTop: 16 }}>Última observação: {profile.review_notes}</div>}
 
+      {profile.account_type === 'professional' && <Link className="button secondary" href={`/admin/verificacao/${profile.id}`}>Conferir documentação profissional</Link>}
       <dl className="review-details">
         <div><dt>Tipo</dt><dd>{formatRegistrationKind(profile.account_type, profile.professional_kind)}{profile.cnpj ? ` · ${profile.cnpj.length === 14 ? 'CNPJ' : 'CPF'} ${profile.cnpj}` : ''}</dd></div>
         <div><dt>Registro</dt><dd>{profile.technical_responsible_registration || profile.council_registration || '—'}</dd></div>
