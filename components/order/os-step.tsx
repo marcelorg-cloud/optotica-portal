@@ -9,7 +9,6 @@ const LENS_MATERIALS = ['Resina', 'Policarbonato', 'Trivex', 'Outro'];
 const LENS_TREATMENTS = ['Antirreflexo', 'Verniz', 'Filtro azul', 'Fotossensível'];
 const LABORATORY_SUGGESTIONS = ['Laboratório A', 'Laboratório B', 'Laboratório C'];
 
-type EyeRx = { esferico: string; cilindrico: string; eixo: string; adicao: string };
 type QuoteOption = { id: string; total: number; description: string; laboratory: string; notes: string };
 type MenuTierOption = {
   lensType: 'single_vision' | 'multifocal';
@@ -23,32 +22,21 @@ const MENU_CATEGORY_LABELS: Record<MenuTierOption['lensType'], string> = {
   multifocal: 'Multifocal'
 };
 
-function RxRow({ eye, label, value }: { eye: 'od' | 'oe'; label: string; value: EyeRx }) {
-  return (
-    <tr>
-      <th>{label}</th>
-      <td><input name={`${eye}-esferico`} type="number" step="0.25" min="-30" max="30" placeholder="+0,00" defaultValue={value.esferico} required /></td>
-      <td><input name={`${eye}-cilindrico`} type="number" step="0.25" min="-30" max="30" placeholder="-0,00" defaultValue={value.cilindrico} required /></td>
-      <td><input name={`${eye}-eixo`} type="number" step="1" min="0" max="180" placeholder="0°" defaultValue={value.eixo} required /></td>
-      <td><input name={`${eye}-adicao`} type="number" step="0.25" min="0" max="6" placeholder="+0,00" defaultValue={value.adicao} required /></td>
-    </tr>
-  );
-}
-
-const EMPTY_EYE: EyeRx = { esferico: '0', cilindrico: '0', eixo: '0', adicao: '0' };
-
-export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId, locked, menuTiers = [] }: {
+// Etapa 3 "Lentes sugeridas" (16/09/2026) — antes era a mesma etapa "OS /
+// Orçamento" que também continha a receita (OD/OE, ver
+// components/order/prescription-step.tsx, novo, com a etapa 2 "Prescrição
+// optométrica"). Pedido do usuário: separar em duas etapas próprias — esta
+// ficou com o cardápio de lentes e os orçamentos, sem nenhuma mudança de
+// comportamento além da separação visual (mesmas rotas de API de sempre:
+// /quotes, /quotes/from-menu, /select-quote).
+export function SuggestedLensesStep({ orderId, quotes, selectedQuoteId, locked, menuTiers = [] }: {
   orderId: string;
-  initialOd: EyeRx | null;
-  initialOe: EyeRx | null;
   quotes: QuoteOption[];
   selectedQuoteId: string | null;
   locked: boolean;
   menuTiers?: MenuTierOption[];
 }) {
   const router = useRouter();
-  const [rxState, setRxState] = useState<'idle' | 'loading' | 'error'>('idle');
-  const [rxMessage, setRxMessage] = useState('');
   const [budgetState, setBudgetState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [budgetMessage, setBudgetMessage] = useState('');
   const [menuAddingKey, setMenuAddingKey] = useState<string | null>(null);
@@ -84,25 +72,6 @@ export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId,
   if (selectedQuoteId !== prevSelectedQuoteId) {
     setPrevSelectedQuoteId(selectedQuoteId);
     setLocalSelectedQuoteId(selectedQuoteId);
-  }
-
-  async function submitRx(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (locked) return;
-    setRxState('loading');
-    setRxMessage('');
-    const form = new FormData(event.currentTarget);
-    const eye = (prefix: string) => ({
-      esferico: form.get(`${prefix}-esferico`), cilindrico: form.get(`${prefix}-cilindrico`),
-      eixo: form.get(`${prefix}-eixo`), adicao: form.get(`${prefix}-adicao`)
-    });
-    const response = await fetch(`/api/professional/orders/${orderId}/prescription`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ od: eye('od'), oe: eye('oe') })
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (response.ok) { setRxState('idle'); router.refresh(); }
-    else { setRxState('error'); setRxMessage(payload.message || 'Não foi possível salvar a receita.'); }
   }
 
   async function submitBudget(event: FormEvent<HTMLFormElement>) {
@@ -144,25 +113,6 @@ export function OsStep({ orderId, initialOd, initialOe, quotes, selectedQuoteId,
   return (
     <div className="stack">
       {locked && <div className="notice">🔒 Etapa bloqueada — Comanda final já confirmada.</div>}
-      <form className="subsection" onSubmit={submitRx}>
-        <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0 }}>
-        <h3>Receita</h3>
-        <div className="rx-scroll">
-          <table className="rx-table">
-            <thead><tr><th></th><th>Esférico</th><th>Cilíndrico</th><th>Eixo</th><th>Adição</th></tr></thead>
-            <tbody>
-              <RxRow eye="od" label="OD" value={initialOd || EMPTY_EYE} />
-              <RxRow eye="oe" label="OE" value={initialOe || EMPTY_EYE} />
-            </tbody>
-          </table>
-        </div>
-        <div className="actions">
-          <button className="button primary" type="submit" disabled={rxState === 'loading'}>{rxState === 'loading' ? 'Salvando…' : 'Salvar receita'}</button>
-        </div>
-        {rxMessage && rxState === 'error' && <p className="form-message error">{rxMessage}</p>}
-        </fieldset>
-      </form>
-
       {menuTiers.length > 0 && (
         <div className="subsection">
           <h3>Cardápio de lentes</h3>
