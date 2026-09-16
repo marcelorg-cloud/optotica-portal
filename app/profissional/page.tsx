@@ -134,16 +134,15 @@ export default async function ProfessionalPage({ searchParams }: { searchParams:
   return (
     <div className="page-shell">
       <section className="dashboard-head">
-        <div><p className="eyebrow">Área profissional</p><h1>{profile.display_name}</h1><p className="muted">Você vê somente os pacientes que aceitaram os convites criados por esta conta.</p></div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div><p className="eyebrow">Visão geral</p><h1>Olá, {profile.display_name.split(' ')[0]}.</h1><p className="muted">Acompanhe seus pedidos e retome os atendimentos.</p></div>
+        <div className="workspace-actions">
           <Link className="button primary" href="/profissional/pacientes">Iniciar novo atendimento</Link>
-          <Link className="button secondary" href="/profissional/pacientes">Meus pacientes</Link>
           <Link className="button secondary" href="/profissional/pacientes/novo">Convidar paciente</Link>
-          <Link className="button secondary" href="/profissional/cardapio">Cardápio de lentes</Link>
         </div>
       </section>
 
       <section className="card table-card orders-table">
+        <div className="workspace-section-title"><h2>Pedidos</h2><span>{loadFailed ? 'Carregamento indisponível' : `${orders.length} ${orders.length === 1 ? 'pedido listado' : 'pedidos listados'}${filtersActive ? ' com os filtros atuais' : ''}`}</span></div>
         <form className="filter-bar" method="get">
           <div className="field">
             <label htmlFor="f-paciente">Paciente</label>
@@ -182,13 +181,13 @@ export default async function ProfessionalPage({ searchParams }: { searchParams:
 
         {!loadFailed && orders.length > 0 && orders.map((order) => (
           <div className="table-row" key={order.id}>
-            <strong>{orderCode(order.clients?.full_name || 'Paciente', order.order_number)}</strong>
-            <span>{order.clients?.full_name || 'Paciente'}</span>
-            <time>{formatDate(order.created_at)}</time>
+            <strong data-label="Pedido">{orderCode(order.clients?.full_name || 'Paciente', order.order_number)}</strong>
+            <span data-label="Paciente">{order.clients?.full_name || 'Paciente'}</span>
+            <time data-label="Atendimento" dateTime={order.created_at}>{formatDate(order.created_at)}</time>
             <Link className="status-link" href={`/profissional/pacientes/${order.client_id}/pedido/${order.id}`}>
               <span className="pill">{orderStatusLabel(order.status)}</span>
             </Link>
-            <time>{formatDate(order.updated_at)}</time>
+            <time data-label="Atualização" dateTime={order.updated_at}>{formatDate(order.updated_at)}</time>
           </div>
         ))}
 

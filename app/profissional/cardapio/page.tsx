@@ -88,11 +88,8 @@ export default async function LensMenuPage() {
         <p className="eyebrow">{profile.display_name}</p>
         <h1>Cardápio de lentes</h1>
         <p className="muted">
-          Monte os 3 níveis que seus pacientes veem na hora de escolher a lente (e, se quiser, uma 4ª opção
-          &quot;grife&quot;/topo de linha), separadamente para <strong>visão simples</strong> e <strong>multifocal</strong> —
-          as faixas de preço das duas são bem diferentes, então cada categoria tem seu próprio cardápio. Use itens
-          do catálogo de laboratórios como ponto de partida ou digite manualmente — o preço final e a composição
-          são sempre seus, editáveis a qualquer momento.
+          Configure os níveis de <strong>visão simples</strong> e <strong>multifocal</strong>.
+          Abra cada nível para editar os benefícios, a composição e o preço. Você pode usar o catálogo de laboratórios ou preencher manualmente.
         </p>
       </div>
 

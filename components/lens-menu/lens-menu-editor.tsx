@@ -121,7 +121,9 @@ function TierCard({ tier, items, onChange, onRemove, removable }: {
   const set = <K extends keyof TierForm>(key: K, value: TierForm[K]) => onChange({ ...tier, [key]: value });
 
   return (
-    <div className={`subsection tier-card${tier.isAddon ? ' tier-addon' : ''}`}>
+    <details className={`subsection tier-card tier-disclosure${tier.isAddon ? ' tier-addon' : ''}`} open={tier.tierNumber === 1}>
+      <summary><span className="tier-number-badge">{tier.tierNumber}</span><span className="tier-summary-name"><strong>{tier.tierName || 'Novo nível'}</strong><small>{tier.active ? 'Ativo' : 'Inativo'} · Abrir para editar</small></span><strong className="tier-summary-price">R$ {formatPrice(Number(tier.price) || 0)}</strong></summary>
+      <div className="tier-fields">
       <div className="tier-card-head">
         <span className="tier-number-badge">{tier.tierNumber}</span>
         <div className="field span-2" style={{ flex: 1 }}>
@@ -184,7 +186,8 @@ function TierCard({ tier, items, onChange, onRemove, removable }: {
         <input type="checkbox" checked={tier.active} onChange={(e) => set('active', e.target.checked)} />
         <span>Nível ativo (visível para uso no atendimento)</span>
       </label>
-    </div>
+      </div>
+    </details>
   );
 }
 
@@ -287,6 +290,7 @@ export function LensMenuEditor({ initialTiers, catalogItems }: { initialTiers: M
             key={cat}
             type="button"
             className={`category-tab${activeCategory === cat ? ' active' : ''}`}
+            aria-pressed={activeCategory === cat}
             onClick={() => setActiveCategory(cat)}
           >
             {CATEGORY_LABELS[cat]}

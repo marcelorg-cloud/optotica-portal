@@ -3,6 +3,7 @@ import { SiteHeader } from '@/components/site-header';
 import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import './globals.css';
 import './portal-navigation.css';
+import './workspace-v2.css';
 
 export const metadata: Metadata = {
   title: { default: 'Optótica', template: '%s · Optótica' },

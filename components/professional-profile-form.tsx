@@ -216,13 +216,8 @@ export function ProfessionalProfileForm({ initialValues = {}, locked = false }: 
 
   return (
     <form className="profile-form" onSubmit={submit} noValidate>
-      {locked && (
-        <p className="muted" style={{ marginBottom: 16 }}>
-          Seus dados pessoais/da empresa já foram aprovados e ficam bloqueados nesta tela. Você ainda pode adicionar,
-          editar ou remover laboratórios parceiros logo abaixo — isso não reabre a análise dos seus dados.
-        </p>
-      )}
-      <fieldset disabled={locked}>
+      <nav className="profile-section-links" aria-label="Seções do perfil"><a href="#profile-identity">Identificação</a><a href="#profile-contact">Endereço e contato</a><a href="#profile-labs">Laboratórios</a></nav>
+      <fieldset id="profile-identity" disabled={locked}>
         <legend>Identificação{locked ? ' (bloqueado após aprovação)' : ''}</legend>
         <div className="form-grid">
           <label>
@@ -279,7 +274,7 @@ export function ProfessionalProfileForm({ initialValues = {}, locked = false }: 
           disabled) para continuarem presentes no FormData no envio — um
           <fieldset disabled> desabilitaria também esses campos e eles
           sairiam do FormData mesmo sendo readOnly. */}
-      <fieldset>
+      <fieldset id="profile-contact">
         <legend>Endereço e contato{locked ? ' (bloqueado após aprovação)' : ''}</legend>
         <div className="form-grid">
           <label>
@@ -318,9 +313,9 @@ export function ProfessionalProfileForm({ initialValues = {}, locked = false }: 
         </div>
       </fieldset>
 
-      <fieldset>
+      <fieldset id="profile-labs">
         <legend>Laboratórios parceiros</legend>
-        <p className="muted">Opcional. Se preferir, deixe em branco e cadastre os laboratórios depois. Marque um como principal se quiser deixar isso explícito (ex.: para onde os pedidos são enviados por padrão).</p>
+        <p className="muted">Cadastro opcional. Adicione seus laboratórios parceiros e marque o principal.</p>
         {laboratories.map((laboratory, index) => (
           <div className="laboratory-card" key={laboratory.id || `laboratory-${index}`}>
             <div className="laboratory-head">

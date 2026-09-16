@@ -20,7 +20,7 @@ function formatWhatsApp(e164?: string | null) {
   return `+${digits}`;
 }
 
-export default async function ProfessionalPatientsPage() {
+export default async function ProfessionalPatientsPage({ searchParams }: { searchParams: Promise<{ busca?: string | string[] }> }) {
   if (!isSupabaseConfigured()) {
     return <div className="page-shell narrow"><div className="setup-note">Configure as variáveis do Supabase para ativar a área profissional.</div></div>;
   }
@@ -51,6 +51,11 @@ export default async function ProfessionalPatientsPage() {
       .eq('status', 'in_progress')
   ]);
   const patients = (data || []) as unknown as PatientRow[];
+  const params = await searchParams;
+  const search = (Array.isArray(params.busca) ? params.busca[0] : params.busca || '').trim();
+  const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const phoneSearch = search.replace(/\D/g, '');
+  const visiblePatients = patients.filter((patient) => !search || normalize(patient.clients?.full_name || '').includes(normalize(search)) || (phoneSearch.length > 0 && formatWhatsApp(patient.clients?.whatsapp_e164).replace(/\D/g, '').includes(phoneSearch)));
   // Atendimento em andamento por paciente — usado para reabrir direto em vez de
   // passar pela tela "novo pedido" (que já reaproveitaria o mesmo pedido, mas o
   // rótulo do botão deixava a ação pouco clara).
@@ -62,28 +67,32 @@ export default async function ProfessionalPatientsPage() {
         <div>
           <p className="eyebrow">Área profissional</p>
           <h1>Meus pacientes</h1>
-          <p className="muted">Pacientes que confirmaram o vínculo pelo WhatsApp. &quot;Novo pedido&quot; sempre inicia um atendimento novo; &quot;Continuar atendimento&quot; aparece quando já existe um em andamento.</p>
+          <p className="muted">Encontre um paciente para iniciar ou continuar um atendimento.</p>
         </div>
         <Link className="button primary" href="/profissional/pacientes/novo">Convidar paciente</Link>
       </section>
-      <section className="card table-card">
-        <div className="table-head"><span>Paciente</span><span>WhatsApp</span><span>Vinculado em</span><span></span></div>
-        {patients.length ? patients.map((patient) => {
+      <section className="card table-card workspace-patients">
+        <form className="filter-bar" method="get">
+          <div className="field"><label htmlFor="patient-search">Buscar paciente</label><input id="patient-search" name="busca" defaultValue={search} placeholder="Nome ou WhatsApp" /></div>
+          <div className="filter-actions"><button className="button primary" type="submit">Buscar</button>{search && <Link className="text-link" href="/profissional/pacientes">Limpar busca</Link>}</div>
+        </form>
+        <div className="table-head"><span>Paciente</span><span>WhatsApp</span><span>Vinculado em</span><span>Atendimento</span></div>
+        {visiblePatients.length ? visiblePatients.map((patient) => {
           const openOrderId = openOrderByClient.get(patient.client_id);
           return (
             <div className="table-row" key={patient.client_id}>
-              <strong>{patient.clients?.full_name || 'Paciente'}</strong>
-              <span>{formatWhatsApp(patient.clients?.whatsapp_e164)}</span>
-              <time>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(new Date(patient.created_at))}</time>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <strong data-label="Paciente">{patient.clients?.full_name || 'Paciente'}</strong>
+              <span data-label="WhatsApp">{formatWhatsApp(patient.clients?.whatsapp_e164)}</span>
+              <time data-label="Vinculado em" dateTime={patient.created_at}>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(new Date(patient.created_at))}</time>
+              <div className="workspace-actions patient-row-actions">
                 {openOrderId && (
-                  <Link className="button secondary" href={`/profissional/pacientes/${patient.client_id}/pedido/${openOrderId}`}>Continuar atendimento</Link>
+                  <Link className="button primary" href={`/profissional/pacientes/${patient.client_id}/pedido/${openOrderId}`}>Continuar atendimento</Link>
                 )}
                 <Link className="button secondary" href={`/profissional/pacientes/${patient.client_id}/pedido/novo`}>Novo pedido</Link>
               </div>
             </div>
           );
-        }) : <div className="empty-state">Nenhum paciente vinculado ainda. Convide um paciente para começar.</div>}
+        }) : <div className="empty-state">{search ? 'Nenhum paciente encontrado. Tente outro nome ou telefone.' : 'Nenhum paciente vinculado ainda. Convide um paciente para começar.'}</div>}
       </section>
     </div>
   );
