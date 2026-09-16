@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
 import { type Point } from '@/lib/tryon/geometry';
 import { composeTryonImage } from '@/lib/tryon/compose-server';
+import { tryonRevision } from '@/lib/tryon/revision';
 
 // Etapa 3 do atendimento ("Escolha da armação", 15/09/2026) — gera a MESMA
 // composição "rosto do paciente + óculos" que a área do próprio paciente já
@@ -45,12 +46,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
     .maybeSingle();
   if (!order) return NextResponse.json({ message: 'Pedido não encontrado.' }, { status: 404 });
 
-  const { data: client } = await admin.from('clients').select('dnp_od, dnp_oe').eq('id', order.client_id).maybeSingle();
+  const { data: client } = await admin.from('clients').select('dnp_od, dnp_oe, dnp_measured_at, tryon_face_validated_at').eq('id', order.client_id).maybeSingle();
   if (!client || client.dnp_od == null || client.dnp_oe == null) {
     return NextResponse.json({ message: 'A DNP do paciente ainda não foi medida na Etapa 1.' }, { status: 409 });
   }
 
   const body = await request.json().catch(() => null);
+  const sourceRevision = tryonRevision(client);
+  if (body?.sourceRevision !== sourceRevision) {
+    return NextResponse.json({ message: 'A DNP ou a foto mudou. Atualize a página para gerar a prova atual.' }, { status: 409 });
+  }
   const catalogColorImageId = typeof body?.catalogColorImageId === 'string' ? body.catalogColorImageId : '';
   const photoWidth = Number(body?.photoWidth);
   const photoHeight = Number(body?.photoHeight);
@@ -79,6 +84,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
     organizationId: order.organization_id,
     clientId: order.client_id,
     dnpTotalMm: Number(client.dnp_od) + Number(client.dnp_oe),
+    sourceRevision,
     productId: row.product_id,
     colorName: row.color_name,
     processedImagePath: row.processed_image_path,

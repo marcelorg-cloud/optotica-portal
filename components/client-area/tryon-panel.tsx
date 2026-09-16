@@ -34,12 +34,14 @@ export function TryonPanel({
   clientPhotoUrl,
   dnpOd,
   dnpOe,
-  products
+  products,
+  sourceRevision
 }: {
   clientPhotoUrl: string | null;
   dnpOd: number | null;
   dnpOe: number | null;
   products: TryonProduct[];
+  sourceRevision: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -139,6 +141,7 @@ export function TryonPanel({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         productId: product.productId,
+        sourceRevision,
         colorName: product.colorName,
         pupilA: analysis.pupilA,
         pupilB: analysis.pupilB,

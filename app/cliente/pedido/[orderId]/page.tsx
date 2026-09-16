@@ -10,6 +10,7 @@ import { ClientCartStep } from '@/components/client-area/cart-step';
 import { PhotoUpload } from '@/components/client-area/photo-upload';
 import { PrescriptionCard } from '@/components/client-area/prescription-card';
 import { TryonPanel, type TryonProduct } from '@/components/client-area/tryon-panel';
+import { isCurrentTryon, tryonRevision } from '@/lib/tryon/revision';
 
 export const metadata: Metadata = { title: 'Meu pedido' };
 
@@ -70,7 +71,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
 
   const { data: client } = await admin
     .from('clients')
-    .select('id, full_name, whatsapp_e164, dnp_od, dnp_oe, organization_id, status')
+    .select('id, full_name, whatsapp_e164, dnp_od, dnp_oe, dnp_measured_at, tryon_face_validated_at, organization_id, status')
     .eq('id', account.client_id)
     .maybeSingle();
   if (!client || client.status !== 'active') redirect('/cliente');
@@ -153,9 +154,11 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
   const photoFolder = `${client.organization_id}/${client.id}`;
   const { data: photoFiles } = await admin.storage.from(BUCKET).list(photoFolder);
   let photoUrl: string | null = null;
-  if (photoFiles?.length) {
-    const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(`${photoFolder}/${photoFiles[0].name}`, 3600);
-    photoUrl = signed?.signedUrl || null;
+  const sourceRevision = tryonRevision(client);
+  const basePhoto = photoFiles?.find((file) => !file.name.startsWith('display'));
+  if (basePhoto) {
+    const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(`${photoFolder}/${basePhoto.name}`, 3600);
+    photoUrl = signed?.signedUrl ? `${signed.signedUrl}&revision=${sourceRevision}` : null;
   }
 
   // Prova online (seção 0.29): catálogo novo (AliExpress/dropshipping,
@@ -200,7 +203,8 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
   // óculos" (melhor foto de exibição validada, bucket 'catalog-product-photos')
   // já usadas na tela equivalente do profissional (components/order/cart-step.tsx).
   const likedReactionRows = (likedReactionsData || []) as unknown as LikedReactionRow[];
-  const patientDisplayRows = (patientDisplaysData || []) as unknown as PatientDisplayImageRow[];
+  const patientDisplayRows = ((patientDisplaysData || []) as unknown as PatientDisplayImageRow[])
+    .filter((display) => isCurrentTryon(display.image_path, sourceRevision));
   const confirmedColorImageId = (orderFrame as { catalog_color_image_id?: string | null } | null)?.catalog_color_image_id || null;
 
   const oculosPathsToSign = new Set<string>();
@@ -396,7 +400,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
           <span className="pending-tag">Opcional</span>
         </div>
         <div className="card-body">
-          <TryonPanel clientPhotoUrl={photoUrl} dnpOd={client.dnp_od} dnpOe={client.dnp_oe} products={tryonProducts} />
+          <TryonPanel key={sourceRevision} sourceRevision={sourceRevision} clientPhotoUrl={photoUrl} dnpOd={client.dnp_od} dnpOe={client.dnp_oe} products={tryonProducts} />
         </div>
       </section>
 

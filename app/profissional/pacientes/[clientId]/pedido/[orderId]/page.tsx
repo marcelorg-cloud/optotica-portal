@@ -8,6 +8,7 @@ import { ClientStep } from '@/components/order/client-step';
 import { PrescriptionStep } from '@/components/order/prescription-step';
 import { SuggestedLensesStep } from '@/components/order/os-step';
 import { FrameStep } from '@/components/order/frame-step';
+import { isCurrentTryon, tryonRevision } from '@/lib/tryon/revision';
 import { CartStep } from '@/components/order/cart-step';
 import { ComandaStep } from '@/components/order/comanda-step';
 import { PaymentStep } from '@/components/order/payment-step';
@@ -95,7 +96,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   if (!order || order.client_id !== clientId) redirect('/profissional/pacientes');
 
   const [{ data: client }, { data: prescription }, { data: quotesData }, { data: orderFrame }, { data: fulfillment }, { data: catalogProductsData }, { data: reactionsData }, { data: menuTiersData }, { data: laboratoriesData }, { data: existingDisplaysData }] = await Promise.all([
-    admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe, dnp_photo_path, birth_date, cpf, tryon_face_status, tryon_face_processed_path, organization_id').eq('id', clientId).maybeSingle(),
+    admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe, dnp_measured_at, tryon_face_validated_at, dnp_photo_path, birth_date, cpf, tryon_face_status, tryon_face_processed_path, organization_id').eq('id', clientId).maybeSingle(),
     admin.from('prescriptions').select('prescription_data').eq('order_id', orderId).maybeSingle(),
     admin.from('quotes').select('id, total, quote_items(description, metadata)').eq('order_id', orderId),
     admin.from('order_frames').select('frame_name, sku, color, catalog_product_id, catalog_color_image_id, catalog_products(standard_height_mm, bridge_mm, lens_diagonal_mm)').eq('order_id', orderId).maybeSingle(),
@@ -162,6 +163,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   // e da DNP total, pra rodar a mesma detecção de pupilas + composição que
   // /api/client/tryon/compose já faz (ver components/order/frame-step.tsx).
   const dnpTotalMm = client?.dnp_od != null && client?.dnp_oe != null ? Number(client.dnp_od) + Number(client.dnp_oe) : null;
+  const sourceRevision = tryonRevision(client);
   let tryonClientPhotoUrl: string | null = null;
   if (client?.organization_id) {
     const tryonFolder = `${client.organization_id}/${clientId}`;
@@ -172,7 +174,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
     const baseFile = tryonFiles?.find((f) => !f.name.startsWith('display'));
     if (baseFile) {
       const { data: signedBase } = await admin.storage.from('try-on-photos').createSignedUrl(`${tryonFolder}/${baseFile.name}`, 3600);
-      tryonClientPhotoUrl = signedBase?.signedUrl || null;
+      tryonClientPhotoUrl = signedBase?.signedUrl ? `${signedBase.signedUrl}&revision=${sourceRevision}` : null;
     }
   }
 
@@ -232,7 +234,8 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   // aqui se alguém (paciente ou profissional) já gerou essa combinação
   // produto+cor antes — senão nasce null e o card gera na hora (ver
   // components/order/frame-step.tsx).
-  const patientDisplays = (existingDisplaysData || []) as unknown as PatientDisplayImageRow[];
+  const patientDisplays = ((existingDisplaysData || []) as unknown as PatientDisplayImageRow[])
+    .filter((display) => isCurrentTryon(display.image_path, sourceRevision));
   const provaUrlByProductColor = new Map<string, string>();
   const displayPaths = patientDisplays.map((d) => d.image_path).filter((p): p is string => !!p);
   if (displayPaths.length) {
@@ -487,7 +490,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
               {tag(hasFrame, current === 3)}
             </div>
             <div className="card-body">
-              <FrameStep orderId={order.id} models={armacaoModels} confirmedFrameName={orderFrame?.frame_name || null} confirmedColor={orderFrame?.color || null} locked={comandaDone || orderFinalized} clientPhotoUrl={tryonClientPhotoUrl} dnpTotalMm={dnpTotalMm} />
+              <FrameStep key={sourceRevision} sourceRevision={sourceRevision} orderId={order.id} models={armacaoModels} confirmedFrameName={orderFrame?.frame_name || null} confirmedColor={orderFrame?.color || null} locked={comandaDone || orderFinalized} clientPhotoUrl={tryonClientPhotoUrl} dnpTotalMm={dnpTotalMm} />
             </div>
           </section>
 

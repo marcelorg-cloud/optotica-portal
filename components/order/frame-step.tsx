@@ -81,7 +81,8 @@ async function detectPatientPupils(photoUrl: string): Promise<PhotoAnalysis | nu
   return { pupilA: points.pupilA, pupilB: points.pupilB, nasalCenter: points.nasalCenter, photoWidth: canvas.width, photoHeight: canvas.height };
 }
 
-export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor, locked, clientPhotoUrl, dnpTotalMm }: {
+export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor, locked, clientPhotoUrl, dnpTotalMm, sourceRevision }: {
+  sourceRevision: string;
   orderId: string;
   models: ArmacaoModel[];
   confirmedFrameName: string | null;
@@ -136,7 +137,7 @@ export function FrameStep({ orderId, models, confirmedFrameName, confirmedColor,
       const response = await fetch(`/api/professional/orders/${orderId}/client/tryon-compose`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ catalogColorImageId: color.id, ...analysis })
+        body: JSON.stringify({ catalogColorImageId: color.id, sourceRevision, ...analysis })
       });
       const payload = await response.json().catch(() => ({}));
       if (response.ok && payload.imageUrl) {

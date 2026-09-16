@@ -69,11 +69,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ or
     return NextResponse.json({ message: 'A Comanda final já foi confirmada — os dados não podem mais ser alterados.' }, { status: 409 });
   }
 
-  const { error } = await admin.from('clients').update({ dnp_od: dnpOd, dnp_oe: dnpOe, birth_date: birthDate, cpf }).eq('id', order.client_id);
+  const { error } = await admin.from('clients').update({ dnp_od: dnpOd, dnp_oe: dnpOe, dnp_measured_at: new Date().toISOString(), birth_date: birthDate, cpf }).eq('id', order.client_id);
   if (error) {
     console.error('client_update_failed', { code: error.code });
     return NextResponse.json({ message: 'Não foi possível salvar os dados.' }, { status: 500 });
   }
 
-  return NextResponse.json({ message: 'Dados atualizados.' });
+  return NextResponse.json({ message: 'Dados salvos. As provas serão recalculadas com a soma DNP OD + OE e a foto oficial validada.' });
 }

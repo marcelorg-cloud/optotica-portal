@@ -75,7 +75,7 @@ export function ClientStep({
       })
     });
     const payload = await response.json().catch(() => ({}));
-    if (response.ok) { setState('success'); setMessage('Dados atualizados.'); router.refresh(); }
+    if (response.ok) { setState('success'); setMessage(payload.message || 'Dados atualizados.'); router.refresh(); }
     else { setState('error'); setMessage(payload.message || 'Não foi possível salvar.'); }
   }
 

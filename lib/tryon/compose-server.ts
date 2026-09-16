@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import type { createAdminSupabaseClient } from '@/lib/supabase/server';
 import { computeOverlayGeometry, type Point } from './geometry';
+import { tryonRevision } from './revision';
 
 // 15/09/2026 — extraído de app/api/client/tryon/compose/route.ts pra ser
 // reaproveitado também pela Etapa 3 do atendimento (o profissional gera a
@@ -21,6 +22,7 @@ export type ComposeTryonParams = {
   organizationId: string;
   clientId: string;
   dnpTotalMm: number;
+  sourceRevision: string;
   productId: string;
   colorName: string;
   /** Caminho da foto do óculos já processada (bucket 'catalog-product-photos'). */
@@ -113,18 +115,27 @@ export async function composeTryonImage(
       .toBuffer();
 
     const safeColor = colorName.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const displayPath = `${photoFolder}/display/${productId}-${safeColor}.png`;
+    const displayPath = `${photoFolder}/display/${productId}-${safeColor}-${params.sourceRevision}.png`;
     const { error: uploadError } = await admin.storage.from(TRYON_BUCKET).upload(displayPath, composedBuffer, { contentType: 'image/png', upsert: true });
     if (uploadError) {
       console.error('tryon_compose_upload_failed', { message: uploadError.message });
       return { ok: false, status: 500, message: 'Não foi possível salvar a imagem.' };
     }
 
+    const { data: currentSource, error: sourceError } = await admin.from('clients')
+      .select('dnp_od, dnp_oe, dnp_measured_at, tryon_face_validated_at').eq('id', clientId).maybeSingle();
+    if (sourceError || !currentSource || tryonRevision(currentSource) !== params.sourceRevision) {
+      return { ok: false, status: 409, message: 'Os dados da prova mudaram durante a geração. Atualize a página e tente novamente.' };
+    }
+
     const { error: dbError } = await admin.from('catalog_patient_display_images').upsert(
       { client_id: clientId, product_id: productId, color_name: colorName, image_path: displayPath, generated_at: new Date().toISOString() },
       { onConflict: 'client_id,product_id,color_name' }
     );
-    if (dbError) console.error('catalog_patient_display_image_upsert_failed', { message: dbError.message });
+    if (dbError) {
+      console.error('catalog_patient_display_image_upsert_failed', { message: dbError.message });
+      return { ok: false, status: 500, message: 'Não foi possível registrar a prova. Tente novamente.' };
+    }
 
     const { data: signed } = await admin.storage.from(TRYON_BUCKET).createSignedUrl(displayPath, 3600);
     return { ok: true, imageUrl: signed?.signedUrl || null };

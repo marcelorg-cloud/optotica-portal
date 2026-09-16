@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
 import { type Point } from '@/lib/tryon/geometry';
 import { composeTryonImage } from '@/lib/tryon/compose-server';
+import { tryonRevision } from '@/lib/tryon/revision';
 
 type ColorRow = {
   processed_image_path: string | null;
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
 
   const { data: client } = await admin
     .from('clients')
-    .select('id, organization_id, dnp_od, dnp_oe, status')
+    .select('id, organization_id, dnp_od, dnp_oe, dnp_measured_at, tryon_face_validated_at, status')
     .eq('id', account.client_id)
     .maybeSingle();
   if (!client || client.status !== 'active') return NextResponse.json({ message: 'Cadastro de cliente inativo.' }, { status: 403 });
@@ -42,6 +43,10 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => null);
+  const sourceRevision = tryonRevision(client);
+  if (body?.sourceRevision !== sourceRevision) {
+    return NextResponse.json({ message: 'A DNP ou a foto mudou. Atualize a página para gerar a prova atual.' }, { status: 409 });
+  }
   const productId = typeof body?.productId === 'string' ? body.productId : '';
   const colorName = typeof body?.colorName === 'string' ? body.colorName : '';
   const photoWidth = Number(body?.photoWidth);
@@ -91,6 +96,7 @@ export async function POST(request: Request) {
     organizationId: client.organization_id,
     clientId: client.id,
     dnpTotalMm: Number(client.dnp_od) + Number(client.dnp_oe),
+    sourceRevision,
     productId,
     colorName,
     processedImagePath: row.processed_image_path,

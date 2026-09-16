@@ -38,7 +38,7 @@ export async function POST(request: Request) {
   const folder = `${client.organization_id}/${client.id}`;
   const { data: existing } = await admin.storage.from(BUCKET).list(folder);
   if (existing?.length) {
-    await admin.storage.from(BUCKET).remove(existing.map((f) => `${folder}/${f.name}`));
+    await admin.storage.from(BUCKET).remove(existing.filter((f) => !f.name.startsWith('display')).map((f) => `${folder}/${f.name}`));
   }
 
   const path = `${folder}/prova.${ext}`;
@@ -49,6 +49,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: 'Não foi possível salvar a foto.' }, { status: 500 });
   }
 
+  const { error: revisionError } = await admin.from('clients')
+    .update({ tryon_face_validated_at: new Date().toISOString() }).eq('id', client.id);
+  if (revisionError) {
+    return NextResponse.json({ message: 'Foto enviada, mas não foi possível atualizar as provas. Envie novamente.' }, { status: 500 });
+  }
   const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(path, 3600);
   return NextResponse.json({ message: 'Foto atualizada.', photoUrl: signed?.signedUrl || null });
 }
