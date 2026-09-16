@@ -1,0 +1,21 @@
+/* Brand and navigation only; order and patient layouts retain their styles. */
+.portal-brand-header { width:100%; min-height:80px; padding:12px max(20px,calc((100% - 1200px)/2)); background:#fff; }
+.portal-brand-logo { display:block; width:200px; height:48px; object-fit:cover; object-position:center; }
+.portal-brand-header nav { font-size:14px; gap:20px; }
+.portal-signout { border:1px solid var(--line); border-radius:10px; min-height:44px; padding:8px 16px; color:var(--ink); background:#fff; font:inherit; cursor:pointer; }
+.portal-workspace-nav { background:#101c2c; color:#d7dee8; }
+.portal-workspace-links { width:min(1200px,calc(100% - 40px)); margin:auto; display:flex; flex-wrap:wrap; gap:4px 24px; }
+.portal-workspace-links a { display:inline-flex; align-items:center; min-height:54px; padding:10px 4px; border-bottom:3px solid transparent; font-size:14px; line-height:1.4; font-weight:650; }
+.portal-workspace-links a:hover { color:#fff; }
+.portal-workspace-links a[aria-current="page"] { color:#fff; border-bottom-color:#b6d638; }
+.portal-workspace-links a:focus-visible { outline:2px solid #b6d638; outline-offset:-4px; }
+.portal-brand-header a:focus-visible,.portal-signout:focus-visible { outline:2px solid #101c2c; outline-offset:3px; }
+@media(max-width:800px) {
+  .portal-brand-header { padding:10px 14px; gap:12px; flex-wrap:wrap; }
+  .portal-brand-header nav a:first-child { display:inline-flex; }
+  .portal-brand-header nav { flex-wrap:wrap; gap:12px; }
+  .portal-workspace-links { width:calc(100% - 28px); gap:0 18px; }
+  .portal-workspace-links a { min-height:48px; }
+}
+@media(max-width:480px) { .portal-brand-logo { width:170px; height:42px; } }
+@media print { .portal-brand-header,.portal-workspace-nav { display:none; } }

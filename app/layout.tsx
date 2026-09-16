@@ -2,10 +2,12 @@ import type { Metadata } from 'next';
 import { SiteHeader } from '@/components/site-header';
 import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import './globals.css';
+import './portal-navigation.css';
 
 export const metadata: Metadata = {
   title: { default: 'Optótica', template: '%s · Optótica' },
   description: 'Portal independente de gestão óptica e acompanhamento de pedidos.',
+  icons: { icon: '/optotica-icon.png', apple: '/optotica-icon.png' },
   robots: { index: false, follow: false }
 };
 

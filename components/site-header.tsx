@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 
 export function SiteHeader({ loggedIn }: { loggedIn: boolean }) {
@@ -13,6 +14,14 @@ export function SiteHeader({ loggedIn }: { loggedIn: boolean }) {
   // oferecer o link (e o redirect de login que ele dispararia) para quem
   // ainda nem entrou como profissional.
   const isProfessionalArea = pathname?.startsWith('/profissional');
+  const showWorkspace = loggedIn && isProfessionalArea;
+  const workspaceLinks = [
+    { href: '/profissional', label: 'Visão geral', active: pathname === '/profissional' },
+    { href: '/profissional/pacientes', label: 'Pacientes', active: Boolean(pathname?.startsWith('/profissional/pacientes') && pathname !== '/profissional/pacientes/novo') },
+    { href: '/profissional/pacientes/novo', label: 'Convidar paciente', active: pathname === '/profissional/pacientes/novo' },
+    { href: '/profissional/cardapio', label: 'Cardápio de lentes', active: pathname === '/profissional/cardapio' },
+    { href: '/profissional/cadastro', label: 'Meu perfil', active: pathname === '/profissional/cadastro' }
+  ];
 
   async function handleSignOut() {
     await fetch('/api/auth/sign-out', { method: 'POST' });
@@ -21,10 +30,10 @@ export function SiteHeader({ loggedIn }: { loggedIn: boolean }) {
   }
 
   return (
-    <header className="site-header">
+    <>
+    <header className="site-header portal-brand-header">
       <Link className="brand" href="/" aria-label="Optótica — início">
-        <span className="brand-mark" aria-hidden="true">O</span>
-        <span>optótica</span>
+        <Image className="portal-brand-logo" src="/optotica-logo.png" alt="Optótica" width={1200} height={628} priority sizes="200px" />
       </Link>
       {!isClientArea && (
         <nav aria-label="Navegação principal">
@@ -32,17 +41,27 @@ export function SiteHeader({ loggedIn }: { loggedIn: boolean }) {
             <button
               type="button"
               onClick={handleSignOut}
-              style={{ all: 'unset', cursor: 'pointer', color: 'inherit', font: 'inherit' }}
+              className="portal-signout"
             >
               Sair
             </button>
           ) : (
             <Link href="/entrar">Entrar</Link>
           )}
-          {isProfessionalArea && <Link href="/profissional/cadastro">Perfil</Link>}
-          <Link href="/profissional">Área profissional</Link>
+          {!showWorkspace && isProfessionalArea && <Link href="/profissional/cadastro">Perfil</Link>}
+          {!showWorkspace && <Link href="/profissional">Área profissional</Link>}
         </nav>
       )}
     </header>
+    {showWorkspace && (
+      <nav className="portal-workspace-nav" aria-label="Navegação profissional">
+        <div className="portal-workspace-links">
+          {workspaceLinks.map(({ href, label, active }) => (
+            <Link key={href} href={href} aria-current={active ? 'page' : undefined}>{label}</Link>
+          ))}
+        </div>
+      </nav>
+    )}
+    </>
   );
 }
