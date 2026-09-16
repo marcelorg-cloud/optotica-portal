@@ -490,13 +490,23 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
               {tag(comandaDone, current === 5)}
             </div>
             <div className="card-body">
+              {/* 16/09/2026 — pedido do usuário: confirmar a armação no Carrinho e a
+                  lente em "Lentes sugeridas" já preenchia frameName/lensDescription/
+                  laboratory aqui (mesma fonte de dados, orderFrame/selectedQuote,
+                  já calculados acima — nenhuma mudança nisso). Faltavam cor e SKU
+                  da armação, e as observações do orçamento — os três já vinham
+                  junto de orderFrame/selectedQuote, só não eram passados pra
+                  ComandaStep. Valor do orçamento não entra (decisão do usuário). */}
               <ComandaStep
                 orderId={order.id}
                 clientName={clientName}
                 dnp={dnp}
                 lensDescription={selectedQuote?.description || ''}
                 laboratory={selectedQuote?.laboratory || ''}
+                lensNotes={selectedQuote?.notes || ''}
                 frameName={orderFrame?.frame_name || ''}
+                frameColor={orderFrame?.color || ''}
+                frameSku={orderFrame?.sku || ''}
                 initial={{
                   heightOd: str(ful?.measure_height_od), heightOe: str(ful?.measure_height_oe),
                   bridge: str(ful?.measure_bridge), diagonal: str(ful?.measure_diagonal), notes: str(ful?.final_lab_notes)

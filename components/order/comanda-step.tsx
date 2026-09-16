@@ -3,13 +3,18 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-export function ComandaStep({ orderId, clientName, dnp, lensDescription, laboratory, frameName, initial, confirmed }: {
+export function ComandaStep({ orderId, clientName, dnp, lensDescription, laboratory, lensNotes, frameName, frameColor, frameSku, initial, confirmed }: {
   orderId: string;
   clientName: string;
   dnp: string;
   lensDescription: string;
   laboratory: string;
+  /** Observações digitadas ao criar o orçamento (Lentes sugeridas) — não confundir
+   * com `initial.notes`, que são as observações da própria Comanda final. */
+  lensNotes: string;
   frameName: string;
+  frameColor: string;
+  frameSku: string;
   initial: { heightOd: string; heightOe: string; bridge: string; diagonal: string; notes: string };
   confirmed: boolean;
 }) {
@@ -70,9 +75,12 @@ export function ComandaStep({ orderId, clientName, dnp, lensDescription, laborat
         <div className="subsection"><h3>Lente</h3>
           <div className="summary-row"><span>Tipo</span><strong>{lensDescription || 'Não definida'}</strong></div>
           <div className="summary-row"><span>Laboratório</span><strong>{laboratory || 'Não definido'}</strong></div>
+          <div className="summary-row"><span>Observações</span><strong>{lensNotes || '—'}</strong></div>
         </div>
         <div className="subsection"><h3>Armação</h3>
           <div className="summary-row"><span>Modelo</span><strong>{frameName || 'Não definida'}</strong></div>
+          <div className="summary-row"><span>Cor</span><strong>{frameColor || '—'}</strong></div>
+          <div className="summary-row"><span>SKU</span><strong>{frameSku || '—'}</strong></div>
         </div>
       </div>
 
