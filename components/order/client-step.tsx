@@ -128,8 +128,8 @@ export function ClientStep({
   }
 
   return (
-    <form className="stack" ref={formRef} onSubmit={(e) => { e.preventDefault(); submit(); }}>
-      <div className="summary-grid">
+    <form className="stack patient-step-form" ref={formRef} onSubmit={(e) => { e.preventDefault(); submit(); }}>
+      <div className="summary-grid patient-data-grid">
         <div className="stat"><span>Paciente</span><strong>{clientName}</strong></div>
         <div className="stat"><span>WhatsApp</span><strong>{whatsapp}</strong></div>
         <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0, display: 'contents' }}>
@@ -140,39 +140,39 @@ export function ClientStep({
         </fieldset>
         <div className="stat"><span>Armação</span><strong>{frameName || 'Ainda não escolhida'}</strong></div>
       </div>
-      {!locked && (
-        <div className="actions">
-          <button className="button secondary" type="button" onClick={() => setToolOpen(true)}>📷 {dnpPhotoUrl ? 'Medir novamente com foto' : 'Medir com foto'}</button>
+
+      <section className="patient-photo-panel" aria-label="Fotos do atendimento">
+        <div className="patient-photo-column">
+          <p className="patient-photo-label">Foto para DNP</p>
+          <div className="patient-photo-frame patient-photo-frame-dnp">
+            {dnpPhotoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- foto assinada do Storage, não passa pelo otimizador de imagens do Next
+              <img className="dnp-client-photo" src={dnpPhotoUrl} alt="Foto usada para medir a DNP, com os pontos marcados" />
+            ) : (
+              <span>Foto para DNP ainda não registrada</span>
+            )}
+          </div>
+          {!locked && (
+            <button className="button secondary" type="button" onClick={() => setToolOpen(true)}>📷 {dnpPhotoUrl ? 'Medir novamente com foto' : 'Medir com foto'}</button>
+          )}
         </div>
-      )}
-      {dnpPhotoUrl ? (
-        <div className="field">
-          <label>Foto para DNP</label>
-          {/* eslint-disable-next-line @next/next/no-img-element -- foto assinada do Storage, não passa pelo otimizador de imagens do Next */}
-          <img className="dnp-client-photo" src={dnpPhotoUrl} alt="Foto usada para medir a DNP, com os pontos marcados" />
-        </div>
-      ) : (
-        <div className="photo-box">Foto para DNP ainda não registrada — use &quot;Medir com foto&quot; acima.</div>
-      )}
-      <div className="field face-photo-card">
-        <label>Foto de rosto para Prova Online</label>
-        <p className="helper">
-          Foto separada da foto de DNP acima — vai ser usada pelo script de prova virtual para sobrepor os óculos.
-          A IA deixa o fundo neutro e equaliza a iluminação do rosto (sem sombras de lado).
-        </p>
-        <div className="face-photo-body">
-          <div className="face-photo-preview">
+
+        <div className="patient-photo-column">
+          <p className="patient-photo-label">Foto para Prova Online</p>
+          <div className="face-photo-preview patient-photo-frame">
             {facePhotoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element -- foto assinada do Storage, não passa pelo otimizador de imagens do Next
               <img src={facePhotoUrl} alt="Foto de rosto para prova online" />
             ) : (
               <span>Nenhuma foto de rosto enviada ainda</span>
             )}
-            {facePhotoStatus === 'pendente' && <span className="pending-tag">Pendente de validação</span>}
-            {facePhotoStatus === 'validada' && <span className="complete-tag">Oficial da prova online</span>}
           </div>
+        </div>
+
+        <div className="patient-photo-controls">
+          <p className="helper">Use uma foto frontal. A IA neutraliza o fundo e equilibra a iluminação para a prova virtual.</p>
           {!locked && (
-            <div className="actions">
+            <div className="patient-photo-actions">
               <button className="button secondary" type="button" disabled={faceBusy !== 'idle'} onClick={() => fileInputRef.current?.click()}>
                 🖼️ {facePhotoUrl ? 'Trocar foto (escolher arquivo)' : 'Escolher arquivo'}
               </button>
@@ -188,12 +188,16 @@ export function ClientStep({
               <input ref={cameraInputRef} className="upload" type="file" accept="image/*" capture="user" onChange={(e) => onFacePhotoSelected(e.target.files?.[0])} disabled={faceBusy !== 'idle'} />
             </div>
           )}
+          <div className={`face-photo-status ${facePhotoStatus === 'validada' ? 'is-valid' : facePhotoStatus === 'pendente' ? 'is-pending' : ''}`} aria-live="polite">
+            <strong>{facePhotoStatus === 'validada' ? 'Foto validada' : facePhotoStatus === 'pendente' ? 'Aguardando validação' : 'Foto não validada'}</strong>
+            <span>{facePhotoStatus === 'validada' ? 'Oficial da Prova Online' : facePhotoStatus === 'pendente' ? 'Confira a imagem e valide' : 'Envie uma foto para continuar'}</span>
+          </div>
         </div>
-        {faceMessage && <p className={`form-message ${faceMessageKind}`}>{faceMessage}</p>}
-      </div>
+        {faceMessage && <p className={`form-message ${faceMessageKind} patient-photo-message`}>{faceMessage}</p>}
+      </section>
 
       {!locked && (
-        <div className="actions">
+        <div className="actions patient-save-actions">
           <button className="button primary" type="submit" disabled={state === 'loading'}>{state === 'loading' ? 'Salvando…' : 'Salvar dados'}</button>
         </div>
       )}
