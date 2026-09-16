@@ -87,9 +87,21 @@ export default async function ProfessionalPage({ searchParams }: { searchParams:
   // mais valores do que só 'in_progress'/'delivered' (ver
   // lib/order-status.ts) — o filtro de status abaixo lista todos eles,
   // ainda que só 'in_progress'/'delivered' sejam gravados por este app hoje.
+  //
+  // 16/09/2026, 2ª rodada (bug em produção, código PGRST201 nos logs da
+  // Vercel): "clients(full_name)" sozinho é ambíguo pro PostgREST — a
+  // consulta a pg_constraint que o usuário rodou só listou as constraints
+  // DEFINIDAS em `orders` (conrelid = 'orders'), então não pegou nenhuma
+  // constraint definida do lado de `clients` que também referencie `orders`
+  // (ex.: um "pedido atual/ativo" salvo no cadastro do cliente) — com FKs
+  // nos dois sentidos entre as duas tabelas, o PostgREST não sabe sozinho
+  // qual usar pra montar o embed e erra com "more than one relationship was
+  // found". Corrigido apontando explicitamente a constraint que sabemos que
+  // existe (`orders_client_id_fkey`, confirmada na consulta anterior),
+  // igual à sintaxe `tabela!nome_da_constraint(colunas)` do PostgREST.
   let query = admin
     .from('orders')
-    .select('id, order_number, status, total, created_at, updated_at, client_id, clients(full_name)')
+    .select('id, order_number, status, total, created_at, updated_at, client_id, clients!orders_client_id_fkey(full_name)')
     .eq('professional_id', user.id);
 
   if (status) query = query.eq('status', status);
