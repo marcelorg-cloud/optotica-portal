@@ -33,7 +33,7 @@ export function SiteHeader({ loggedIn }: { loggedIn: boolean }) {
     <>
     <header className="site-header portal-brand-header">
       <Link className="brand" href="/" aria-label="Optótica — início">
-        <Image className="portal-brand-logo" src="/optotica-logo.png" alt="Optótica" width={1200} height={628} priority sizes="200px" />
+        <Image className="portal-brand-logo" src="/optotica-logo-transparent.png" alt="Optótica" width={1200} height={628} priority sizes="200px" />
       </Link>
       {!isClientArea && (
         <nav aria-label="Navegação principal">
