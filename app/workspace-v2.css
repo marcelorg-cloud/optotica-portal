@@ -249,7 +249,13 @@ body:has(.rx-preview-document) .site-header, body:has(.rx-preview-document) .por
 .verification-hero .verified-professional-title { font-size:clamp(32px,5vw,52px); line-height:1.1; letter-spacing:-.04em; color:#176349; margin:18px 0 12px; }
 .verified-professional-subtitle { color:#276450; font-size:16px; }
 .verification-public-documents { display:flex; flex-wrap:wrap; gap:12px; margin:24px 0; }
+.verification-operator { text-align:center; }
 .verification-operator p { overflow-wrap:anywhere; }
+.verification-operator-brand { position:relative; width:100%; max-width:540px; aspect-ratio:4 / 1; margin:24px auto; }
+.verification-operator-brand img { object-fit:cover; }
+.verification-operator-identification p { margin:4px 0; color:var(--muted); font-size:14px; font-weight:500; line-height:1.5; }
+.verification-operator-contact { margin:20px 0 0; font-size:15px; }
+.verification-operator-contact a { font-weight:600; text-underline-offset:3px; }
 .verification-summary { margin:20px 0; padding:20px; border:1px solid #e6d9ba; border-radius:16px; background:#fbf7ee; color:#72521c; }
 .verification-summary strong { display:block; font-size:20px; line-height:1.3; }
 .verification-summary p { margin:8px 0 0; font-size:14px; line-height:1.5; }

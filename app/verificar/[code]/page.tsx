@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 import Link from 'next/link';
 import { optoticaOperator } from '@/lib/optotica-operator';
 import { isCurrentVerification, publicVerificationDocument } from '@/lib/public-verification';
@@ -46,7 +47,12 @@ export default async function VerifyPrescription({ params }: { params: Promise<{
           <p className="helper">Cópias para consulta pública, com ocultação de dados pessoais não necessários. Os originais foram conferidos pela equipe.</p></> : <p className="muted">O selo é exibido somente após a conferência documental pela equipe. A aprovação do cadastro no portal é uma etapa separada.</p>}
         <p className="fine-print">A verificação documental descreve os documentos conferidos e não constitui garantia do resultado do atendimento. Documentos pessoais e contratos permanecem privados.</p>
       </section>
-      <section className="card verification-section verification-operator"><p className="eyebrow">Empresa responsável pela Optótica</p><h2>{optoticaOperator.legalName}</h2><p><strong>CNPJ {optoticaOperator.cnpj}</strong></p><p>{optoticaOperator.address}</p><p>Representante: {optoticaOperator.representative}</p><p><a href={`mailto:${optoticaOperator.email}`}>{optoticaOperator.email}</a> · {optoticaOperator.phone} · {optoticaOperator.mobile}</p></section>
+      <section className="card verification-section verification-operator">
+        <h2 className="eyebrow">Empresa responsável pela verificação</h2>
+        <div className="verification-operator-brand"><Image src="/optotica-logo-transparent.png" alt="Optótica" fill sizes="(max-width: 600px) 80vw, 540px" /></div>
+        <div className="verification-operator-identification"><p>{optoticaOperator.legalName}</p><p>CNPJ {optoticaOperator.cnpj}</p></div>
+        <p className="verification-operator-contact">Contato: <a href="tel:+5544991536436">(44) 99153-6436</a></p>
+      </section>
       <section className="card verification-section"><h2>Consulte sua receita completa</h2><p className="muted">Os graus, observações e o nome completo ficam disponíveis no acesso protegido do paciente.</p><Link className="button primary" href="/entrar">Acessar meu portal</Link></section>
     </div>;
 }
