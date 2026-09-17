@@ -110,6 +110,7 @@ async function buildClientAreaAccessLink(
   admin: AdminClient,
   organizationId: string,
   clientId: string,
+  whatsappE164: string,
   redirectPath: string,
   inboundMessageId: string
 ): Promise<string | null> {
@@ -142,6 +143,7 @@ async function buildClientAreaAccessLink(
     organization_id: organizationId,
     client_id: clientId,
     invitation_id: null,
+    whatsapp_e164: whatsappE164,
     whatsapp_message_id: inboundMessageId,
     consent_version: consentVersion,
     token_hash: tokenFingerprint,
@@ -212,7 +214,7 @@ export async function POST(request: Request) {
     // (não só no momento em que o botão "Ganhar cupom" foi mostrado) — se o
     // paciente deixou de ser de teste entre o envio e o toque, a resposta
     // de cupom não sai (ver buildWhatsAppButtonFollowUp).
-    const { data: client } = await admin.from('clients').select('is_test_patient').eq('id', origin.client_id).maybeSingle();
+    const { data: client } = await admin.from('clients').select('is_test_patient, whatsapp_e164').eq('id', origin.client_id).maybeSingle();
     const isTestPatient = Boolean(client?.is_test_patient);
 
     let accessLink: string | null = null;
@@ -238,7 +240,18 @@ export async function POST(request: Request) {
           .maybeSingle();
         if (issuedRx) redirectPath = `/prescricao/${issuedRx.id}`;
       }
-      accessLink = await buildClientAreaAccessLink(admin, origin.organization_id, origin.client_id, redirectPath, buttonReply.messageId);
+      // `whatsapp_access_requests.whatsapp_e164` é obrigatória (not null) —
+      // bug real encontrado em produção (17/09/2026): esta função, ao ser
+      // criada, não preenchia essa coluna (só o fluxo de convite original
+      // preenchia), e o upsert falhava silenciosamente (accessError),
+      // sempre caindo no texto de fallback. Usa o telefone já salvo no
+      // cadastro do cliente — é o mesmo número usado para mandar a
+      // mensagem de estágio e o mesmo que originou este toque de botão.
+      if (client?.whatsapp_e164) {
+        accessLink = await buildClientAreaAccessLink(admin, origin.organization_id, origin.client_id, client.whatsapp_e164, redirectPath, buttonReply.messageId);
+      } else {
+        console.error('whatsapp_access_link_failed', { reason: 'no_client_whatsapp_e164', clientId: origin.client_id });
+      }
     }
 
     const followUpText = buildWhatsAppButtonFollowUp(buttonId, { accessLink, isTestPatient });
