@@ -16,12 +16,9 @@ export function VerificationReviewFields() {
       <p className="setup-note">Para concluir a aprovação, preencha todos os campos abaixo. O selo só será liberado depois de clicar em “Salvar decisão documental” e receber a confirmação.</p>
       <label>Escopo da verificação para exibição pública<textarea name="scope" required minLength={10} maxLength={1000} placeholder="Descreva a formação, o registro e os documentos conferidos, sem dados pessoais desnecessários." /></label>
       <label>Verificação válida até<input type="date" name="validUntil" required min={new Date().toISOString().slice(0, 10)} /></label>
-      <label>Declaração de conferência da Optótica assinada (PDF até 1 MB)<input type="file" name="attestation" accept="application/pdf" required /></label>
-      <label>Diploma/certificado para consulta pública (PDF até 1 MB)<input type="file" name="public_diploma" accept="application/pdf" required /></label>
-      <label>Registro no conselho para consulta pública (PDF até 1 MB)<input type="file" name="public_registration" accept="application/pdf" required /></label>
-      <p className="helper">As versões públicas devem corresponder aos originais e ocultar CPF, RG, endereço residencial, assinatura manuscrita e outros dados desnecessários. Os originais e a declaração assinada permanecem privados.</p>
-      <label className="verification-check"><input type="checkbox" name="publicDocumentsChecked" value="yes" required /><span>Conferi as versões públicas e a autorização do profissional. As cópias preservam nome, formação e registro necessários à consulta.</span></label>
-      <label className="verification-check"><input type="checkbox" name="signaturesChecked" value="yes" required /><span>Conferi as assinaturas, a identidade e a documentação. A declaração assinada corresponde a esta análise.</span></label>
+      <p className="helper">A análise usa os documentos enviados pelo profissional, disponíveis acima. Após a aprovação, cópias do diploma e do registro serão disponibilizadas na consulta pelo QR Code. Não é necessário anexar arquivos novamente.</p>
+      <label className="verification-check"><input type="checkbox" name="submittedDocumentsChecked" value="yes" required /><span>Conferi o diploma e o registro já enviados e autorizo o uso de cópias desses arquivos na consulta pública. Estão adequados à divulgação, sem CPF, RG, endereço residencial, assinatura manuscrita ou outros dados desnecessários.</span></label>
+      <label className="verification-check"><input type="checkbox" name="signaturesChecked" value="yes" required /><span>Conferi a identidade, a formação, o registro e a assinatura da declaração de veracidade enviada pelo profissional.</span></label>
     </>}
   </>;
 }

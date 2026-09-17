@@ -20,10 +20,16 @@ begin
   if not blocked then raise exception 'Terms snapshot was editable'; end if;
   blocked := false;
   begin
-    update public.professional_verification_requests set status='verified',reviewed_by=professional.user_id,reviewed_at=now(),valid_until=current_date+30,public_scope='Test scope',attestation_path='test.pdf',signatures_checked=true where id=request_id;
+    update public.professional_verification_requests set status='verified',reviewed_by=professional.user_id,reviewed_at=now(),valid_until=current_date+30,public_scope='Test scope',signatures_checked=true where id=request_id;
   exception when check_violation then blocked := true; end;
   if not blocked then raise exception 'Approval without public copies was allowed'; end if;
-  update public.professional_verification_requests set status='verified',reviewed_by=professional.user_id,reviewed_at=now(),valid_until=current_date+30,public_scope='Test scope',attestation_path='test.pdf',signatures_checked=true,public_documents_checked=true,public_documents='{"diploma":{},"registration":{}}' where id=request_id;
+  update public.professional_verification_requests set status='verified',reviewed_by=professional.user_id,reviewed_at=now(),valid_until=current_date+30,public_scope='Test scope',signatures_checked=true,public_documents_checked=true,public_documents='{"diploma":{},"registration":{}}' where id=request_id;
+  if not exists(select 1 from public.professional_verification_requests where id=request_id and status='verified' and attestation_path is null) then raise exception 'Approval without another attestation failed'; end if;
+  blocked := false;
+  begin
+    update public.professional_verification_requests set signatures_checked=false where id=request_id;
+  exception when check_violation then blocked := true; end;
+  if not blocked then raise exception 'Documentary review confirmation was bypassed'; end if;
   if not exists(select 1 from public.verification_audit_events where entity_id=request_id and action='verification_verified') then raise exception 'Decision audit missing'; end if;
 end $$;
 select 'Verification schema and immutable acceptance checks passed; test rolled back' as result;

@@ -28,7 +28,7 @@ export default async function ProfessionalVerification() {
       </section>
       {latest?.terms_acceptance && <details className="verification-terms"><summary>Termos aceitos em {formatPrescriptionDate(latest.terms_acceptance.accepted_at)} · versão {latest.terms_acceptance.version}</summary><pre className="verification-terms-snapshot">{latest.terms_acceptance.text}</pre></details>}
       <h2 style={{ marginTop: 30 }}>{latest ? '2. Enviar nova documentação' : '2. Documentos para análise'}</h2>
-      <p className="verification-upload-note">PDFs de até 1 MB cada. Os originais ficam privados; a equipe prepara e confere as versões públicas do diploma e do registro. Uma nova submissão inicia outra análise e suspende a exibição do selo anterior.</p>
+      <p className="verification-upload-note">PDFs de até 1 MB cada. O diploma e o registro devem estar adequados à consulta pública, sem CPF, RG, endereço residencial, assinatura manuscrita ou outros dados desnecessários. Após a conferência, a equipe libera cópias desses dois arquivos. A declaração assinada permanece privada. Uma nova submissão inicia outra análise e suspende a exibição do selo anterior.</p>
       <VerificationForm key={latest?.id || 'new'} endpoint="/api/professional/verification" buttonLabel="Enviar para conferência">
         <label>Curso / qualificação<input name="course" required maxLength={160} defaultValue={latest?.course || ''} /></label>
         <label>Instituição de ensino<input name="institution" required maxLength={160} defaultValue={latest?.institution || ''} /></label>

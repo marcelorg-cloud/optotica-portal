@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
-import { isSameOrigin, verificationActor, verificationBucket, readPdf } from '@/lib/verification-auth';
+import { isSameOrigin, verificationActor, verificationBucket } from '@/lib/verification-auth';
+import { submittedPublicDocument } from '@/lib/verification-submitted-documents';
 export async function POST(request: Request, { params }: { params: Promise<{ requestId: string }> }) {
   if (!isSameOrigin(request)) return NextResponse.json({ message: 'Origem inválida.' }, { status: 403 });
   const actor = await verificationActor();
@@ -20,7 +21,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ req
     const notes = String(form.get('notes') || '').trim();
     if (!['verified','changes_requested','revoked'].includes(decision) || notes.length < 10 || notes.length > 2000) return reject('Selecione a decisão e informe os detalhes da conferência, entre 10 e 2.000 caracteres.', 'decision_or_notes');
     stage = 'load_request';
-    const { data: record, error: recordError } = await actor.admin.from('professional_verification_requests').select('id,professional_profile_id,status,terms_acceptance,public_documents_consent_at').eq('id', requestId).maybeSingle();
+    const { data: record, error: recordError } = await actor.admin.from('professional_verification_requests').select('id,professional_profile_id,status,documents,terms_acceptance,public_documents_consent_at').eq('id', requestId).maybeSingle();
     if (recordError) throw new Error('Não foi possível consultar a solicitação. Tente novamente.');
     if (!record) return reject('Solicitação não encontrada.', 'request_not_found', 404);
     const { data: latest, error: latestError } = await actor.admin.from('professional_verification_requests').select('id').eq('professional_profile_id', record.professional_profile_id).order('created_at', { ascending: false }).limit(1).single();
@@ -36,18 +37,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ req
       if (!/^\d{4}-\d{2}-\d{2}$/.test(until) || until < new Date().toISOString().slice(0, 10)) return reject('Informe a validade da verificação, com data de hoje ou posterior.', 'valid_until');
       if (form.get('signaturesChecked') !== 'yes') return reject('Marque a confirmação de conferência das assinaturas, identidade e documentação.', 'signatures_unconfirmed');
       if (!record.terms_acceptance || !record.public_documents_consent_at) return reject('O profissional precisa aceitar os termos atuais e autorizar a divulgação antes da aprovação.', 'terms_or_consent_missing');
-      if (form.get('publicDocumentsChecked') !== 'yes') return reject('Marque a confirmação de conferência das duas versões públicas dos documentos.', 'public_copies_unconfirmed');
-      const readDocument = async (field: string, label: string) => {
-        try { return await readPdf(form.get(field)); }
-        catch (error) { throw new Error(`${label}: ${error instanceof Error ? error.message : 'Confira o PDF enviado.'}`); }
-      };
-      const publicFiles = await Promise.all(['diploma', 'registration'].map(async kind => ({ kind, buffer: await readDocument(`public_${kind}`, kind === 'diploma' ? 'Diploma para consulta pública' : 'Registro para consulta pública') })));
-      const buffer = await readDocument('attestation', 'Declaração assinada da Optótica');
-      stage = 'upload_evidence';
-      const uploadedPath = `${record.professional_profile_id}/${record.id}/attestation-${randomUUID()}.pdf`;
-      const { error: uploadError } = await actor.admin.storage.from(verificationBucket).upload(uploadedPath, buffer, { contentType: 'application/pdf' });
-      if (uploadError) throw new Error('Não foi possível guardar a declaração.');
-      uploadedPaths.push(uploadedPath);
+      if (form.get('submittedDocumentsChecked') !== 'yes') return reject('Atualize a página e confirme que o diploma e o registro já enviados estão conferidos e adequados à consulta pública.', 'submitted_copies_unconfirmed');
+      stage = 'read_submitted_credentials';
+      const publicFiles = await Promise.all(['diploma', 'registration'].map(async kind => {
+        const label = kind === 'diploma' ? 'Diploma/certificado' : 'Registro no conselho';
+        const document = submittedPublicDocument(record.professional_profile_id, record.id, record.documents, kind);
+        if (!document) throw new Error(`${label}: documento enviado não encontrado. Solicite a correção ao profissional.`);
+        const { data: file, error } = await actor.admin.storage.from(verificationBucket).download(document.path);
+        if (error || !file) throw new Error(`${label}: não foi possível ler o arquivo enviado. Tente novamente.`);
+        if (file.size > 1000000) throw new Error(`${label}: o arquivo excede o limite de 1 MB.`);
+        const buffer = Buffer.from(await file.arrayBuffer());
+        if (buffer.subarray(0, 5).toString() !== '%PDF-' || createHash('sha256').update(buffer).digest('hex') !== document.sha256) throw new Error(`${label}: o arquivo não corresponde ao envio registrado. Solicite uma nova submissão.`);
+        return { kind, buffer };
+      }));
+      stage = 'prepare_public_copies';
       const publicDocuments: Record<string, { path: string; sha256: string }> = {};
       for (const { kind, buffer: publicBuffer } of publicFiles) {
         const path = `${record.professional_profile_id}/${record.id}/public-${kind}-${randomUUID()}.pdf`;
@@ -57,7 +60,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ req
         publicDocuments[kind] = { path, sha256: createHash('sha256').update(publicBuffer).digest('hex') };
       }
       Object.assign(updates, { public_documents: publicDocuments, public_documents_checked: true });
-      Object.assign(updates, { public_scope: scope, valid_until: until, signatures_checked: true, attestation_path: uploadedPath, attestation_sha256: createHash('sha256').update(buffer).digest('hex') });
+      Object.assign(updates, { public_scope: scope, valid_until: until, signatures_checked: true });
     }
     stage = 'save_decision';
     const { data, error } = await actor.admin.from('professional_verification_requests').update(updates).eq('id', record.id).eq('status', expected).select('id,status').maybeSingle();
