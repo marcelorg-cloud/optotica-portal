@@ -2,22 +2,23 @@
 
 import { useProcessingFeedback } from '@/components/processing-feedback';
 
+import { PrescriptionNumberInput } from '@/components/prescription-number-input';
 import { PrescriptionPreview } from '@/components/prescription-preview';
-import { formatSignedSphere, normalizePrescriptionNumber } from '@/lib/prescription-format';
+import { normalizePrescriptionNumber } from '@/lib/prescription-format';
 
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 type EyeRx = { esferico: string; cilindrico: string; eixo: string; adicao: string };
 
-function RxRow({ eye, label, value }: { eye: 'od' | 'oe'; label: string; value: EyeRx }) {
+function RxRow({ eye, label, value, onValueChange }: { eye: 'od' | 'oe'; label: string; value: EyeRx; onValueChange: () => void }) {
   return (
     <tr>
       <th>{label}</th>
-      <td><input name={`${eye}-esferico`} type="text" inputMode="decimal" pattern="[+-]?[0-9]+([.,][0-9]{1,2})?" placeholder="+0.00" defaultValue={formatSignedSphere(value.esferico)} onBlur={(event) => { event.currentTarget.value = formatSignedSphere(event.currentTarget.value); }} aria-label={`Esférico ${label}`} required /></td>
-      <td><input name={`${eye}-cilindrico`} type="number" step="0.25" min="-30" max="30" placeholder="-0,00" defaultValue={value.cilindrico} required /></td>
-      <td><input name={`${eye}-eixo`} type="number" step="1" min="0" max="180" placeholder="0°" defaultValue={value.eixo} required /></td>
-      <td><input name={`${eye}-adicao`} type="number" step="0.25" min="0" max="6" placeholder="+0,00" defaultValue={value.adicao} required /></td>
+      <td><PrescriptionNumberInput name={`${eye}-esferico`} label={`Esférico ${label}`} initialValue={value.esferico} kind="sphere" onValueChange={onValueChange} /></td>
+      <td><PrescriptionNumberInput name={`${eye}-cilindrico`} label={`Cilíndrico ${label}`} initialValue={value.cilindrico} kind="cylinder" onValueChange={onValueChange} /></td>
+      <td><PrescriptionNumberInput name={`${eye}-eixo`} label={`Eixo ${label}`} initialValue={value.eixo} kind="axis" onValueChange={onValueChange} /></td>
+      <td><PrescriptionNumberInput name={`${eye}-adicao`} label={`Adição ${label}`} initialValue={value.adicao} kind="addition" onValueChange={onValueChange} /></td>
     </tr>
   );
 }
@@ -68,8 +69,8 @@ export function PrescriptionStep({ orderId, initialOd, initialOe, initialObserva
     setRxMessage('');
     const form = new FormData(event.currentTarget);
     const eye = (prefix: string) => ({
-      esferico: normalizePrescriptionNumber(form.get(`${prefix}-esferico`)), cilindrico: form.get(`${prefix}-cilindrico`),
-      eixo: form.get(`${prefix}-eixo`), adicao: form.get(`${prefix}-adicao`)
+      esferico: normalizePrescriptionNumber(form.get(`${prefix}-esferico`)), cilindrico: normalizePrescriptionNumber(form.get(`${prefix}-cilindrico`)),
+      eixo: form.get(`${prefix}-eixo`), adicao: normalizePrescriptionNumber(form.get(`${prefix}-adicao`))
     });
     try {
     const response = await fetch(`/api/professional/orders/${orderId}/prescription`, {
@@ -86,15 +87,15 @@ export function PrescriptionStep({ orderId, initialOd, initialOe, initialObserva
     <div className="stack">
       {previewUrl && <PrescriptionPreview key={previewUrl} url={previewUrl} onClose={() => setPreviewUrl(null)} />}
       {locked && <div className="notice">🔒 Etapa bloqueada — Comanda final já confirmada.</div>}
-      <form className="subsection" onSubmit={submitRx} onChange={() => setDirty(true)}>
-        <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0 }}>
+      <form className="subsection prescription-editor" onSubmit={submitRx} onChange={() => setDirty(true)}>
+        <fieldset disabled={locked} style={{ border: 'none', margin: 0, padding: 0, minWidth: 0 }}>
         <h3>Receita</h3>
         <div className="rx-scroll">
-          <table className="rx-table">
-            <thead><tr><th></th><th>Esférico</th><th>Cilíndrico</th><th>Eixo</th><th>Adição</th></tr></thead>
+          <table className="rx-table rx-table-compact">
+            <thead><tr><th scope="col"></th><th>Esférico</th><th>Cilíndrico</th><th>Eixo</th><th>Adição</th></tr></thead>
             <tbody>
-              <RxRow eye="od" label="OD" value={initialOd || EMPTY_EYE} />
-              <RxRow eye="oe" label="OE" value={initialOe || EMPTY_EYE} />
+              <RxRow eye="od" label="OD" value={initialOd || EMPTY_EYE} onValueChange={() => setDirty(true)} />
+              <RxRow eye="oe" label="OE" value={initialOe || EMPTY_EYE} onValueChange={() => setDirty(true)} />
             </tbody>
           </table>
         </div>

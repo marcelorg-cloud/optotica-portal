@@ -74,6 +74,36 @@
 .workspace-v2 .stat strong { overflow-wrap:anywhere; }
 .workspace-v2 .rx-table thead th { font-size:12px; }
 .workspace-v2 .rx-table input { min-height:44px; font-size:16px; }
+.rx-table.rx-table-compact { table-layout:fixed; min-width:0; }
+.rx-table-compact tr>:first-child { width:44px; }
+.rx-table-compact th,.rx-table-compact td { padding:8px; font-variant-numeric:tabular-nums; }
+.rx-number { display:flex; width:100%; min-width:0; border:1px solid var(--line); border-radius:9px; overflow:hidden; background:#fff; }
+.rx-number:focus-within { border-color:#51779d; box-shadow:0 0 0 2px #51779d22; }
+.rx-number-value { position:relative; flex:1; min-width:0; }
+.rx-table .rx-number input { width:100%; min-width:0; height:48px; padding:4px; border:0; border-radius:0; box-shadow:none; color:var(--ink); background:transparent; font-variant-numeric:tabular-nums; }
+.rx-table .rx-number-axis input { padding-right:16px; }
+.rx-degree { position:absolute; right:7px; top:50%; transform:translateY(-50%); pointer-events:none; }
+.rx-number-arrows { display:grid; grid-template-rows:1fr 1fr; flex:0 0 28px; border-left:1px solid var(--line); }
+.rx-number-arrows button { display:grid; place-items:center; width:100%; min-height:24px; padding:0; border:0; background:#f4f7fa; color:#40556e; font-size:15px; line-height:1; cursor:pointer; touch-action:manipulation; }
+.rx-number-arrows button+button { border-top:1px solid var(--line); }
+.rx-number-arrows button:hover:not(:disabled) { background:#e3ebf3; }
+.rx-number-arrows button:disabled { opacity:.35; cursor:default; }
+.prescription-editor { min-width:0; }
+@media(max-width:600px) {
+  .workspace-v2 .card-body:has(.rx-table-compact) { padding:10px; }
+  .prescription-editor { padding:8px; }
+  .rx-table-compact tr>:first-child { width:27px; }
+  .rx-table-compact th,.rx-table-compact td { padding:4px 2px; font-size:12px; }
+  .workspace-v2 .rx-table-compact thead th { padding:9px 1px; font-size:9px; letter-spacing:0; }
+  .rx-table-compact tbody th { font-size:10px; }
+  .rx-number { flex-direction:column; border-radius:7px; }
+  .workspace-v2 .rx-table .rx-number input { font-size:13px; height:42px; min-height:42px; padding:3px 1px; }
+  .workspace-v2 .rx-table .rx-number-axis input { padding-right:12px; }
+  .rx-degree { right:4px; font-size:13px; }
+  .rx-number-arrows { grid-template-columns:1fr 1fr; grid-template-rows:1fr; flex-basis:28px; border-left:0; border-top:1px solid var(--line); }
+  .rx-number-arrows button { min-height:28px; }
+  .rx-number-arrows button+button { border-top:0; border-left:1px solid var(--line); }
+}
 .workspace-v2 .prescription-notes-field { display:grid; grid-template-columns:minmax(210px,260px) minmax(0,1fr); gap:20px; align-items:start; margin-top:20px; padding:18px; border:1px solid var(--line); border-radius:16px; background:#fff; }
 .workspace-v2 .prescription-notes-field label { display:grid; gap:5px; padding-top:9px; }
 .workspace-v2 .prescription-notes-field label span { color:var(--ink); font-size:15px; font-weight:750; }
