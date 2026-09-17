@@ -1,22 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
 
-type EyeRx = { esferico: number; cilindrico: number; eixo: number; adicao: number };
+import { parsePrescriptionEye as parseEye } from '@/lib/prescription-values';
 
-function parseEye(value: unknown): EyeRx | null {
-  if (!value || typeof value !== 'object') return null;
-  const v = value as Record<string, unknown>;
-  const esferico = Number(v.esferico);
-  const cilindrico = Number(v.cilindrico);
-  const eixo = Number(v.eixo);
-  const adicao = Number(v.adicao);
-  if ([esferico, cilindrico, eixo, adicao].some((n) => Number.isNaN(n))) return null;
-  if (esferico < -30 || esferico > 30) return null;
-  if (cilindrico < -30 || cilindrico > 30) return null;
-  if (eixo < 0 || eixo > 180) return null;
-  if (adicao < 0 || adicao > 6) return null;
-  return { esferico, cilindrico, eixo, adicao };
-}
 
 const LENS_TYPES = ['Visão simples', 'Multifocal', 'Solar com grau', 'Antirreflexo'];
 const LENS_INDEXES = ['1.50', '1.56', '1.60', '1.67', '1.74'];

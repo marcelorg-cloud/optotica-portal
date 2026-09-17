@@ -15,10 +15,10 @@ export function PrescriptionNumberInput({ name, label, initialValue, kind, onVal
   const axis = kind === 'axis';
   const step = axis ? 5 : 0.25;
   const min = axis || kind === 'addition' ? 0 : -30;
-  const max = axis ? 180 : kind === 'addition' ? 6 : 30;
+  const max = axis ? 180 : kind === 'addition' ? 6 : kind === 'cylinder' ? 0 : 30;
   const format = (value: unknown) => axis
     ? String(prescriptionNumber(value) ?? '')
-    : kind === 'sphere' ? formatSignedSphere(value) : formatDiopter(value);
+    : (kind === 'sphere' || kind === 'addition') ? formatSignedSphere(value) : formatDiopter(value);
   const [draft, setDraft] = useState(() => format(initialValue));
   const input = useRef<HTMLInputElement>(null);
   const number = prescriptionNumber(draft);
@@ -52,6 +52,7 @@ export function PrescriptionNumberInput({ name, label, initialValue, kind, onVal
         aria-valuenow={number ?? undefined} aria-valuetext={number === null ? undefined : `${draft}${axis ? '°' : ''}`}
         pattern={axis ? '[0-9]+' : '(?:[+]|-)?[0-9]+([.,][0-9]{1,2})?'}
         value={draft} required autoComplete="off"
+        style={axis ? { width: `${Math.max(draft.length, 1)}ch` } : undefined}
         onChange={event => update(event.currentTarget.value)}
         onBlur={event => {
           const error = validation(event.currentTarget.value);

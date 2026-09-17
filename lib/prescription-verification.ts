@@ -10,8 +10,7 @@ export function formatPrescriptionDate(value: string): string {
 export const documentKinds = {
   diploma: 'Diploma ou certificado de conclusão',
   registration: 'Comprovante de registro / regularidade',
-  declaration: 'Declaração de veracidade assinada pelo gov.br',
-  agreement: 'Contrato com a Optótica assinado'
+  declaration: 'Declaração de veracidade assinada pelo gov.br'
 } as const;
 export const verificationStatusLabels: Record<string, string> = {
   under_review: 'Em análise documental', verified: 'Documentação verificada pela Optótica',

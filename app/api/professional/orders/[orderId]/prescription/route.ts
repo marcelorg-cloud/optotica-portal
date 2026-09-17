@@ -1,22 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
 
-type EyeRx = { esferico: number; cilindrico: number; eixo: number; adicao: number };
+import { parsePrescriptionEye as parseEye } from '@/lib/prescription-values';
 
-function parseEye(value: unknown): EyeRx | null {
-  if (!value || typeof value !== 'object') return null;
-  const v = value as Record<string, unknown>;
-  const esferico = Number(v.esferico);
-  const cilindrico = Number(v.cilindrico);
-  const eixo = Number(v.eixo);
-  const adicao = Number(v.adicao);
-  if ([esferico, cilindrico, eixo, adicao].some((n) => !Number.isFinite(n))) return null;
-  if (esferico < -30 || esferico > 30) return null;
-  if (cilindrico < -30 || cilindrico > 30) return null;
-  if (eixo < 0 || eixo > 180) return null;
-  if (adicao < 0 || adicao > 6) return null;
-  return { esferico, cilindrico, eixo, adicao };
-}
 
 export async function POST(request: Request, { params }: { params: Promise<{ orderId: string }> }) {
   const { orderId } = await params;
@@ -29,7 +15,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
   const oe = parseEye(body?.oe);
   const observations = typeof body?.observations === 'string' ? body.observations.trim() : '';
   if (observations.length > 1000) return NextResponse.json({ message: 'As observações devem ter até 1.000 caracteres.' }, { status: 400 });
-  if (!od || !oe) return NextResponse.json({ message: 'Preencha a receita completa.' }, { status: 400 });
+  if (!od || !oe) return NextResponse.json({ message: 'Preencha a receita completa. O cilíndrico deve ser negativo ou zero e a adição deve ser positiva ou zero.' }, { status: 400 });
 
   const admin = createAdminSupabaseClient();
   const { data: order } = await admin

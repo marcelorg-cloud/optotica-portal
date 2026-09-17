@@ -81,8 +81,9 @@
 .rx-number:focus-within { border-color:#51779d; box-shadow:0 0 0 2px #51779d22; }
 .rx-number-value { position:relative; flex:1; min-width:0; }
 .rx-table .rx-number input { width:100%; min-width:0; height:48px; padding:4px; border:0; border-radius:0; box-shadow:none; color:var(--ink); background:transparent; font-variant-numeric:tabular-nums; }
-.rx-table .rx-number-axis input { padding-right:16px; }
-.rx-degree { position:absolute; right:7px; top:50%; transform:translateY(-50%); pointer-events:none; }
+.rx-number-axis .rx-number-value { display:flex; align-items:center; justify-content:center; }
+.rx-table .rx-number-axis input { flex:0 1 auto; padding:4px 0; text-align:right; }
+.rx-degree { flex:none; line-height:1; pointer-events:none; }
 .rx-number-arrows { display:grid; grid-template-rows:1fr 1fr; flex:0 0 28px; border-left:1px solid var(--line); }
 .rx-number-arrows button { display:grid; place-items:center; width:100%; min-height:24px; padding:0; border:0; background:#f4f7fa; color:#40556e; font-size:15px; line-height:1; cursor:pointer; touch-action:manipulation; }
 .rx-number-arrows button+button { border-top:1px solid var(--line); }
@@ -98,8 +99,8 @@
   .rx-table-compact tbody th { font-size:10px; }
   .rx-number { flex-direction:column; border-radius:7px; }
   .workspace-v2 .rx-table .rx-number input { font-size:13px; height:42px; min-height:42px; padding:3px 1px; }
-  .workspace-v2 .rx-table .rx-number-axis input { padding-right:12px; }
-  .rx-degree { right:4px; font-size:13px; }
+  .workspace-v2 .rx-table .rx-number-axis input { padding:3px 0; }
+  .rx-degree { font-size:13px; }
   .rx-number-arrows { grid-template-columns:1fr 1fr; grid-template-rows:1fr; flex-basis:28px; border-left:0; border-top:1px solid var(--line); }
   .rx-number-arrows button { min-height:28px; }
   .rx-number-arrows button+button { border-top:0; border-left:1px solid var(--line); }
@@ -230,3 +231,23 @@
 .prescription-preview iframe { width: 100%; flex: 1; min-height: 180px; border: 1px solid #e2e8ef; border-radius: 10px; background: white; }
 .prescription-preview > a { font-size: 12px; }
 body:has(.rx-preview-document) .site-header, body:has(.rx-preview-document) .portal-brand-header, body:has(.rx-preview-document) .portal-workspace-nav, body:has(.rx-preview-document) .site-footer { display: none; }
+
+/* Professional verification and public credentials. */
+.verification-download { margin:28px 0; padding:24px; border:1px solid #dbe4ed; border-radius:18px; background:#f3f7fb; }
+.verification-download h2 { font-size:21px; margin:0 0 12px; }
+.verification-terms { margin:24px 0 8px; padding:20px; border:1px solid #dbe4ed; border-radius:16px; background:#f7f9fb; }
+.verification-terms h2 { font-size:20px; }
+.verification-terms-scroll { max-height:340px; overflow-y:auto; overscroll-behavior:contain; padding:20px; border:1px solid #dbe4ed; border-radius:12px; background:white; line-height:1.65; }
+.verification-terms-scroll h3 { font-size:15px; margin:22px 0 8px; }
+.verification-terms-scroll p { font-size:14px; }
+.verification-terms-scroll:focus-visible { outline:3px solid #51779d; outline-offset:3px; }
+.verification-terms-end { padding-top:16px; border-top:1px solid #dbe4ed; font-weight:600; }
+.verification-files .verification-check { display:flex; align-items:flex-start; gap:12px; font-size:14px; font-weight:500; line-height:1.5; margin-top:16px; }
+.verification-files .verification-check input { width:20px; height:20px; min-height:20px; flex:0 0 20px; margin:2px 0 0; padding:0; }
+.verification-check:has(input:disabled) { color:#677381; }
+.verification-terms-snapshot { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; font-size:14px; }
+.verification-hero .verified-professional-title { font-size:clamp(32px,5vw,52px); line-height:1.1; letter-spacing:-.04em; color:#176349; margin:18px 0 12px; }
+.verified-professional-subtitle { color:#276450; font-size:16px; }
+.verification-public-documents { display:flex; flex-wrap:wrap; gap:12px; margin:24px 0; }
+.verification-operator p { overflow-wrap:anywhere; }
+@media(max-width:600px) { .verification-download,.verification-terms { padding:16px; } .verification-terms-scroll { padding:14px; } .verification-public-documents .button { width:100%; } }

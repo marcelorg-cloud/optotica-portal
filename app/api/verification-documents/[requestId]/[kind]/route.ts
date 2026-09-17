@@ -5,10 +5,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ req
   const actor = await verificationActor();
   if (!actor) return new NextResponse('Faça login.', { status: 401 });
   const { requestId, kind } = await params;
-  if (!Object.hasOwn(documentKinds, kind) && kind !== 'attestation') return new NextResponse('Não encontrado.', { status: 404 });
-  const { data: record } = await actor.admin.from('professional_verification_requests').select('professional_profile_id,documents,attestation_path').eq('id', requestId).maybeSingle();
+  if (!Object.hasOwn(documentKinds, kind) && !['attestation', 'agreement', 'public_diploma', 'public_registration'].includes(kind)) return new NextResponse('Não encontrado.', { status: 404 });
+  const { data: record } = await actor.admin.from('professional_verification_requests').select('professional_profile_id,documents,attestation_path,public_documents').eq('id', requestId).maybeSingle();
   if (!record || (!actor.master && actor.profile?.id !== record.professional_profile_id)) return new NextResponse('Não encontrado.', { status: 404 });
-  const path = kind === 'attestation' ? record.attestation_path : record.documents[kind]?.path;
+  const path = kind === 'attestation' ? record.attestation_path : kind.startsWith('public_') ? record.public_documents?.[kind.slice(7)]?.path : record.documents[kind]?.path;
   if (!path) return new NextResponse('Não encontrado.', { status: 404 });
   const { data, error } = await actor.admin.storage.from(verificationBucket).download(path);
   if (error || !data) return new NextResponse('Documento indisponível.', { status: 503 });
