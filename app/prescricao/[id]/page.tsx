@@ -18,8 +18,20 @@ export default async function PrescriptionDocument({ params, searchParams }: { p
   if (!rx) notFound();
   const { data: account } = await actor.admin.from('client_user_accounts').select('client_id').eq('user_id', actor.user.id).eq('client_id', rx.client_id).maybeSingle();
   if (rx.professional_user_id !== actor.user.id && !account && !actor.master) notFound();
-  const { data: order } = await actor.admin.from('orders').select('status').eq('id', rx.order_id).maybeSingle();
+  const [{ data: order }, { data: professionalProfile }] = await Promise.all([
+    actor.admin.from('orders').select('status').eq('id', rx.order_id).maybeSingle(),
+    actor.admin.from('professional_profiles').select('professional_kind,council_registration,technical_responsible_registration').eq('id', rx.professional_profile_id).maybeSingle()
+  ]);
   const active = rx.status === 'active' && order?.status !== 'cancelled';
+  const professionalCategory = professionalProfile?.professional_kind === 'bacharel'
+    ? 'Bacharel em Optometria'
+    : professionalProfile?.professional_kind === 'optometrista'
+      ? 'Optometrista'
+      : 'Optometrista';
+  const professionalRegistration = professionalProfile?.council_registration?.trim()
+    || professionalProfile?.technical_responsible_registration?.trim()
+    || rx.professional_registration?.trim()
+    || 'Não informado no perfil';
   const verificationUrl = `${publicEnv.appUrl()}/verificar/${rx.verification_code}`;
   const qr = await QRCode.toDataURL(verificationUrl, { width: 300, margin: 4, errorCorrectionLevel: 'M' });
   const value = (input: unknown, axis = false) => {
@@ -35,7 +47,7 @@ export default async function PrescriptionDocument({ params, searchParams }: { p
       <p className="rx-issued-patient">Paciente: <strong>{rx.patient_name}</strong></p>
       <table><thead><tr><th scope="col">Olho</th><th scope="col">Esférico</th><th scope="col">Cilíndrico</th><th scope="col">Eixo</th><th scope="col">Adição</th></tr></thead><tbody>{['od','oe'].map(eye => <tr key={eye}><th scope="row">{eye.toUpperCase()}</th><td>{value(rx.prescription_data[eye]?.esferico)}</td><td>{value(rx.prescription_data[eye]?.cilindrico)}</td><td>{value(rx.prescription_data[eye]?.eixo, true)}</td><td>{value(rx.prescription_data[eye]?.adicao)}</td></tr>)}</tbody></table>
       <p>Data de emissão: {formatPrescriptionDate(rx.issued_at)}</p><div className="rx-issued-notes"><strong>Observações:</strong><p>{rx.observations || '—'}</p></div>
-      <div className="rx-issued-footer"><div><strong>{rx.professional_name}</strong><p>Optometrista</p><p>Registro no conselho: {rx.professional_registration?.trim() || 'Não informado na emissão'}</p><p>Emissão verificável pelo Portal Optótica.</p><p>Assinatura digital do profissional não incorporada.</p></div><Image unoptimized src={qr} width={132} height={132} alt="QR Code de verificação da prescrição" /></div>
+      <div className="rx-issued-footer"><div><strong>{rx.professional_name}</strong><p><strong>Categoria profissional:</strong> {professionalCategory}</p><p><strong>Registro no conselho:</strong> {professionalRegistration}</p><p>Emissão verificável pelo Portal Optótica.</p><p>Assinatura digital do profissional não incorporada.</p></div><Image unoptimized src={qr} width={132} height={132} alt="QR Code de verificação da prescrição" /></div>
       <p className="verification-code">Código: {rx.verification_code}<br />Versão {rx.version} · {publicEnv.appUrl()}/verificar</p>
       <div className="rx-issued-disclaimer"><strong>FAÇA SEUS ÓCULOS EM SUA ÓTICA DE PREFERÊNCIA</strong><p>Avaliação optométrica para fins de correção óptica.</p><p>Não substitui avaliação médica oftalmológica quando necessária.</p></div>
     </article></>;

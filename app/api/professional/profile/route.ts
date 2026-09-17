@@ -178,6 +178,10 @@ export async function POST(request: Request) {
       account_type: accountType,
       professional_kind: professionalKind,
       display_name: displayName,
+      // No cadastro individual, o registro do responsável técnico é o
+      // próprio registro do profissional. Mantemos também a coluna canônica
+      // usada na emissão e verificação das prescrições.
+      council_registration: accountType === 'professional' ? technicalResponsibleRegistration : null,
       technical_responsible_name: technicalResponsibleName,
       technical_responsible_registration: technicalResponsibleRegistration,
       cnpj: documentNumber,
