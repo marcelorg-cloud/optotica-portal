@@ -137,7 +137,16 @@ export async function POST(
   const startedAt = Date.now();
   let references: DisplayReference[];
   try { references = await loadModelPhotoReferences(auth.admin, productId); }
-  catch { return NextResponse.json({ message: 'Não foi possível preparar as referências do modelo. Tente novamente.' }, { status: 502 }); }
+  catch (err) {
+    // 17/09/2026 — este catch não registrava nada (bug real encontrado em
+    // produção: usuário via só a mensagem genérica abaixo, sem nenhum rastro
+    // do motivo no log). Agora ao menos fica registrado — a maioria das
+    // causas antigas (uma referência com problema) não chega mais aqui desde
+    // a mudança em lib/catalog/model-photo-references.ts; o que ainda cai
+    // neste catch é só a falha de consulta ao banco.
+    console.error('catalog_process_model_references_failed', { productId, colorImageId, message: err instanceof Error ? err.message : String(err) });
+    return NextResponse.json({ message: 'Não foi possível preparar as referências do modelo. Tente novamente.' }, { status: 502 });
+  }
   let ranOutOfTime = false;
 
   const rowsToInsert: {
