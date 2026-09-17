@@ -7,6 +7,7 @@ import { verificationActor } from '@/lib/verification-auth';
 import { publicEnv } from '@/lib/env';
 import { formatPrescriptionDate } from '@/lib/prescription-verification';
 import { PrescriptionPrintButton } from '@/components/prescription-print-button';
+import { formatSignedSphere } from '@/lib/prescription-format';
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Prescrição óptica', robots: { index: false, follow: false } };
 export default async function PrescriptionDocument({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ preview?: string }> }) {
@@ -37,7 +38,7 @@ export default async function PrescriptionDocument({ params, searchParams }: { p
   const value = (input: unknown, axis = false) => {
     if (input === null || input === undefined || input === '') return '—';
     const n = Number(input);
-    return Number.isFinite(n) ? axis ? `${n}°` : `${n > 0 ? '+' : ''}${n.toFixed(2).replace('.', ',')}` : '—';
+    return Number.isFinite(n) ? axis ? `${n}°` : formatSignedSphere(n, ',') : '—';
   };
   return <><div className="rx-issued-actions"><PrescriptionPrintButton /><Link className="button secondary" href={`/verificar/${rx.verification_code}`} target={preview ? '_blank' : undefined} rel={preview ? 'noopener noreferrer' : undefined}>Verificar emissão</Link></div>
     <article className={`rx-issued-paper${preview ? ' rx-preview-document' : ''}`}>

@@ -3,6 +3,7 @@
 import { useProcessingFeedback } from '@/components/processing-feedback';
 
 import { PrescriptionPreview } from '@/components/prescription-preview';
+import { formatSignedSphere, normalizePrescriptionNumber } from '@/lib/prescription-format';
 
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -13,7 +14,7 @@ function RxRow({ eye, label, value }: { eye: 'od' | 'oe'; label: string; value: 
   return (
     <tr>
       <th>{label}</th>
-      <td><input name={`${eye}-esferico`} type="number" step="0.25" min="-30" max="30" placeholder="+0,00" defaultValue={value.esferico} required /></td>
+      <td><input name={`${eye}-esferico`} type="text" inputMode="decimal" pattern="[+-]?[0-9]+([.,][0-9]{1,2})?" placeholder="+0.00" defaultValue={formatSignedSphere(value.esferico)} onBlur={(event) => { event.currentTarget.value = formatSignedSphere(event.currentTarget.value); }} aria-label={`Esférico ${label}`} required /></td>
       <td><input name={`${eye}-cilindrico`} type="number" step="0.25" min="-30" max="30" placeholder="-0,00" defaultValue={value.cilindrico} required /></td>
       <td><input name={`${eye}-eixo`} type="number" step="1" min="0" max="180" placeholder="0°" defaultValue={value.eixo} required /></td>
       <td><input name={`${eye}-adicao`} type="number" step="0.25" min="0" max="6" placeholder="+0,00" defaultValue={value.adicao} required /></td>
@@ -67,7 +68,7 @@ export function PrescriptionStep({ orderId, initialOd, initialOe, initialObserva
     setRxMessage('');
     const form = new FormData(event.currentTarget);
     const eye = (prefix: string) => ({
-      esferico: form.get(`${prefix}-esferico`), cilindrico: form.get(`${prefix}-cilindrico`),
+      esferico: normalizePrescriptionNumber(form.get(`${prefix}-esferico`)), cilindrico: form.get(`${prefix}-cilindrico`),
       eixo: form.get(`${prefix}-eixo`), adicao: form.get(`${prefix}-adicao`)
     });
     try {
@@ -97,7 +98,13 @@ export function PrescriptionStep({ orderId, initialOd, initialOe, initialObserva
             </tbody>
           </table>
         </div>
-        <label>Observações da prescrição<textarea name="observations" maxLength={1000} defaultValue={initialObservations} placeholder="Orientações que devem constar no documento do paciente" /></label>
+        <div className="prescription-notes-field">
+          <label htmlFor={`prescription-observations-${orderId}`}>
+            <span>Observações da prescrição</span>
+            <small>Estas orientações constarão no documento do paciente.</small>
+          </label>
+          <textarea id={`prescription-observations-${orderId}`} name="observations" maxLength={1000} rows={4} defaultValue={initialObservations} placeholder="Digite orientações importantes para o paciente" />
+        </div>
         <div className="actions">
           <button className="button primary" type="submit" disabled={rxState === 'loading'}>{rxState === 'loading' ? 'Salvando…' : 'Salvar receita'}</button>
         </div>

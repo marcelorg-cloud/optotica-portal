@@ -74,6 +74,15 @@
 .workspace-v2 .stat strong { overflow-wrap:anywhere; }
 .workspace-v2 .rx-table thead th { font-size:12px; }
 .workspace-v2 .rx-table input { min-height:44px; font-size:16px; }
+.workspace-v2 .prescription-notes-field { display:grid; grid-template-columns:minmax(210px,260px) minmax(0,1fr); gap:20px; align-items:start; margin-top:20px; padding:18px; border:1px solid var(--line); border-radius:16px; background:#fff; }
+.workspace-v2 .prescription-notes-field label { display:grid; gap:5px; padding-top:9px; }
+.workspace-v2 .prescription-notes-field label span { color:var(--ink); font-size:15px; font-weight:750; }
+.workspace-v2 .prescription-notes-field label small { color:var(--muted); font-size:12px; font-weight:450; line-height:1.45; }
+.workspace-v2 .prescription-notes-field textarea { width:100%; min-height:112px; resize:vertical; padding:14px 16px; border:1px solid #ccd5de; border-radius:12px; background:#f8fafc; color:var(--ink); font:inherit; line-height:1.5; }
+.workspace-v2 .prescription-notes-field textarea:focus { border-color:#51779d; box-shadow:0 0 0 3px rgba(81,119,157,.14); outline:0; }
+.workspace-v2 .prescription-notes-readonly { margin-top:18px; padding:16px 18px; border:1px solid var(--line); border-radius:14px; background:#f8fafc; }
+.workspace-v2 .prescription-notes-readonly strong { display:block; margin-bottom:6px; font-size:13px; color:var(--ink); }
+.workspace-v2 .prescription-notes-readonly p { margin:0; color:var(--muted); white-space:pre-wrap; }
 .workspace-v2 .frame-action-pill { min-height:44px; font-size:13px; }
 .workspace-v2 .professional-frame-row .helper { font-size:12px; }
 .frame-gallery { width:100%; min-width:0; display:flex; flex-direction:column; }
@@ -148,6 +157,8 @@
   .workspace-v2 .rx-doc-head { flex-wrap:wrap; }
   .workspace-v2 .modal-actions { flex-wrap:wrap; padding:0 16px 20px; }
   .workspace-v2 .patient-photo-panel { padding:18px; gap:18px; }
+  .workspace-v2 .prescription-notes-field { grid-template-columns:minmax(0,1fr); gap:12px; padding:16px; }
+  .workspace-v2 .prescription-notes-field label { padding-top:0; }
 }
 @media(max-width:420px) {
   .workspace-v2 .workspace-patients .table-row { grid-template-columns:1fr; }

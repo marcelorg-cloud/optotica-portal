@@ -98,7 +98,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     { data: patientDisplaysData }
   ] = await Promise.all([
     admin.from('orders').select('id, order_number, status').eq('client_id', client.id).order('order_number', { ascending: false }),
-    admin.from('prescriptions').select('prescription_data').eq('order_id', orderId).maybeSingle(),
+    admin.from('prescriptions').select('prescription_data,clinical_notes').eq('order_id', orderId).maybeSingle(),
     admin.from('quotes').select('id, total, quote_items(description)').eq('order_id', orderId),
     admin.from('order_frames').select('frame_name, sku, color, catalog_color_image_id').eq('order_id', orderId).maybeSingle(),
     admin.from('order_fulfillment').select('*').eq('order_id', orderId).maybeSingle(),
@@ -127,7 +127,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
   const clientName = client.full_name || 'Paciente';
   const whatsapp = formatWhatsApp(client.whatsapp_e164);
 
-  const { data: issued } = await admin.from('issued_prescriptions').select('id,prescription_data').eq('order_id', orderId).eq('status', 'active').maybeSingle();
+  const { data: issued } = await admin.from('issued_prescriptions').select('id,prescription_data,observations').eq('order_id', orderId).eq('status', 'active').maybeSingle();
   const rx = (issued?.prescription_data || prescription?.prescription_data || null) as { od?: Record<string, unknown>; oe?: Record<string, unknown> } | null;
   const toEye = (e?: Record<string, unknown>) => e ? {
     esferico: String(e.esferico ?? ''), cilindrico: String(e.cilindrico ?? ''),
@@ -360,6 +360,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
             oe={toEye(rx?.oe)}
             professionalName={professional?.display_name || 'Optometrista responsável'}
             professionalRegistration={professional?.council_registration || 'Cadastro profissional'}
+            observations={issued?.observations || prescription?.clinical_notes || ''}
           />
         </div>
       </section>
