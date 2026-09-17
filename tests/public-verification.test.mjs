@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isCurrentVerification, publicVerificationDocument } from '../lib/public-verification.ts';
+import { isCurrentVerification, publicVerificationDocument, verificationPresentation } from '../lib/public-verification.ts';
 
 const profile = { status: 'approved', display_name: 'Profissional de exemplo', council_registration: 'REG 123' };
 const review = {
@@ -32,4 +32,25 @@ test('rejects original files, paths from another profile and malformed hashes', 
     assert.equal(publicVerificationDocument('profile-id',{...review,public_documents:{diploma:{...review.public_documents.diploma,path}}},'diploma'),null);
   }
   assert.equal(publicVerificationDocument('profile-id',{...review,public_documents:{diploma:{...review.public_documents.diploma,sha256:'invalid'}}},'diploma'),null);
+});
+test('dashboard distinguishes account approval from documentary approval', () => {
+  assert.equal(verificationPresentation(profile, null, '2026-09-17').tone, 'pending');
+  const pending = verificationPresentation(profile, {...review, status:'under_review', valid_until:null}, '2026-09-17');
+  assert.equal(pending.label, 'Aguardando aprovação documental');
+  assert.equal(pending.tone, 'pending');
+  assert.equal(verificationPresentation(profile, review, '2026-09-17').label, 'Profissional verificado');
+});
+test('dashboard never presents expired or mismatched approval as a verified professional', () => {
+  const variations = [
+    {...review,valid_until:'2026-09-16'},
+    {...review,status:'revoked'},
+    {...review,status:'changes_requested'},
+    {...review,registration:'REG changed'},
+    {...review,professional_name:'Name changed'},
+  ];
+  for (const version of variations) {
+    assert.equal(verificationPresentation(profile, version, '2026-09-17').tone, 'pending');
+    assert.equal(isCurrentVerification(profile, version, '2026-09-17'), false);
+  }
+  assert.equal(verificationPresentation({...profile,status:'suspended'},review,'2026-09-17').tone,'pending');
 });

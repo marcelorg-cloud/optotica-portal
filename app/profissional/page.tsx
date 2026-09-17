@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { VerificationSummary } from '@/components/verification-summary';
 import { createAdminSupabaseClient, createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { orderCode } from '@/lib/order-code';
 import { ORDER_STATUS_LABEL, orderStatusLabel } from '@/lib/order-status';
@@ -34,7 +35,7 @@ export default async function ProfessionalPage({ searchParams }: { searchParams:
   const admin = createAdminSupabaseClient();
   const [{ data: master }, { data: profile }] = await Promise.all([
     admin.from('system_admins').select('user_id').eq('user_id', user.id).eq('active', true).maybeSingle(),
-    admin.from('professional_profiles').select('id, display_name, status, review_notes').eq('user_id', user.id).maybeSingle()
+    admin.from('professional_profiles').select('id, display_name, status, review_notes, account_type, council_registration').eq('user_id', user.id).maybeSingle()
   ]);
   if (master) redirect('/admin');
   if (!profile || ['draft', 'changes_requested'].includes(profile.status)) redirect('/profissional/cadastro');
@@ -46,6 +47,10 @@ export default async function ProfessionalPage({ searchParams }: { searchParams:
     };
     return <div className="page-shell narrow"><div className="setup-note"><strong>{labels[profile.status] || 'Acesso indisponível.'}</strong>{profile.review_notes && <p>{profile.review_notes}</p>}</div></div>;
   }
+
+  const verification = profile.account_type === 'professional'
+    ? await admin.from('professional_verification_requests').select('id,status,professional_name,registration,valid_until').eq('professional_profile_id', profile.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    : null;
 
   const params = await searchParams;
   const readParam = (key: string) => {
@@ -140,6 +145,11 @@ export default async function ProfessionalPage({ searchParams }: { searchParams:
           <Link className="button secondary" href="/profissional/pacientes/novo">Convidar paciente</Link>
         </div>
       </section>
+
+      {verification && <section className="professional-verification-overview">
+        {verification.error ? <p className="setup-note">Não foi possível consultar a verificação documental agora.</p> : <VerificationSummary profile={profile} review={verification.data} />}
+        <Link className="text-link" href="/profissional/verificacao">Abrir minha verificação documental</Link>
+      </section>}
 
       <section className="card table-card orders-table">
         <div className="workspace-section-title"><h2>Pedidos</h2><span>{loadFailed ? 'Carregamento indisponível' : `${orders.length} ${orders.length === 1 ? 'pedido listado' : 'pedidos listados'}${filtersActive ? ' com os filtros atuais' : ''}`}</span></div>

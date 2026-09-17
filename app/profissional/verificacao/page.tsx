@@ -2,19 +2,20 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { verificationActor } from '@/lib/verification-auth';
-import { documentKinds, verificationStatusLabels, formatPrescriptionDate } from '@/lib/prescription-verification';
+import { documentKinds, formatPrescriptionDate } from '@/lib/prescription-verification';
 import { VerificationTerms } from '@/components/verification-terms';
 import { optoticaOperator } from '@/lib/optotica-operator';
 import { VerificationForm } from '@/components/verification-form';
+import { VerificationSummary } from '@/components/verification-summary';
 export const metadata: Metadata = { title: 'Verificação profissional' };
 export default async function ProfessionalVerification() {
   const actor = await verificationActor();
   if (!actor) redirect('/entrar');
   if (!actor.profile || actor.profile.account_type !== 'professional') return <div className="page-shell"><section className="card verification-section"><h1>Verificação profissional</h1><p>Esta verificação se aplica ao cadastro individual do profissional optométrico.</p><Link href="/profissional/cadastro">Voltar ao perfil</Link></section></div>;
-  const { data: latest, error } = await actor.admin.from('professional_verification_requests').select('id,status,course,institution,created_at,review_notes,valid_until,documents,terms_acceptance').eq('professional_profile_id', actor.profile.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+  const { data: latest, error } = await actor.admin.from('professional_verification_requests').select('id,status,professional_name,registration,course,institution,created_at,review_notes,valid_until,documents,terms_acceptance').eq('professional_profile_id', actor.profile.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
   return <div className="page-shell verification-shell"><section className="card verification-hero"><p className="eyebrow">Meu perfil</p><h1>Verificação profissional</h1><p className="muted">Envie seus documentos para conferência da Optótica. O selo será exibido nas consultas das prescrições após a aprovação documental.</p>
     {error ? <p className="setup-note">O recebimento de documentos está temporariamente indisponível.</p> : <>
-      <span className="verification-status">{latest ? verificationStatusLabels[latest.status] : 'Documentação ainda não enviada'}</span>
+      <VerificationSummary profile={actor.profile} review={latest} />
       {latest?.valid_until && <p>Revisão até: {formatPrescriptionDate(latest.valid_until)}</p>}
       {latest?.review_notes && <p className="setup-note">Retorno da equipe: {latest.review_notes}</p>}
       {latest && <div className="verification-actions">{Object.entries(documentKinds).filter(([kind]) => latest.documents?.[kind]).map(([kind,label]) => <a key={kind} className="text-link" href={`/api/verification-documents/${latest.id}/${kind}`} target="_blank" rel="noopener noreferrer">{label}</a>)}</div>}

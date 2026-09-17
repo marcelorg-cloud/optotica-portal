@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { VerificationSummary } from '@/components/verification-summary';
+import type { VerificationReview } from '@/lib/public-verification';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
 import {
   approveLaboratoryAction,
@@ -51,6 +53,7 @@ type ProfileReview = {
   submitted_at: string | null;
   review_notes: string | null;
   professional_laboratories: Laboratory[];
+  professional_verification_requests: (VerificationReview & { created_at: string })[];
 };
 
 type AuditLogRow = {
@@ -88,7 +91,7 @@ export default async function AdminPage() {
   const { data } = await admin
     .from('professional_profiles')
     .select(
-      'id, display_name, email, account_type, professional_kind, status, cnpj, council_registration, technical_responsible_name, technical_responsible_registration, address_line, address_number, district, city, state, postal_code, phone_e164, contact_name, contact_email, contact_phone_e164, submitted_at, review_notes, professional_laboratories(id, name, legal_name, cnpj, address_line, address_number, city, state, phone_e164, status, is_primary)'
+      'id, display_name, email, account_type, professional_kind, status, cnpj, council_registration, technical_responsible_name, technical_responsible_registration, address_line, address_number, district, city, state, postal_code, phone_e164, contact_name, contact_email, contact_phone_e164, submitted_at, review_notes, professional_verification_requests(id,status,professional_name,registration,valid_until,created_at), professional_laboratories(id, name, legal_name, cnpj, address_line, address_number, city, state, phone_e164, status, is_primary)'
     )
     .order('submitted_at', { ascending: true, nullsFirst: false });
   const profiles = (data || []) as unknown as ProfileReview[];
@@ -133,6 +136,7 @@ export default async function AdminPage() {
 }
 
 function ProfileReviewCard({ profile }: { profile: ProfileReview }) {
+  const latestVerification = profile.professional_verification_requests?.slice().sort((a, b) => b.created_at.localeCompare(a.created_at))[0] || null;
   const canApprove = ['draft', 'under_review', 'changes_requested'].includes(profile.status);
   const canRequestChanges = ['draft', 'under_review'].includes(profile.status);
   const canReject = ['draft', 'under_review', 'changes_requested'].includes(profile.status);
@@ -151,7 +155,7 @@ function ProfileReviewCard({ profile }: { profile: ProfileReview }) {
           {canApprove && (
             <form action={approveProfessionalAction}>
               <input type="hidden" name="target_profile" value={profile.id} />
-              <button className="button primary" type="submit">Aprovar</button>
+              <button className="button primary" type="submit">Aprovar cadastro</button>
             </form>
           )}
           {canRequestChanges && (
@@ -186,7 +190,7 @@ function ProfileReviewCard({ profile }: { profile: ProfileReview }) {
 
       {profile.review_notes && <div className="setup-note" style={{ marginTop: 16 }}>Última observação: {profile.review_notes}</div>}
 
-      {profile.account_type === 'professional' && <Link className="button secondary" href={`/admin/verificacao/${profile.id}`}>Conferir documentação profissional</Link>}
+      {profile.account_type === 'professional' && <><VerificationSummary profile={profile} review={latestVerification} /><Link className="button secondary" href={`/admin/verificacao/${profile.id}`}>{latestVerification?.status === 'under_review' ? 'Concluir análise documental' : 'Abrir verificação documental'}</Link></>}
       <dl className="review-details">
         <div><dt>Tipo</dt><dd>{formatRegistrationKind(profile.account_type, profile.professional_kind)}{profile.cnpj ? ` · ${profile.cnpj.length === 14 ? 'CNPJ' : 'CPF'} ${profile.cnpj}` : ''}</dd></div>
         <div><dt>Registro</dt><dd>{profile.technical_responsible_registration || profile.council_registration || '—'}</dd></div>

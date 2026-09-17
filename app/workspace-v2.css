@@ -250,4 +250,14 @@ body:has(.rx-preview-document) .site-header, body:has(.rx-preview-document) .por
 .verified-professional-subtitle { color:#276450; font-size:16px; }
 .verification-public-documents { display:flex; flex-wrap:wrap; gap:12px; margin:24px 0; }
 .verification-operator p { overflow-wrap:anywhere; }
+.verification-summary { margin:20px 0; padding:20px; border:1px solid #e6d9ba; border-radius:16px; background:#fbf7ee; color:#72521c; }
+.verification-summary strong { display:block; font-size:20px; line-height:1.3; }
+.verification-summary p { margin:8px 0 0; font-size:14px; line-height:1.5; }
+.verification-summary.is-verified { border-color:#b4d7c7; background:#eff8f3; color:#176349; }
+.verification-result { padding:16px; border:1px solid; border-radius:12px; line-height:1.5; overflow-wrap:anywhere; }
+.verification-result.is-error { background:#fff3f1; color:#922e22; border-color:#e9bbb4; }
+.verification-result.is-success { background:#eff8f3; color:#176349; border-color:#b4d7c7; }
+.verification-result:focus-visible { outline:3px solid #51779d; outline-offset:3px; }
+.professional-verification-overview { margin-bottom:28px; }
+.professional-verification-overview .verification-summary { margin-bottom:10px; }
 @media(max-width:600px) { .verification-download,.verification-terms { padding:16px; } .verification-terms-scroll { padding:14px; } .verification-public-documents .button { width:100%; } }
