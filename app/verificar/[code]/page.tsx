@@ -36,7 +36,12 @@ export default async function VerifyPrescription({ params }: { params: Promise<{
     const status = order?.status === 'cancelled' ? 'cancelled' : rx.status;
     const labels: Record<string, string> = { active: 'Emissão registrada · versão vigente', superseded: 'Prescrição substituída', cancelled: 'Prescrição cancelada' };
     return <div className="page-shell verification-shell">
-      <section className="card verification-hero"><p className="eyebrow">Portal Optótica · Verificação</p><h1 className={verified ? 'verified-professional-title' : undefined}>{verified ? 'Profissional verificado' : 'Verificação da prescrição'}</h1>{verified && <p className="verified-professional-subtitle">Documentação conferida pela Optótica · verificação vigente</p>}<span className="verification-status">{labels[status]}</span>
+      <section className="card verification-hero"><p className="eyebrow">Portal Optótica · Verificação</p>
+        {verified ? <div className="verified-professional-seal">
+          <Image src="/optotica-profissional-verificado-v1.png" alt="" width={1254} height={1254} sizes="(max-width: 600px) calc(100vw - 88px), 480px" priority />
+          <div className="verified-professional-accessible"><h1>Profissional verificado</h1><p>Documentação conferida pela Optótica · verificação vigente</p></div>
+        </div> : <h1>Verificação da prescrição</h1>}
+        <span className="verification-status">{labels[status]}</span>
         {status !== 'active' && <p className="setup-note">Esta versão não deve ser utilizada. Solicite a prescrição atual ao profissional.</p>}
         <dl className="verification-details"><div><dt>Paciente</dt><dd>{maskPatientName(rx.patient_name)}</dd></div><div><dt>Emitida em</dt><dd>{formatPrescriptionDate(rx.issued_at)}</dd></div><div><dt>Profissional emissor</dt><dd>{rx.professional_name}</dd></div><div><dt>Registro informado na emissão</dt><dd>{rx.professional_registration || 'Não informado'}</dd></div><div><dt>Versão</dt><dd>{rx.version}</dd></div></dl>
         <p className="verification-code">Código: {code}</p><p className="fine-print">Esta consulta confirma o registro da emissão no portal. Ela não substitui a assinatura digital do PDF nem comprova, sozinha, que uma cópia impressa não foi alterada.</p>

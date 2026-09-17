@@ -246,8 +246,9 @@ body:has(.rx-preview-document) .site-header, body:has(.rx-preview-document) .por
 .verification-files .verification-check input { width:20px; height:20px; min-height:20px; flex:0 0 20px; margin:2px 0 0; padding:0; }
 .verification-check:has(input:disabled) { color:#677381; }
 .verification-terms-snapshot { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; font-size:14px; }
-.verification-hero .verified-professional-title { font-size:clamp(32px,5vw,52px); line-height:1.1; letter-spacing:-.04em; color:#176349; margin:18px 0 12px; }
-.verified-professional-subtitle { color:#276450; font-size:16px; }
+.verified-professional-seal { width:min(100%,480px); margin:20px auto 28px; }
+.verified-professional-seal img { display:block; width:100%; height:auto; }
+.verified-professional-accessible { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 .verification-public-documents { display:flex; flex-wrap:wrap; gap:12px; margin:24px 0; }
 .verification-operator { text-align:center; }
 .verification-operator p { overflow-wrap:anywhere; }
