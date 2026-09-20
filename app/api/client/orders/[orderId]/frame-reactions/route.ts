@@ -41,7 +41,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
     .from('catalog_product_color_images')
     .select('id, product_id, catalog_products!inner(status)')
     .eq('id', catalogColorImageId)
-    .eq('is_active', true).eq('status', 'validada').eq('catalog_products.status', 'publicado')
+    .eq('is_active', true).eq('catalog_products.status', 'publicado')
     .maybeSingle();
   if (!color) return NextResponse.json({ message: 'Cor não encontrada no catálogo.' }, { status: 404 });
 

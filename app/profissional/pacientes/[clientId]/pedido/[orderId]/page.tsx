@@ -44,7 +44,7 @@ type OrderFrameRow = {
 type DisplayImageRow = { image_path: string | null; position: number; validated_at: string | null };
 type ColorImageRow = {
   id: string; color_name: string; color_principal: string | null; color_secondary: string | null;
-  color_variant_number: number | null; processed_image_path: string | null; status: string; is_active: boolean; display_order: number | null;
+  color_variant_number: number | null; original_image_path: string | null; processed_image_path: string | null; status: string; is_active: boolean; display_order: number | null;
   catalog_product_color_display_images: DisplayImageRow[] | null;
 };
 type CatalogProductRow = { id: string; model_name: string; sku_optotica: string; position_image_path: string | null; catalog_product_color_images: ColorImageRow[] | null };
@@ -106,7 +106,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
     // Escolha da armação (15/09/2026) — catálogo novo em vez de `frames`.
     admin
       .from('catalog_products')
-      .select('id, model_name, sku_optotica, position_image_path, catalog_product_color_images(id, color_name, color_principal, color_secondary, color_variant_number, processed_image_path, status, is_active, display_order, catalog_product_color_display_images(image_path, position, validated_at))')
+      .select('id, model_name, sku_optotica, position_image_path, catalog_product_color_images(id, color_name, color_principal, color_secondary, color_variant_number, original_image_path, processed_image_path, status, is_active, display_order, catalog_product_color_display_images(image_path, position, validated_at))')
       .eq('status', 'publicado')
       .order('model_name'),
     admin.from('order_frame_reactions').select('catalog_color_image_id, status').eq('order_id', orderId),
@@ -194,8 +194,10 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
   for (const product of catalogProducts) {
     if (product.position_image_path) pathsToSign.add(product.position_image_path);
     for (const color of (product.catalog_product_color_images || []).filter((c) => c.is_active)) {
+      const photoPath = color.original_image_path || color.processed_image_path;
+      if (photoPath) pathsToSign.add(photoPath);
       for (const display of color.catalog_product_color_display_images || []) {
-        if (display.validated_at && display.image_path) pathsToSign.add(display.image_path);
+        if (display.image_path) pathsToSign.add(display.image_path);
       }
     }
   }
@@ -252,7 +254,7 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
       measurementsUrl: product.position_image_path ? signedByPath.get(product.position_image_path) || null : null,
       colors: product.catalog_product_color_images.map((color) => {
         const bestDisplay = (color.catalog_product_color_display_images || [])
-          .filter((d) => d.validated_at && d.image_path)
+          .filter((d) => d.image_path)
           .sort((a, b) => a.position - b.position)[0];
         return {
           id: color.id,
@@ -261,8 +263,8 @@ export default async function OrderPage({ params }: { params: Promise<{ clientId
           colorSecondary: color.color_secondary,
           colorVariantNumber: color.color_variant_number,
           provaUrl: provaUrlByProductColor.get(`${product.id}::${color.color_name}`) || null,
-          fotoOculosUrl: bestDisplay?.image_path ? signedByPath.get(bestDisplay.image_path) || null : null,
-          galleryUrls: (color.catalog_product_color_display_images || []).filter((d) => d.validated_at && d.image_path).sort((a, b) => a.position - b.position).map((d) => signedByPath.get(d.image_path!) || null).filter((url): url is string => Boolean(url)),
+          fotoOculosUrl: signedByPath.get(bestDisplay?.image_path || color.original_image_path || color.processed_image_path || '') || null,
+          galleryUrls: (color.catalog_product_color_display_images || []).filter((d) => d.image_path).sort((a, b) => a.position - b.position).map((d) => signedByPath.get(d.image_path!) || null).filter((url): url is string => Boolean(url)),
           reaction: (reactionByColorImageId.get(color.id) || null) as 'gostei' | 'talvez' | 'oculto' | null,
           confirmed: confirmedColorImageId === color.id
         };

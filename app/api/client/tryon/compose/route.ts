@@ -83,7 +83,7 @@ export async function POST(request: Request) {
   // também bloqueia a COMPOSIÇÃO em si, não só a listagem, pra cobrir
   // qualquer chamada direta a esta rota com um productId/colorName ocultado
   // depois que a lista já tinha carregado.
-  if (!row || row.status !== 'validada' || !row.is_active || !row.processed_image_path || !product || product.status !== 'publicado' || !frameWidthMm) {
+  if (!row || !row.is_active || !row.processed_image_path || !product || product.status !== 'publicado' || !frameWidthMm) {
     return NextResponse.json({ message: 'Esta armação não está disponível para prova.' }, { status: 404 });
   }
 

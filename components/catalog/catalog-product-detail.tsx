@@ -121,7 +121,6 @@ function snapshotColor(color: ColorImage): ColorSnapshot {
 }
 
 const STATUS_LABEL: Record<string, string> = { em_triagem: 'Em triagem', publicado: 'Publicado', arquivado: 'Arquivado' };
-const COLOR_STATUS_LABEL: Record<string, string> = { incompleto: 'Incompleto — falta foto', pendente: 'Pendente', validada: 'Validada', rejeitada: 'Rejeitada' };
 
 async function fetchJson(url: string, init?: RequestInit) {
   const response = await fetch(url, init);
@@ -711,7 +710,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
     const confirmed = confirm(
       `Isso vai baixar de novo, direto do AliExpress, a foto de ${matched.length} cor(es) já cadastradas neste produto — substituindo a foto atual de cada uma.\n\n` +
-      `Cores que já estavam "Validada" voltam para "Pendente" e precisam ser processadas/validadas de novo (a foto mudou). Descrição e medidas do produto NÃO são alteradas — só as fotos.\n\n` +
+      `Cores que já estavam "Validada" voltam para "Pendente" e podem ser processadas de novo (a foto mudou). Descrição e medidas do produto NÃO são alteradas — só as fotos.\n\n` +
       `Tem certeza que quer continuar?`
     );
     if (!confirmed) return;
@@ -980,43 +979,6 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
   }
 
-  async function handleValidate(colorImageId: string, action: 'validar' | 'rejeitar') {
-    let reason: string | undefined;
-    if (action === 'rejeitar') {
-      reason = window.prompt('Motivo da rejeição:') || '';
-      if (!reason) return;
-    }
-    const before = (colors || []).find((c) => c.id === colorImageId);
-    setBusy(true);
-    setMessage(null);
-    try {
-      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, reason })
-      });
-      setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
-      if (ok) {
-        if (before) {
-          setLastAction({
-            label: action === 'validar' ? 'validar cor' : 'rejeitar cor',
-            undo: () => restoreColorSnapshot(colorImageId, snapshotColor(before))
-          });
-        }
-        load();
-      }
-    } catch (err) {
-      setMessage({ kind: 'error', text: `Algo deu errado${err instanceof Error ? `: ${err.message}` : ''}. Tente novamente.` });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // ATIVAR/OCULTAR (15/09/2026, pedido do usuário a partir de um print
-  // anotado): liga/desliga se esta cor aparece nos fronts do
-  // profissional (Etapa 3 "Escolha da armação") e do paciente (prova
-  // online) — independente do status de processamento da foto. Suporta
-  // "Desfazer última ação" como as demais ações desta tela.
   async function handleSetActive(colorImageId: string, active: boolean) {
     const before = (colors || []).find((c) => c.id === colorImageId);
     setBusy(true);
@@ -1461,7 +1423,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       <section className="card" style={{ padding: 20 }} aria-label="Padronização das fotos do modelo">
         <h3>Padrão visual deste modelo</h3>
         <p className="helper">A IA usa fotos validadas deste modelo como referência, separando frente, lateral e perspectiva. Cada grupo mantém enquadramento e escala consistentes entre as cores, com fundo branco e margem de segurança.</p>
-        <p className="helper">{colors?.reduce((sum, color) => sum + color.displayImages.filter((photo) => photo.validatedAt).length, 0) || 0} fotos validadas · {colors?.reduce((sum, color) => sum + color.displayImages.filter((photo) => !photo.validatedAt).length, 0) || 0} aguardando conferência</p>
+        <p className="helper">{colors?.reduce((sum, color) => sum + color.displayImages.filter((photo) => photo.validatedAt).length, 0) || 0} fotos validadas · {colors?.reduce((sum, color) => sum + color.displayImages.filter((photo) => !photo.validatedAt).length, 0) || 0} sem marcação de referência · a publicação depende apenas de ativar a cor</p>
         <p className="helper">Para corrigir uma foto antiga, abra a imagem e clique em “Padronizar com IA”. Compare a nova versão antes de validar. Se não houver referência do mesmo ângulo, é aplicado apenas o padrão geral de fundo, margens e tamanho.</p>
       </section>
 
@@ -1765,8 +1727,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
             // esquerda (reordenável); as ainda não validadas ficam pendentes
             // na seção "Processamento", à direita, esperando o master abrir
             // o popup e clicar "Validar" ou "Remover".
-            const validatedImages = [...color.displayImages].filter((d) => d.validatedAt).sort((a, b) => a.position - b.position);
-            const pendingImages = [...color.displayImages].filter((d) => !d.validatedAt).sort((a, b) => a.position - b.position);
+            const validatedImages = [...color.displayImages].sort((a, b) => a.position - b.position);
             const taggedPhotos = product.galleryPhotos.filter((p) => p.colorImageIds.includes(color.id));
             // "Foto da cor" virou OBRIGATÓRIA pra processar (15/09/2026, 4ª
             // rodada — ver estado-consolidado.md seção 0.70): é ela que a IA
@@ -1787,7 +1748,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                   {color.processedImageUrl ? <img src={color.processedImageUrl} alt="Foto de Prova" /> : 'nenhuma ainda'}
                 </div>
                 <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <span className="section-label" style={{ fontSize: 10 }}>Outras fotos validadas para o catálogo ({validatedImages.length})</span>
+                  <span className="section-label" style={{ fontSize: 10 }}>Fotos cadastradas para o catálogo ({validatedImages.length})</span>
                   {validatedImages.length ? (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       {validatedImages.map((img, idx) => (
@@ -1814,7 +1775,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                       ))}
                     </div>
                   ) : (
-                    <span className="helper" style={{ fontSize: 11 }}>Nenhuma ainda — valide fotos processadas na seção &quot;Processamento&quot; ao lado.</span>
+                    <span className="helper" style={{ fontSize: 11 }}>Nenhuma ainda — processe as fotos na seção ao lado.</span>
                   )}
                 </div>
               </div>
@@ -1836,16 +1797,12 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                 {color.variantSku && <span className="muted" style={{ fontSize: 11 }}>SKU {color.variantSku}</span>}
                 {color.supplierColorName && <span className="muted" style={{ fontSize: 11 }}>Cor original do fornecedor: {color.supplierColorName}</span>}
                 {color.supplierSku && <span className="muted" style={{ fontSize: 11 }}>SKU do fornecedor {color.supplierSku}</span>}
-                <span className={`catalog-badge ${color.status}`}>{COLOR_STATUS_LABEL[color.status] || color.status}</span>
-                <span className={`catalog-badge ${color.isActive ? 'validada' : 'rejeitada'}`}>{color.isActive ? 'Ativa — aparece nos fronts' : 'Oculta — não aparece em nenhum front'}</span>
+                <span className={`catalog-badge ${color.isActive ? 'validada' : 'rejeitada'}`}>{color.isActive ? 'Ativada — disponível quando o produto estiver publicado' : 'Oculta — não aparece no catálogo'}</span>
                 {color.rejectionReason && <span className="helper">Motivo: {color.rejectionReason}</span>}
 
                 {color.status !== 'incompleto' && (
                   <div className="catalog-color-section">
                     <span className="section-label">Processamento</span>
-                    {color.status === 'validada' && (
-                      <span className="helper">Esta cor já está validada. Você ainda pode processar de novo, enviar um óculos manualmente, trocar a foto marcada ou rejeitar — o painel continua editável mesmo depois de validar.</span>
-                    )}
                     {!color.originalImageUrl && (
                       <span className="helper">Falta a foto de referência desta cor. Envie a foto ao cadastrar a cor ou atualize as fotos pela importação do produto.</span>
                     )}
@@ -1866,33 +1823,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                       <button className="button secondary small" type="button" disabled={busy || !hasProcessCandidates} onClick={() => handleProcess(color.id)}>
                         {color.displayImages.length > 0 ? 'Processar novamente' : 'Processar com IA'}
                       </button>
-                      <button className="button primary small" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'validar')}>{color.status === 'validada' ? 'Validar novamente' : 'Validar'}</button>
-                      <button className="text-button danger" type="button" disabled={busy} onClick={() => handleValidate(color.id, 'rejeitar')}>Rejeitar</button>
                     </div>
-
-                    {pendingImages.length > 0 && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <span className="helper">{pendingImages.length} foto(s) processada(s), aguardando validação — clique pra ampliar:</span>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          {pendingImages.map((img) => (
-                            <button
-                              key={img.id}
-                              type="button"
-                              style={{ padding: 0, border: '1px solid var(--line)', borderRadius: 4, overflow: 'hidden', cursor: 'pointer', background: 'none', width: 64, height: 64 }}
-                              onClick={() => { setNormalizationBeforeUrl(null); setOpenDisplayImage({ colorImageId: color.id, position: img.position, url: img.url, validatedAt: img.validatedAt }); }}
-                              title="Clique para ampliar e validar"
-                            >
-                              {img.url ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={img.url} alt="Pendente de validação" style={{ width: 64, height: 64, objectFit: 'cover', display: 'block' }} />
-                              ) : (
-                                <span style={{ width: 64, height: 64, display: 'block' }} />
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
 
                     {/* "Enviar Óculos da Prova Online" (14/09/2026, pedido do
                         usuário — seção 0.62). Desde 15/09/2026 (fim da
@@ -2019,7 +1950,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
                 <button className="button secondary" type="button" disabled={busy} onClick={() => handleNormalizeDisplay(color.id, img.position, img.url)}>{busy ? 'Processando…' : 'Padronizar com IA'}</button>
                 {!img.validatedAt && (
-                  <button className="button primary" type="button" disabled={busy} onClick={() => handleValidateDisplayImage(color.id, img.position)}>Validar</button>
+                  <button className="button primary" type="button" disabled={busy} onClick={() => handleValidateDisplayImage(color.id, img.position)}>Usar como referência da IA</button>
                 )}
                 <button className="text-button danger" type="button" disabled={busy} onClick={() => handleRemoveDisplayImage(color.id, img.position)}>Remover</button>
                 <button className="button secondary" type="button" onClick={() => setOpenDisplayImage(null)}>Fechar</button>

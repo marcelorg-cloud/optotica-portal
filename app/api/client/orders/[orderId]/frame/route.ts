@@ -37,7 +37,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
 
   const { data: row, error: catalogError } = await admin.from('catalog_product_color_images')
     .select('id, color_name, supplier_sku, catalog_products!inner(id, model_name, status)')
-    .eq('id', colorId).eq('is_active', true).eq('status', 'validada')
+    .eq('id', colorId).eq('is_active', true)
     .eq('catalog_products.status', 'publicado').maybeSingle();
   if (catalogError) return NextResponse.json({ message: 'Não foi possível consultar o catálogo.' }, { status: 500 });
   const color = row as unknown as CatalogColor | null;

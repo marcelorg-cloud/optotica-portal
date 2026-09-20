@@ -74,9 +74,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
   const row = color as unknown as ColorRow | null;
   const product = row?.catalog_products;
   const frameWidthMm = product?.frame_total_width_mm || product?.lens_width_mm || null;
-  // Mesmo conjunto de checagens da rota do paciente (status validada,
+  // Mesmo conjunto de checagens da rota do paciente (cor ativada,
   // ativa, produto publicado, largura conhecida) — ver comentário lá.
-  if (!row || row.status !== 'validada' || !row.is_active || !row.processed_image_path || !product || product.status !== 'publicado' || !frameWidthMm) {
+  if (!row || !row.is_active || !row.processed_image_path || !product || product.status !== 'publicado' || !frameWidthMm) {
     return NextResponse.json({ message: 'Esta cor não está disponível para prova.' }, { status: 404 });
   }
 

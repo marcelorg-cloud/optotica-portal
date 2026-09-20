@@ -26,6 +26,7 @@ type CatalogColorRow = {
   color_secondary: string | null;
   color_variant_number: number | null;
   catalog_product_color_display_images: { image_path: string | null; position: number; validated_at: string | null }[] | null;
+  original_image_path: string | null;
   processed_image_path: string | null;
   display_order: number | null;
   catalog_products: { id: string; model_name: string; sku_optotica: string; position_image_path: string | null; lens_width_mm: number | null; frame_total_width_mm: number | null } | null;
@@ -104,12 +105,10 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     admin.from('order_fulfillment').select('*').eq('order_id', orderId).maybeSingle(),
     admin
       .from('catalog_product_color_images')
-      .select('id, color_name, color_principal, color_secondary, color_variant_number, processed_image_path, display_order, catalog_product_color_display_images(image_path, position, validated_at), catalog_products!inner(id, model_name, sku_optotica, position_image_path, lens_width_mm, frame_total_width_mm, status)')
-      .eq('status', 'validada')
+      .select('id, color_name, color_principal, color_secondary, color_variant_number, original_image_path, processed_image_path, display_order, catalog_product_color_display_images(image_path, position, validated_at), catalog_products!inner(id, model_name, sku_optotica, position_image_path, lens_width_mm, frame_total_width_mm, status)')
       // ATIVAR/OCULTAR por cor (15/09/2026, migração 202609151700) — só
       // cores que o master ativou explicitamente aparecem pro paciente.
       .eq('is_active', true)
-      .not('processed_image_path', 'is', null)
       .eq('catalog_products.status', 'publicado'),
     order.professional_id
       ? admin.from('professional_profiles').select('display_name, council_registration').eq('user_id', order.professional_id).maybeSingle()
@@ -148,14 +147,15 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
   const signedPhoto = active ? await admin.storage.from(active.bucket).createSignedUrl(active.path,3600) : null;
   const photoUrl = signedPhoto?.data?.signedUrl ? `${signedPhoto.data.signedUrl}&revision=${sourceRevision}` : null;
 
-  // Escolha e prova online compartilham as cores publicadas e validadas.
+  // Escolha e prova online compartilham as cores de produtos publicados e ativadas pelo master.
   const catalogColorRows = (catalogColorsData || []) as unknown as CatalogColorRow[];
   const frameChoices: PatientFrameChoice[] = await Promise.all(catalogColorRows
     .filter((row) => row.catalog_products)
     .sort((a, b) => (a.display_order ?? Number.MAX_SAFE_INTEGER) - (b.display_order ?? Number.MAX_SAFE_INTEGER))
     .map(async (row) => {
-      const { data: signed } = row.processed_image_path
-        ? await admin.storage.from(CATALOG_PHOTOS_BUCKET).createSignedUrl(row.processed_image_path, 3600)
+      const photoPath = row.original_image_path || row.processed_image_path;
+      const { data: signed } = photoPath
+        ? await admin.storage.from(CATALOG_PHOTOS_BUCKET).createSignedUrl(photoPath, 3600)
         : { data: null };
       return { id: row.id, productId: row.catalog_products!.id, modelName: row.catalog_products!.model_name, colorName: row.color_name, imageUrl: signed?.signedUrl || null };
     }));
@@ -174,12 +174,12 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
   for (const color of catalogColorRows) {
     if (color.catalog_products?.position_image_path) oculosPathsToSign.add(color.catalog_products.position_image_path);
     for (const display of color.catalog_product_color_display_images || []) {
-      if (display.validated_at && display.image_path) oculosPathsToSign.add(display.image_path);
+      if (display.image_path) oculosPathsToSign.add(display.image_path);
     }
   }
   for (const row of likedReactionRows) {
     const bestDisplay = (row.catalog_product_color_images?.catalog_product_color_display_images || [])
-      .filter((d) => d.validated_at && d.image_path)
+      .filter((d) => d.image_path)
       .sort((a, b) => a.position - b.position)[0];
     if (bestDisplay?.image_path) oculosPathsToSign.add(bestDisplay.image_path);
   }
@@ -213,7 +213,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
       model = { id: product.id, modelName: product.model_name, skuOptotica: product.sku_optotica, measurementsUrl: product.position_image_path ? signedOculosByPath.get(product.position_image_path) || null : null, colors: [] };
       modelMap.set(product.id, model);
     }
-    const display = (color.catalog_product_color_display_images || []).filter((d) => d.validated_at && d.image_path).sort((a, b) => a.position - b.position)[0];
+    const display = (color.catalog_product_color_display_images || []).filter((d) => d.image_path).sort((a, b) => a.position - b.position)[0];
     const provaPath = provaPathsByProductColor.get(`${product.id}::${color.color_name}`);
     const reaction = reactionRows.find((row) => row.catalog_color_image_id === color.id)?.status;
     model.colors.push({
@@ -221,7 +221,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
       colorSecondary: color.color_secondary, colorVariantNumber: color.color_variant_number,
       provaUrl: provaPath ? signedProvaByPath.get(provaPath) || null : null,
       fotoOculosUrl: (display?.image_path ? signedOculosByPath.get(display.image_path) : null) || frameChoices.find((choice) => choice.id === color.id)?.imageUrl || null,
-      galleryUrls: (color.catalog_product_color_display_images || []).filter((d) => d.validated_at && d.image_path).sort((a, b) => a.position - b.position).map((d) => signedOculosByPath.get(d.image_path!) || null).filter((url): url is string => Boolean(url)),
+      galleryUrls: (color.catalog_product_color_display_images || []).filter((d) => d.image_path).sort((a, b) => a.position - b.position).map((d) => signedOculosByPath.get(d.image_path!) || null).filter((url): url is string => Boolean(url)),
       reaction: reaction === 'gostei' || reaction === 'talvez' || reaction === 'oculto' ? reaction : null,
       confirmed: confirmedColorImageId === color.id
     });
@@ -234,7 +234,7 @@ export default async function ClientOrderPage({ params }: { params: Promise<{ or
     .map((color) => {
       const product = color.catalog_products!;
       const bestDisplay = (color.catalog_product_color_display_images || [])
-        .filter((d) => d.validated_at && d.image_path)
+        .filter((d) => d.image_path)
         .sort((a, b) => a.position - b.position)[0];
       const provaPath = provaPathsByProductColor.get(`${product.id}::${color.color_name}`);
       return {

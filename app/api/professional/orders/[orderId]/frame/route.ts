@@ -41,7 +41,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ord
   const { data: colorData } = await admin
     .from('catalog_product_color_images')
     .select('id, color_name, supplier_sku, catalog_products!inner(id, model_name, status)')
-    .eq('id', catalogColorImageId)
+    .eq('id', catalogColorImageId).eq('is_active', true)
     .maybeSingle();
   const color = colorData as unknown as ColorRow | null;
   const product = color?.catalog_products || null;

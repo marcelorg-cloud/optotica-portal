@@ -4,8 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const TABS = [
-  { href: '/admin/catalogo', label: 'Catálogo de Produtos', match: (p: string) => p === '/admin/catalogo' || /^\/admin\/catalogo\/[^/]+$/.test(p) },
-  { href: '/admin/catalogo/aprovacao', label: 'Fila de Aprovação IA', match: (p: string) => p === '/admin/catalogo/aprovacao' },
+  { href: '/admin/catalogo', label: 'Catálogo de Produtos', match: (p: string) => p === '/admin/catalogo' || (p !== '/admin/catalogo/compras' && /^\/admin\/catalogo\/[^/]+$/.test(p)) },
   { href: '/admin/catalogo/compras', label: 'Fila de Compras', match: (p: string) => p === '/admin/catalogo/compras' }
 ];
 
