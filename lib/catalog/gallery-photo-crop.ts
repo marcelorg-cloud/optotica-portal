@@ -283,8 +283,11 @@ export async function cropGalleryPhoto(candidateUrl: string, referenceUrl: strin
   return [await finishDisplayPhoto(first, references), await finishDisplayPhoto(second, references)];
 }
 
-export async function normalizeExistingDisplay(candidateUrl: string, references: DisplayReference[]): Promise<Buffer> {
-  const raw = await runNanoBanana(candidateUrl, candidateUrl, CROP_PROMPT_SINGLE);
+export async function normalizeExistingDisplay(candidateUrl: string, references: DisplayReference[], instruction = ''): Promise<Buffer> {
+  const prompt = instruction.trim()
+    ? `${CROP_PROMPT_SINGLE}\n\nAdditional editing request from the catalog administrator:\n${instruction.trim()}\nApply this request while preserving the actual frame geometry, color, material and details. Remove a requested background by replacing it with clean white, matching the catalog canvas. Do not add text, borders or other objects.`
+    : CROP_PROMPT_SINGLE;
+  const raw = await runNanoBanana(candidateUrl, candidateUrl, prompt);
   return finishDisplayPhoto(raw, references);
 }
 

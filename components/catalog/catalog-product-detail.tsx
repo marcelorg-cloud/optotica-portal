@@ -159,6 +159,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const messageRef = useRef<HTMLParagraphElement | null>(null);
   const [busy, setBusy] = useState(false);
   useProcessingFeedback(busy, 'Processando catálogo…');
+  const [normalizationInstructions, setNormalizationInstructions] = useState<Record<string, string>>({});
   const [normalizationBeforeUrl, setNormalizationBeforeUrl] = useState<string | null>(null);
   const [showNewColor, setShowNewColor] = useState(false);
 
@@ -825,7 +826,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     setMessage({ kind: 'success', text: 'Padronizando com as referências deste modelo. Aguarde; a original será preservada.' });
     try {
       const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}/normalize-display`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ position })
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ position, instruction: normalizationInstructions[`${colorImageId}:${position}`] || '' })
       });
       setMessage({ kind: ok ? 'success' : 'error', text: payload.message });
       if (ok) {
@@ -1939,14 +1940,22 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
             onClick={() => setOpenDisplayImage(null)}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}
           >
-            <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 8, padding: 16, maxWidth: '92vw', maxHeight: '92vh', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 8, padding: 16, maxWidth: '92vw', maxHeight: '92vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
               {normalizationBeforeUrl && <figure style={{ margin: 0 }}><figcaption>Original preservada</figcaption><img src={normalizationBeforeUrl} alt="Foto original antes da padronização" style={{ maxWidth: '75vw', maxHeight: '25vh', objectFit: 'contain' }} /></figure>}
               {img.url ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={img.url} alt="Foto de exibição ampliada" style={{ maxWidth: '85vw', maxHeight: normalizationBeforeUrl ? '35vh' : '70vh', objectFit: 'contain' }} />
+                <img src={img.url} alt="Foto de exibição ampliada" style={{ maxWidth: '85vw', maxHeight: normalizationBeforeUrl ? '25vh' : '50vh', objectFit: 'contain' }} />
               ) : (
                 <span className="helper">sem foto</span>
               )}
+              <label style={{ width: '100%', display: 'grid', gap: 6 }}>
+                Instrução para a IA (opcional)
+                <textarea rows={2} maxLength={1000} disabled={busy}
+                  placeholder="Ex.: remova o fundo; retire textos da imagem; centralize os óculos."
+                  value={normalizationInstructions[`${color.id}:${img.position}`] || ''}
+                  onChange={(event) => setNormalizationInstructions((previous) => ({ ...previous, [`${color.id}:${img.position}`]: event.target.value }))} />
+                <span className="helper">Sem instrução, aplica a padronização habitual. O catálogo usa fundo branco; a foto original é preservada.</span>
+              </label>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
                 <button className="button secondary" type="button" disabled={busy} onClick={() => handleNormalizeDisplay(color.id, img.position, img.url)}>{busy ? 'Processando…' : 'Padronizar com IA'}</button>
                 {!img.validatedAt && (

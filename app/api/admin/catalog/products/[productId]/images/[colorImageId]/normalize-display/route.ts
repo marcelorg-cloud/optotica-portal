@@ -11,6 +11,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
   const auth = await requireMaster();
   if (!auth.ok) return NextResponse.json({ message: auth.message }, { status: auth.status });
   const body = await request.json().catch(() => null);
+  if (body?.instruction !== undefined && typeof body.instruction !== 'string') return NextResponse.json({ message: 'A instrução deve ser um texto.' }, { status: 400 });
+  const instruction = (body?.instruction || '').trim();
+  if (instruction.length > 1000) return NextResponse.json({ message: 'Use até 1.000 caracteres na instrução.' }, { status: 400 });
   const position = Number(body?.position);
   if (!Number.isInteger(position) || position < 1) return NextResponse.json({ message: 'Foto inválida.' }, { status: 400 });
   const { data: color } = await auth.admin.from('catalog_product_color_images').select('id').eq('id', colorImageId).eq('product_id', productId).maybeSingle();
@@ -21,7 +24,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     const references = await loadModelPhotoReferences(auth.admin, productId, original.id);
     const { data: signed } = await auth.admin.storage.from(BUCKET).createSignedUrl(original.image_path, 900);
     if (!signed?.signedUrl) throw new Error('Não foi possível carregar a foto original.');
-    const buffer = await normalizeExistingDisplay(signed.signedUrl, references);
+    const buffer = await normalizeExistingDisplay(signed.signedUrl, references, instruction);
     const { data: last, error: lastError } = await auth.admin.from('catalog_product_color_display_images').select('position').eq('color_image_id', colorImageId).order('position', { ascending: false }).limit(1).maybeSingle();
     if (lastError) throw new Error('Não foi possível preparar a nova foto.');
     const newPosition = (last?.position || 0) + 1;
@@ -37,7 +40,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
       await auth.admin.storage.from(BUCKET).remove([path]);
       throw new Error('Não foi possível registrar a nova versão. A original foi preservada.');
     }
-    return NextResponse.json({ message: 'Nova versão padronizada criada. Compare e valide antes de publicar; a original foi preservada.', createdId: created.id, position: newPosition, referenceCount: references.length });
+    return NextResponse.json({ message: 'Nova versão criada no cadastro. Confira o resultado; a original foi preservada.', createdId: created.id, position: newPosition, referenceCount: references.length });
   } catch (error) {
     console.error('normalize_catalog_display_failed', { message: error instanceof Error ? error.message : 'unknown' });
     return NextResponse.json({ message: error instanceof Error ? error.message : 'Não foi possível padronizar a foto.' }, { status: 502 });
