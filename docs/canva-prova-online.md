@@ -41,7 +41,7 @@ Não publique o client secret ou a chave de criptografia no código, em variáve
 Preview e produção precisam de URLs OAuth/return registradas e CANVA_APP_ORIGIN correspondente.
 A conexão Canva deste chat não substitui as credenciais da integração da Optótica.
 
-Aplique o SQL do Canva no banco ligado a este ambiente antes de definir as variáveis acima.
+A migração `supabase/migrations/20260923193213_canva_tryon.sql` já foi aplicada ao projeto Supabase `optotica-dev` em 23/09/2026. Se o ambiente usar outro banco, aplique essa migração nele antes de definir as variáveis acima.
 Mantenha a chave de criptografia estável: mudá-la exige reconectar todas as contas.
 Exportar PNG transparente exige a capacidade export_png_transparency na conta Canva.
 
@@ -65,6 +65,13 @@ Exportar PNG transparente exige a capacidade export_png_transparency na conta Ca
   permanecem no bucket do catálogo, assim como uploads manuais existentes.
 
 ## Verificação
+Em 23/09/2026: geração dos tipos Next.js, TypeScript e 10 testes automatizados passaram no GitHub Actions.
+A função SQL foi verificada em transação revertida: rejeição de usuário não master, conflito com prévia antiga,
+gravação da cor correta sem alterar seus outros campos e repetição idempotente.
+As quatro tabelas têm RLS ativo, sem acesso anon/authenticated; a função é executável somente pelo serviço.
+O [aviso informativo de RLS sem políticas](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)
+é esperado para essas tabelas exclusivas do servidor; não é necessário abrir acesso ao cliente.
+
 A verificação automatizada cobre assinatura/expiração do retorno, isolamento dos tokens,
 origem das mutações, vínculo da prévia à cor, normalização com transparência e conflitos ao salvar.
 Execute:
