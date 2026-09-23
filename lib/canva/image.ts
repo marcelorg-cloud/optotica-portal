@@ -41,10 +41,23 @@ export async function prepareTryonPng(input: Buffer) {
   }
   const width = right - left + 1, height = bottom - top + 1;
   if (height > width) throw new CanvaError('Confira se a página contém somente a frente dos óculos, na horizontal.', 422);
-  const targetHeight = Math.max(1, Math.round(height * 1080 / width));
-  const padTop = Math.floor((1080 - targetHeight) / 2);
+  const targetHeight = Math.max(1, Math.round(height * 540 / width));
+  const padTop = Math.floor((540 - targetHeight) / 2);
   return sharp(input, { limitInputPixels: 16000000 }).extract({ left, top, width, height })
-    .resize(1080, targetHeight).extend({ left: 0, right: 0, top: padTop,
-      bottom: 1080 - targetHeight - padTop, background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .resize(540, targetHeight).extend({ left: 0, right: 0, top: padTop,
+      bottom: 540 - targetHeight - padTop, background: { r: 0, g: 0, b: 0, alpha: 0 } })
     .png().toBuffer();
+}
+
+// The reference photo lives above the frame. Reject remaining visible pixels in
+// that reserved corner instead of silently including them in the try-on width.
+export async function rejectReferencePhoto(input: Buffer) {
+  const { data, info } = await sharp(input, { limitInputPixels: 16000000 }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let visible = 0;
+  for (let y = 0; y < Math.floor(info.height * 0.27); y++) {
+    for (let x = Math.floor(info.width * 0.60); x < info.width; x++) {
+      if (data[(y * info.width + x) * info.channels + info.channels - 1] > 4) visible++;
+    }
+  }
+  if (visible > 10) throw new CanvaError('Remova a foto pequena do canto e deixe somente a frente da armação centralizada antes de importar.', 422);
 }

@@ -15,10 +15,13 @@ export type Session = {
   canva_user_id: string; canva_team_id: string; original_path: string;
   previous_path: string | null; previous_processed_at: string | null; frame_width_mm: number;
   export_job_id: string | null; staged_path: string | null; saved_at: string | null;
-  expires_at: string; return_verified_at: string | null;
+  expires_at: string; return_verified_at: string | null; page_id: string | null; export_filename: string | null; export_page_ids: string[] | null;
 };
 export type DesignLink = {
   color_id: string; product_id: string; user_id: string; canva_user_id: string; canva_team_id: string;
+  page_id: string | null; page_number: number | null; page_filename: string | null;
+  page_stage: string; import_job_id: string | null; merge_job_id: string | null;
+  source_design_id: string | null; before_page_ids: string[] | null;
   source_path: string; asset_id: string | null; upload_job_id: string | null; design_id: string | null; creating: boolean;
 };
 export type Job = { id?: string; status: 'in_progress' | 'success' | 'failed';
@@ -115,7 +118,7 @@ export async function beginOAuth(admin: Admin, userId: string, productId: string
 export async function getColor(admin: Admin, productId: string, colorId: string) {
   workspace(productId, colorId);
   const [colorResult, productResult] = await Promise.all([
-    admin.from('catalog_product_color_images').select('id, product_id, color_name, color_principal, color_secondary, original_image_path, processed_image_path, processed_at')
+    admin.from('catalog_product_color_images').select('id, product_id, color_name, color_variant_number, color_principal, color_secondary, original_image_path, processed_image_path, processed_at')
       .eq('id', colorId).eq('product_id', productId).maybeSingle(),
     admin.from('catalog_products').select('id, model_name, sku_optotica, frame_total_width_mm').eq('id', productId).maybeSingle()
   ]);

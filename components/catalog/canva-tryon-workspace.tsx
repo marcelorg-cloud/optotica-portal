@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 type Info = {
+  templateUrl: string | null; templateReady: boolean; filename: string | null; pageNumber: number | null; pageTitle: string | null;
   configured: boolean; connected: boolean; hasDesign: boolean; needsRecovery: boolean;
   productName: string; colorName: string; frameWidthMm: number | null;
   originalUrl: string | null; currentUrl: string | null; sourceChanged: boolean;
@@ -11,7 +12,7 @@ type Info = {
 type Result = {
   status?: string; sessionId?: string; previewUrl?: string; editUrl?: string; authorizeUrl?: string; message?: string;
 };
-const PROMPT = 'Prepare esta armação para prova virtual. Mantenha somente a parte frontal. Remova as hastes, o fundo, as sombras externas e os reflexos das lentes. Deixe o fundo e o interior das lentes totalmente transparentes. Preserve fielmente a cor, a espessura e o desenho da armação. Nivele e centralize os óculos. Mantenha apenas esta imagem na primeira página, sem textos ou outros elementos.';
+const PROMPT = 'Use a foto pequena no canto como referência do produto e a imagem modelo grande apenas como guia de posição. Substitua a armação do modelo pela armação da foto de referência, preservando o produto real. Remova a foto pequena ao concluir. Prepare esta armação para prova virtual. Mantenha somente a parte frontal. Remova as hastes, o fundo, as sombras externas e os reflexos das lentes. Deixe o fundo e o interior das lentes totalmente transparentes. Preserve fielmente a cor, a espessura e o desenho da armação. Nivele e centralize os óculos. Mantenha apenas o resultado na página desta cor, sem textos ou outros elementos.';
 const previewStyle = {
   width: '100%', maxWidth: 440, aspectRatio: '1 / 1', objectFit: 'contain' as const,
   border: '1px solid var(--line)', borderRadius: 8,
@@ -25,6 +26,8 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
   const [preview, setPreview] = useState<{ url: string; sessionId: string } | null>(null);
   const [saved, setSaved] = useState(false);
   const [designUrl, setDesignUrl] = useState('');
+  const [pageNumber, setPageNumber] = useState('1');
+  const [reviewed, setReviewed] = useState(false);
   const active = useRef<AbortController | null>(null);
   const productUrl = '/admin/catalogo/' + productId;
   const apiUrl = '/api/admin/catalog/canva';
@@ -58,10 +61,10 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
   }, [post]);
 
   const importPreview = useCallback(async (sessionId: string, signal: AbortSignal) => {
-    setBusy('Importando a primeira página do Canva…');
+    setBusy('Importando a página desta cor…');
     const result = await poll('export', sessionId, signal);
     if (!result.previewUrl) throw new Error('O Canva não retornou uma prévia.');
-    setPreview({ sessionId, url: result.previewUrl });
+    setPreview({ sessionId, url: result.previewUrl }); setReviewed(false);
     setSaved(result.status === 'saved');
     await refresh(signal);
   }, [poll, refresh]);
@@ -101,6 +104,7 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
     });
   }
   function importManually() {
+    setPreview(null); setSaved(false); setReviewed(false);
     void run('Importando do Canva…', async signal => {
       const result = await post('import', {}, signal);
       if (!result.sessionId) throw new Error('Não foi possível iniciar a importação.');
@@ -119,6 +123,29 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
       {message && <p role="alert" style={{ color: '#a32020' }}>{message}</p>}
       {busy && <p role="status" aria-live="polite">{busy}</p>}
       {info && <>
+        <p>Um design por produto, com uma página de 540 × 540 px para cada cor.</p>
+        {info.filename && <p>Nome da página e do PNG: <strong>{info.filename}</strong></p>}
+        {info.pageTitle && info.pageTitle !== info.filename && <p>O SKU ou a medida mudou. Atualize o nome da página no Canva para {info.filename}. A exportação do portal usará esse nome.</p>}
+        <details>
+          <summary>Imagem modelo da prova online</summary>
+          <p>Esta imagem será usada como guia nas novas páginas. A foto original da cor será inserida separadamente no canto superior direito.</p>
+          {info.templateUrl && <img src={info.templateUrl} alt="Imagem modelo cadastrada" style={{ ...previewStyle, maxWidth: 240 }} />}
+          {!info.templateReady && <p role="status">{info.templateUrl ? 'A imagem cadastrada está com fundo branco ou sem transparência. Envie a versão com fundo e lentes transparentes.' : 'Cadastre o PNG modelo transparente de 540 × 540 px.'}</p>}
+          <label>Substituir imagem modelo (PNG, 540 × 540 px)
+            <input type="file" accept="image/png" disabled={!!busy} onChange={event => {
+              const file = event.target.files?.[0]; if (!file) return;
+              event.target.value = '';
+              void run('Salvando imagem modelo…', async signal => {
+                const form = new FormData(); form.append('file', file);
+                const response = await fetch(apiUrl + '/template', { method: 'POST', body: form, signal });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || 'Não foi possível salvar o modelo.');
+                await refresh(signal);
+                setMessage(result.hasTransparency ? 'Imagem modelo cadastrada para as novas páginas.' : 'Modelo cadastrado, mas ainda precisa de transparência antes de criar páginas.');
+              });
+            }} />
+          </label>
+        </details>
         {!info.configured && <p>A conexão com o Canva ainda precisa ser ativada pela administração da Optótica.</p>}
         {info.configured && !info.connected && <div>
           <p>Conecte sua conta Canva para preparar a foto desta cor. O PNG transparente exige um plano compatível, como Canva Pro.</p>
@@ -144,10 +171,10 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
           </div>
         </div>
         {info.configured && info.connected && <>
-          <p>Edite a <strong>primeira página</strong>: mantenha só a frente da armação e deixe o fundo e o interior das lentes transparentes. Ao terminar, use o botão de retorno à Optótica no Canva.</p>
+          <p>Edite a página desta cor: use o modelo como guia para posicionar a frente da armação real. Remova a foto pequena do canto e a armação usada como modelo. Deixe o fundo e o interior das lentes transparentes. Ao terminar, use o botão de retorno à Optótica no Canva.</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-            <button type="button" className="button" disabled={!!busy || !info.originalUrl || !(Number(info.frameWidthMm) > 0) || info.needsRecovery} onClick={openEditor}>
-              {info.hasDesign ? 'Editar no Canva' : 'Criar foto de prova no Canva'}
+            <button type="button" className="button" disabled={!!busy || !info.originalUrl || !(Number(info.frameWidthMm) > 0) || info.needsRecovery || (!info.hasDesign && !info.templateReady) || !info.filename} onClick={openEditor}>
+              {info.hasDesign ? 'Editar página no Canva' : 'Criar página desta cor no Canva'}
             </button>
             {info.hasDesign && <button type="button" className="button secondary" disabled={!!busy} onClick={importManually}>Importar do Canva</button>}
             <button type="button" className="text-button" disabled={!!busy} onClick={() => void run('Conectando…', async signal => {
@@ -165,17 +192,19 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
             }}>Copiar comando</button>
           </details>
           {!info.hasDesign && <details open={info.needsRecovery || undefined}>
-            <summary>Vincular design existente</summary>
-            <p>Use um design da sua conta que contenha apenas a foto de prova desta cor na primeira página.</p>
+            <summary>Vincular página existente</summary>
+            <p>Informe o design do produto e o número da página desta cor. Confira a página no Canva antes de vincular.</p>
             <label>Link do design no Canva<input type="url" value={designUrl} onChange={event => setDesignUrl(event.target.value)} style={{ width: '100%' }} /></label>
-            <button type="button" className="button secondary small" disabled={!!busy || !designUrl} onClick={() => void run('Vinculando design…', async signal => {
-              await post('link', { designUrl }, signal); await refresh(signal);
+            <label>Número da página<input type="number" min="1" max="500" value={pageNumber} onChange={event => setPageNumber(event.target.value)} /></label>
+            <button type="button" className="button secondary small" disabled={!!busy || !designUrl || !pageNumber} onClick={() => void run('Vinculando design…', async signal => {
+              await post('link', { designUrl, pageNumber }, signal); await refresh(signal);
             })}>Vincular a esta cor</button>
           </details>}
         </>}
         {preview && !saved && <div style={{ display: 'grid', gap: 10 }}>
           <p>Confira a cor, o formato da armação e a transparência dentro das lentes. Ao salvar, esta prévia passa a ser a foto de prova desta cor.</p>
-          <button type="button" className="button" disabled={!!busy} onClick={() => void run('Salvando a foto de prova…', async signal => {
+          <label><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} /> Conferi: esta é a armação da cor correta, sem a foto pequena e sem a armação usada como modelo.</label>
+          <button type="button" className="button" disabled={!!busy || !reviewed} onClick={() => void run('Salvando a foto de prova…', async signal => {
             await post('save', { sessionId: preview.sessionId }, signal); setSaved(true); await refresh(signal);
           })}>Salvar como foto de prova desta cor</button>
         </div>}
