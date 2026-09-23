@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { CatalogColorPicker } from '@/components/catalog/catalog-color-picker';
 import { useProcessingFeedback } from '@/components/processing-feedback';
 
@@ -1738,7 +1739,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
             const ownPhotoAlreadyProcessed = color.displayImages.some((d) => d.fromOwnColorPhoto);
             const hasProcessCandidates = Boolean(color.originalImageUrl) && (taggedPhotos.length > 0 || !ownPhotoAlreadyProcessed);
             return (
-            <div key={color.id} className="catalog-color-card">
+            <div key={color.id} id={`cor-${color.id}`} className="catalog-color-card">
               <div className="catalog-color-photos" style={{ flexDirection: 'column' }}>
                 <div className="half">
                   <span className="catalog-photo-label">Foto da cor</span>
@@ -1747,6 +1748,10 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                 <div className="half">
                   <span className="catalog-photo-label">Foto de Prova</span>
                   {color.processedImageUrl ? <img src={color.processedImageUrl} alt="Foto de Prova" /> : 'nenhuma ainda'}
+                  <Link className="button secondary small" style={{ marginTop: 8 }}
+                    href={`/admin/catalogo/${productId}/canva/${color.id}`}>
+                    Preparar no Canva
+                  </Link>
                 </div>
                 <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <span className="section-label" style={{ fontSize: 10 }}>Fotos cadastradas para o catálogo ({validatedImages.length})</span>
