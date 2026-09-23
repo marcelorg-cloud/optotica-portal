@@ -18,8 +18,8 @@ A edição visual acontece dentro do Canva. O portal não aciona automaticamente
 Uma mudança de foto original é sinalizada para revisão no editor. Alterar SKU ou medida também pode exigir atualizar o título da página no Canva; o nome exportado pelo portal vem do cadastro atualizado.
 
 ## Imagem modelo recebida
-Em 23/09/2026, `modelo-prova-online-000mm.png` foi registrado na tabela privada `canva_tryon_template`, preservando seus bytes (66.409 bytes; MD5 `6f481fd70254333aa1350b6cbcccd545`).
-O arquivo é RGB, sem canal alpha: o branco é opaco. Por isso está marcado como pendente de transparência e não é usado para criar páginas até ser substituído.
+Em 23/09/2026, o modelo foi substituído pelo PNG aprovado de 540 × 540 px e registrado na tabela privada `canva_tryon_template`.
+O arquivo tem canal alpha, fundo e interior das lentes transparentes (73.443 bytes; SHA-256 `a51dc37e3243e7422a3d1ae27a299c822350eadb2dde5b5f3913b9fa346fe3a2`) e está liberado para criar páginas.
 O upload aceita apenas PNG de 540 × 540 px, até 1 MB. O conteúdo não está publicado no repositório; somente o master pode consultar/substituir pelo servidor.
 
 ## APIs e limites atuais
