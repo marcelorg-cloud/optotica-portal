@@ -5,12 +5,12 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import test from 'node:test';
 const require = createRequire(import.meta.url), ts = require('typescript'), sharp = require('sharp');
 function load(file, mocks = {}) {
-  const module = { exports: {} };
+  const loadedModule = { exports: {} };
   const output = ts.transpileModule(fs.readFileSync(new URL(file, import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true }
   }).outputText;
-  new Function('require', 'module', 'exports', output)(name => mocks[name] ?? require(name), module, module.exports);
-  return module.exports;
+  new Function('require', 'module', 'exports', output)(name => mocks[name] ?? require(name), loadedModule, loadedModule.exports);
+  return loadedModule.exports;
 }
 const security = load('../lib/canva/security.ts');
 const key = '4a'.repeat(32);
@@ -29,6 +29,92 @@ test('OAuth tokens are encrypted and bound to the user and token purpose', () =>
 test('PKCE matches the published RFC 7636 example', () => {
   assert.equal(security.challenge('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'),
     'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
+});
+const canvaApi = load('../lib/canva/api.ts', { './security': security });
+test('OAuth failures keep an actionable, non-secret Canva error code', () => {
+  const invalidClient = canvaApi.oauthTokenError(401, { code: 'invalid_client', message: 'do not expose this response' });
+  assert.equal(invalidClient.code, 'invalid_client');
+  assert.match(invalidClient.message, /Client Secret/);
+  assert.doesNotMatch(invalidClient.message, /do not expose/);
+  assert.match(canvaApi.oauthTokenError(400, { code: 'invalid_grant' }).message, /código de autorização/);
+  assert.match(canvaApi.oauthTokenError(400, { code: 'invalid_scope' }).message, /permissões/);
+  assert.match(canvaApi.oauthTokenError(401, { code: 'unauthorized_user' }).message, /conta Canva/);
+  assert.match(canvaApi.oauthAuthorizationError('access_denied').message, /cancelada/);
+  assert.equal(canvaApi.oauthAuthorizationError('<script>').code, 'authorization_failed');
+});
+test('Canva configuration trims copied whitespace and validates credential formats', () => {
+  const previous = { ...process.env };
+  Object.assign(process.env, { CANVA_CLIENT_ID: '  OC-example_1  ', CANVA_CLIENT_SECRET: '  cnvca-example  ',
+    CANVA_TOKEN_ENCRYPTION_KEY: `  ${key}  `, CANVA_APP_ORIGIN: '  https://portal.test/path  ' });
+  try {
+    assert.deepEqual(security.config(), { clientId: 'OC-example_1', clientSecret: 'cnvca-example', encryptionKey: key,
+      origin: 'https://portal.test', redirectUri: 'https://portal.test/api/admin/catalog/canva/oauth/callback' });
+    process.env.CANVA_CLIENT_SECRET = 'not-a-canva-secret';
+    assert.throws(() => security.config(), /Client Secret/);
+    assert.deepEqual(security.configurationStatus(), { configured: false,
+      error: 'O Client Secret do Canva cadastrado no portal é inválido. Gere e copie o segredo novamente.' });
+  } finally {
+    for (const name of ['CANVA_CLIENT_ID', 'CANVA_CLIENT_SECRET', 'CANVA_TOKEN_ENCRYPTION_KEY', 'CANVA_APP_ORIGIN']) {
+      if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name];
+    }
+  }
+});
+function oauthStateAdmin(inserted) {
+  const pending = { product_id: productId, color_id: colorId, verifier: 'sealed-verifier' };
+  const stateQuery = {
+    delete() { return this; }, eq() { return this; }, gt() { return this; }, select() { return this; },
+    async maybeSingle() { return { data: pending, error: null }; }
+  };
+  return {
+    from(name) {
+      if (name === 'canva_oauth_states') return stateQuery;
+      if (name === 'canva_connections') return { insert: async record => { inserted.push(record); return { error: null }; } };
+      throw new Error(`Unexpected table ${name}`);
+    }
+  };
+}
+function callbackRoute(apiOverrides, inserted = []) {
+  const admin = oauthStateAdmin(inserted);
+  return load('../app/api/admin/catalog/canva/oauth/callback/route.ts', {
+    'next/server': { NextResponse: {
+      json: (data, init) => Response.json(data, init),
+      redirect: url => new Response(null, { status: 307, headers: { location: url.toString() } })
+    } },
+    '@/lib/catalog/require-master': { requireMaster: async () => ({ ok: true, userId: 'master', admin }) },
+    '@/lib/canva/security': { ...security,
+      config: () => ({ clientId: 'OC-example', clientSecret: 'cnvca-example', encryptionKey: key,
+        origin: 'https://portal.test', redirectUri: 'https://portal.test/api/admin/catalog/canva/oauth/callback' }),
+      decrypt: () => 'verifier', digest: () => 'state-hash' },
+    '@/lib/canva/api': {
+      api: async () => ({ team_user: { user_id: 'canva-user', team_id: 'canva-team' } }),
+      connection: async () => null, dbError: error => { if (error) throw error; },
+      exchange: async () => ({ access_token: 'access', refresh_token: 'refresh', expires_in: 3600 }),
+      lease: async (_admin, _table, _column, _id, run) => run(),
+      oauthAuthorizationError: canvaApi.oauthAuthorizationError,
+      tokenFields: () => ({ access_token: 'sealed-access', refresh_token: 'sealed-refresh', expires_at: 'later' }),
+      ...apiOverrides
+    }
+  });
+}
+test('OAuth callback returns a specific safe token error to the same product and color', async () => {
+  const route = callbackRoute({ exchange: async () => { throw canvaApi.oauthTokenError(401, { code: 'invalid_client' }); } });
+  const originalError = console.error; let logged;
+  console.error = (...args) => { logged = args; };
+  try {
+    const response = await route.GET(new Request('https://portal.test/api/admin/catalog/canva/oauth/callback?state=s&code=c'));
+    const location = new URL(response.headers.get('location'));
+    assert.equal(location.pathname, `/admin/catalogo/${productId}/canva/${colorId}`);
+    assert.match(location.searchParams.get('canva_error'), /Client Secret/);
+    assert.deepEqual(logged[1], { stage: 'token_exchange', status: 401, code: 'invalid_client' });
+    assert.doesNotMatch(JSON.stringify(logged), /access|refresh|verifier|state=s|code=c/);
+  } finally { console.error = originalError; }
+});
+test('OAuth callback stores the connected Canva account after a successful exchange', async () => {
+  const inserted = [], route = callbackRoute({}, inserted);
+  const response = await route.GET(new Request('https://portal.test/api/admin/catalog/canva/oauth/callback?state=s&code=c'));
+  assert.equal(response.headers.get('location'), `https://portal.test/admin/catalogo/${productId}/canva/${colorId}`);
+  assert.deepEqual(inserted, [{ user_id: 'master', canva_user_id: 'canva-user', canva_team_id: 'canva-team',
+    access_token: 'sealed-access', refresh_token: 'sealed-refresh', expires_at: 'later' }]);
 });
 test('mutations reject foreign and missing origins', () => {
   assert.equal(security.sameOrigin(new Request('https://portal.test/api', { headers: { origin: 'https://portal.test' } })), true);

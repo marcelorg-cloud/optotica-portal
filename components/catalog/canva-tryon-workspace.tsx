@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 type Info = {
   templateUrl: string | null; templateReady: boolean; filename: string | null; pageNumber: number | null; pageTitle: string | null;
-  configured: boolean; connected: boolean; hasDesign: boolean; needsRecovery: boolean;
+  configured: boolean; configurationError: string | null; connected: boolean; hasDesign: boolean; needsRecovery: boolean;
   productName: string; colorName: string; frameWidthMm: number | null;
   originalUrl: string | null; currentUrl: string | null; sourceChanged: boolean;
 };
@@ -146,7 +146,8 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
             }} />
           </label>
         </details>
-        {!info.configured && <p>A conexão com o Canva ainda precisa ser ativada pela administração da Optótica.</p>}
+        {!info.configured && <p role="alert" style={{ color: '#a32020' }}>{info.configurationError ||
+          'A conexão com o Canva ainda precisa ser ativada pela administração da Optótica.'}</p>}
         {info.configured && !info.connected && <div>
           <p>Conecte sua conta Canva para preparar a foto desta cor. O PNG transparente exige um plano compatível, como Canva Pro.</p>
           <button type="button" className="button" disabled={!!busy} onClick={() => void run('Conectando ao Canva…', async signal => {

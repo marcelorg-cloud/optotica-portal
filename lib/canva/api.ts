@@ -27,6 +27,58 @@ export type DesignLink = {
 export type Job = { id?: string; status: 'in_progress' | 'success' | 'failed';
   asset?: { id: string }; urls?: string[]; error?: { code?: string } };
 
+function oauthCode(value: unknown) {
+  const body = value && typeof value === 'object' ? value as Record<string, unknown> : null;
+  const candidate = body?.code ?? body?.error;
+  return typeof candidate === 'string' && /^[A-Za-z0-9_.:-]{1,80}$/.test(candidate) ? candidate : undefined;
+}
+
+export function oauthAuthorizationError(code: string | null) {
+  if (code === 'access_denied') {
+    return new CanvaError('A autorização foi cancelada no Canva. Conecte novamente e permita o acesso solicitado.', 401, code);
+  }
+  if (code === 'invalid_scope') {
+    return new CanvaError('As permissões solicitadas não estão ativadas no aplicativo Canva. Confira os acessos da REST API.', 401, code);
+  }
+  if (code === 'temporarily_unavailable' || code === 'server_error') {
+    return new CanvaError('O Canva está temporariamente indisponível. Aguarde alguns instantes e tente novamente.', 503, code);
+  }
+  const safeCode = code && /^[A-Za-z0-9_.:-]{1,80}$/.test(code) ? code : 'authorization_failed';
+  return new CanvaError(`O Canva recusou a autorização (${safeCode}). Tente conectar novamente.`, 401, safeCode);
+}
+
+export function oauthTokenError(status: number, value: unknown) {
+  const code = oauthCode(value);
+  if (code === 'invalid_client' || code === 'invalid_access_token') {
+    return new CanvaError('O Canva recusou as credenciais do aplicativo. Gere um novo Client Secret e atualize o valor na Vercel.',
+      401, code || 'invalid_client');
+  }
+  if (code === 'invalid_grant') {
+    return new CanvaError('O Canva recusou o código de autorização. Inicie a conexão novamente e confira a URL de retorno se o erro persistir.',
+      401, code);
+  }
+  if (code === 'invalid_scope') {
+    return new CanvaError('As permissões solicitadas não estão ativadas no aplicativo Canva. Confira os acessos da REST API.', 401, code);
+  }
+  if (code === 'unauthorized_client') {
+    return new CanvaError('O aplicativo Canva ainda não está habilitado para esta autorização.', 401, code);
+  }
+  if (code === 'unauthorized_user') {
+    return new CanvaError('Esta conta Canva não está autorizada a usar o aplicativo. Entre com a conta que criou o app ou foi adicionada como colaboradora.',
+      401, code);
+  }
+  if (status === 429) {
+    return new CanvaError('O Canva limitou temporariamente as tentativas de conexão. Aguarde e tente novamente.', 429,
+      code || 'rate_limited');
+  }
+  if (status === 401) {
+    return new CanvaError(`O Canva recusou a autenticação${code ? ` (${code})` : ''}. Confira a conta e tente novamente.`,
+      401, code || 'authentication_failed');
+  }
+  return new CanvaError(`O Canva não concluiu a autorização${code ? ` (${code})` : ''}. Tente conectar novamente.`,
+    status >= 500 ? 502 : 401, code || 'token_exchange_failed');
+}
+
 export function dbError(error: unknown) {
   if (error) throw new CanvaError('Não foi possível salvar a operação. Tente novamente.', 500);
 }
@@ -49,10 +101,11 @@ export async function api<T>(accessToken: string, path: string, init: RequestIni
     headers: { 'Content-Type': 'application/json', ...init.headers, Authorization: 'Bearer ' + accessToken } });
   const body = await response.json().catch(() => null);
   if (!response.ok) {
-    if (response.status === 401) throw new CanvaError('Reconecte sua conta Canva para continuar.', 401);
-    if (response.status === 429) throw new CanvaError('O Canva atingiu o limite de solicitações. Aguarde e tente novamente.', 429);
-    if (response.status === 403) throw new CanvaError('Sua conta Canva não permite esta ação. Confira as permissões e o plano.', 403);
-    throw new CanvaError('O Canva não concluiu a solicitação. Confira o design e tente novamente.', 502);
+    const code = oauthCode(body);
+    if (response.status === 401) throw new CanvaError('Reconecte sua conta Canva para continuar.', 401, code);
+    if (response.status === 429) throw new CanvaError('O Canva atingiu o limite de solicitações. Aguarde e tente novamente.', 429, code);
+    if (response.status === 403) throw new CanvaError('Sua conta Canva não permite esta ação. Confira as permissões e o plano.', 403, code);
+    throw new CanvaError('O Canva não concluiu a solicitação. Confira o design e tente novamente.', 502, code);
   }
   return body as T;
 }
@@ -66,7 +119,7 @@ export async function exchange(body: URLSearchParams): Promise<Tokens> {
     }, body: body.toString() });
   const value = await response.json().catch(() => null);
   if (!response.ok || !value?.access_token || !value?.refresh_token || !(value.expires_in > 0)) {
-    throw new CanvaError('Não foi possível autorizar o Canva. Conecte a conta novamente.', 401);
+    throw oauthTokenError(response.status, value);
   }
   return value;
 }

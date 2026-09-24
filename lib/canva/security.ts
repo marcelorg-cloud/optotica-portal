@@ -1,16 +1,25 @@
 import { createCipheriv, createDecipheriv, createHash, createPublicKey, randomBytes, verify, type JsonWebKey } from 'node:crypto';
 
 export class CanvaError extends Error {
-  constructor(message: string, public status = 400) { super(message); }
+  constructor(message: string, public status = 400, public code?: string) { super(message); }
 }
 
 export function config() {
-  const clientId = process.env.CANVA_CLIENT_ID;
-  const clientSecret = process.env.CANVA_CLIENT_SECRET;
-  const encryptionKey = process.env.CANVA_TOKEN_ENCRYPTION_KEY;
-  const origin = process.env.CANVA_APP_ORIGIN;
+  // Vercel values are normally exact, but trimming here avoids a copied newline
+  // turning a valid Canva credential into an opaque OAuth failure.
+  const clientId = process.env.CANVA_CLIENT_ID?.trim();
+  const clientSecret = process.env.CANVA_CLIENT_SECRET?.trim();
+  const encryptionKey = process.env.CANVA_TOKEN_ENCRYPTION_KEY?.trim();
+  const origin = process.env.CANVA_APP_ORIGIN?.trim();
   if (!clientId || !clientSecret || !encryptionKey || !origin) {
     throw new CanvaError('A conexão com o Canva ainda precisa ser configurada no portal.', 503);
+  }
+  if (!/^OC-[A-Za-z0-9_-]+$/.test(clientId)) {
+    throw new CanvaError('O Client ID do Canva cadastrado no portal é inválido.', 503, 'invalid_client_id_config');
+  }
+  if (!clientSecret.startsWith('cnvca') || /\s/.test(clientSecret)) {
+    throw new CanvaError('O Client Secret do Canva cadastrado no portal é inválido. Gere e copie o segredo novamente.', 503,
+      'invalid_client_secret_config');
   }
   const url = new URL(origin);
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && url.hostname === 'localhost')) {
@@ -20,7 +29,18 @@ export function config() {
   return { clientId, clientSecret, encryptionKey, origin: url.origin,
     redirectUri: url.origin + '/api/admin/catalog/canva/oauth/callback' };
 }
-export function configured() { try { config(); return true; } catch { return false; } }
+export function configurationStatus() {
+  try {
+    config();
+    return { configured: true, error: null };
+  } catch (error) {
+    return {
+      configured: false,
+      error: error instanceof CanvaError ? error.message : 'A conexão com o Canva ainda precisa ser configurada no portal.'
+    };
+  }
+}
+export function configured() { return configurationStatus().configured; }
 function key(value: string) {
   if (!/^[a-fA-F0-9]{64}$/.test(value)) throw new CanvaError('Chave de proteção do Canva inválida.', 503);
   return Buffer.from(value, 'hex');

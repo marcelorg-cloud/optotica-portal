@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireMaster } from '@/lib/catalog/require-master';
 import { beginOAuth, connection, getColor, getLink, getSession, signedPreview } from '@/lib/canva/api';
-import { CanvaError, configured, sameOrigin, uuid } from '@/lib/canva/security';
+import { CanvaError, configurationStatus, sameOrigin, uuid } from '@/lib/canva/security';
 import { createSession, exportSession, linkExisting, openDesign, saveSession } from '@/lib/canva/workflow';
 
 import { getTemplate } from '@/lib/canva/template';
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url), productId = url.searchParams.get('productId'), colorId = url.searchParams.get('colorId');
     if (!uuid(productId) || !uuid(colorId)) throw new CanvaError('Produto ou cor inválidos.');
     const { color, product } = await getColor(auth.admin, productId, colorId);
-    const ready = configured();
+    const configuration = configurationStatus(), ready = configuration.configured;
     const [current, link, originalUrl, currentUrl, template] = await Promise.all([
       ready ? connection(auth.admin, auth.userId) : null,
       ready ? getLink(auth.admin, colorId) : null,
@@ -31,7 +31,8 @@ export async function GET(request: Request) {
     try { filename = photoFilename(product.sku_optotica, Number(color.color_variant_number), Number(product.frame_total_width_mm)); } catch {}
     return NextResponse.json({ filename, pageNumber: link?.page_number, pageTitle: link?.page_filename,
       templateUrl: template ? 'data:image/png;base64,' + template.png_base64 : null,
-      templateReady: !!template?.has_transparency, configured: ready, connected: !!current,
+      templateReady: !!template?.has_transparency, configured: ready, configurationError: configuration.error,
+      connected: !!current,
       productName: product.model_name, colorName: color.color_name, frameWidthMm: product.frame_total_width_mm,
       originalUrl, currentUrl, hasDesign: !!link?.page_id, needsRecovery: !!link && (link.page_stage === 'recovery' || (link.page_stage === 'importing' && !link.import_job_id) || (link.page_stage === 'merging' && !link.merge_job_id)),
       sourceChanged: !!link && link.source_path !== color.original_image_path
