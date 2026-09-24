@@ -5,8 +5,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { withCanvaSession } from '@/lib/canva/navigation';
 
 type Info = {
-  templateUrl: string | null; templateReady: boolean; filename: string | null; pageNumber: number | null; pageTitle: string | null;
-  configured: boolean; configurationError: string | null; connected: boolean; hasDesign: boolean; needsRecovery: boolean;
+  templateUrl: string | null; templateReady: boolean; filename: string | null; designTitle: string; pageNumber: number | null; pageTitle: string | null;
+  configured: boolean; configurationError: string | null; connected: boolean; hasDesign: boolean; hasResumableDesign: boolean; needsRecovery: boolean;
   productName: string; colorName: string; frameWidthMm: number | null;
   originalUrl: string | null; currentUrl: string | null; sourceChanged: boolean;
 };
@@ -107,7 +107,7 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
   }
   function openEditor() {
     setPreview(null); setSaved(false); setReviewed(false);
-    void run('Preparando o design desta cor…', async signal => {
+    void run(info?.hasResumableDesign ? 'Concluindo o vínculo desta cor…' : 'Preparando o design desta cor…', async signal => {
       const result = await poll('open', undefined, signal);
       if (!result.editUrl || !result.sessionId) throw new Error('Não foi possível abrir o editor.');
       window.history.replaceState(window.history.state, '', withCanvaSession(window.location.href, result.sessionId));
@@ -134,8 +134,9 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
       {busy && <p role="status" aria-live="polite">{busy}</p>}
       {info && <>
         <p>Um design por produto, com uma página de 540 × 540 px para cada cor.</p>
-        {info.filename && <p>Nome da página e do PNG: <strong>{info.filename}</strong></p>}
-        {info.pageTitle && info.pageTitle !== info.filename && <p>O SKU ou a medida mudou. Atualize o nome da página no Canva para {info.filename}. A exportação do portal usará esse nome.</p>}
+        <p>Nome do design no Canva: <strong>{info.designTitle}</strong></p>
+        {info.filename && <p>Nome do PNG desta cor: <strong>{info.filename}</strong></p>}
+        {info.pageTitle && info.pageTitle !== info.filename && <p>O SKU ou a medida mudou desde a criação desta página. A exportação do portal usará o novo nome do PNG mostrado acima.</p>}
         <details>
           <summary>Imagem modelo da prova online</summary>
           <p>Esta imagem será usada como guia nas novas páginas. A foto original da cor será inserida separadamente no canto superior direito.</p>
@@ -183,9 +184,10 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
         </div>
         {info.configured && info.connected && <>
           <p>Edite a página desta cor: use o modelo como guia para posicionar a frente da armação real. Remova a foto pequena do canto e a armação usada como modelo. Deixe o fundo e o interior das lentes transparentes. Ao terminar, volte a esta página pelo botão Voltar do navegador; a importação começará automaticamente.</p>
+          {info.hasResumableDesign && <p role="status">O design desta cor já existe no Canva. O portal concluirá o vínculo e abrirá esse mesmo design, sem criar outra página.</p>}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-            <button type="button" className="button" disabled={!!busy || !info.originalUrl || !(Number(info.frameWidthMm) > 0) || info.needsRecovery || (!info.hasDesign && !info.templateReady) || !info.filename} onClick={openEditor}>
-              {info.hasDesign ? 'Editar página no Canva' : 'Criar página desta cor no Canva'}
+            <button type="button" className="button" disabled={!!busy || !info.originalUrl || !(Number(info.frameWidthMm) > 0) || info.needsRecovery || (!info.hasDesign && !info.hasResumableDesign && !info.templateReady) || !info.filename} onClick={openEditor}>
+              {info.hasDesign ? 'Editar página no Canva' : info.hasResumableDesign ? 'Concluir vínculo e abrir no Canva' : 'Criar página desta cor no Canva'}
             </button>
             {info.hasDesign && <button type="button" className="button secondary" disabled={!!busy} onClick={importManually}>Importar do Canva</button>}
             <button type="button" className="text-button" disabled={!!busy} onClick={() => void run('Conectando…', async signal => {
