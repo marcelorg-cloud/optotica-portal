@@ -40,8 +40,25 @@ export function insertedPage(beforeIds: string[], pages: CanvaPage[]) {
   }
   return added[0];
 }
+function hasCompletePageMetadata(page: CanvaPage) {
+  return page.id !== undefined && page.page_number !== undefined && page.dimensions !== undefined &&
+    page.dimensions.width !== undefined && page.dimensions.height !== undefined;
+}
+function samePageIds(beforeIds: string[], pages: CanvaPage[]) {
+  if (pages.length !== beforeIds.length || pages.some(page => !page.id)) return false;
+  const current = new Set(pages.map(page => page.id!));
+  return current.size === beforeIds.length && beforeIds.every(id => current.has(id));
+}
+function pendingMergedPage(beforeIds: string[], pages: CanvaPage[]) {
+  if (samePageIds(beforeIds, pages)) return true;
+  if (pages.length !== beforeIds.length + 1 || beforeIds.some(id => !pages.some(page => page.id === id))) return false;
+  const before = new Set(beforeIds);
+  const candidates = pages.filter(page => !page.id || !before.has(page.id));
+  return candidates.length === 1 && !hasCompletePageMetadata(candidates[0]);
+}
 function requireSquare(page: CanvaPage) {
-  if (!page.id || page.dimensions?.width !== 540 || page.dimensions?.height !== 540) {
+  if (!page.id || !Number.isInteger(page.page_number) || page.page_number < 1 || page.page_number > 500 ||
+      page.dimensions?.width !== 540 || page.dimensions?.height !== 540) {
     throw new CanvaError('A página precisa ter 540 × 540 px e um identificador estável no Canva. Confira o tamanho no editor.', 422);
   }
 }
@@ -115,8 +132,13 @@ export async function ensureColorPage(admin: Admin, userId: string, productId: s
     }
     if (!productDesign.design_id) {
       const pages = await listPages(token, link.source_design_id);
-      if (pages.length !== 1) throw new CanvaError('A importação deve conter uma única página.', 422);
-      await bindPage(admin, productId, colorId, link.source_design_id, pages[0]);
+      if (pages.length === 0 || (pages.length === 1 && !hasCompletePageMetadata(pages[0]))) return { ready: false };
+      if (pages.length !== 1 || pages[0].page_number !== 1) {
+        await patchColor(admin, colorId, { page_stage: 'recovery' });
+        throw new CanvaError('A importação deve conter uma única página.', 422);
+      }
+      try { await bindPage(admin, productId, colorId, link.source_design_id, pages[0]); }
+      catch (error) { await patchColor(admin, colorId, { page_stage: 'recovery' }); throw error; }
       return { ready: true, token, designId: link.source_design_id };
     }
     if (!link.merge_job_id) {
@@ -139,7 +161,13 @@ export async function ensureColorPage(admin: Admin, userId: string, productId: s
       throw new CanvaError('Não foi possível confirmar a nova página. Confira o design antes de retomar.', 422);
     }
     const pages = await listPages(token, productDesign.design_id);
-    try { await bindPage(admin, productId, colorId, productDesign.design_id, insertedPage(link.before_page_ids || [], pages)); }
+    const beforeIds = link.before_page_ids;
+    if (!beforeIds?.length || new Set(beforeIds).size !== beforeIds.length || beforeIds.some(id => !id)) {
+      await patchColor(admin, colorId, { page_stage: 'recovery' });
+      throw new CanvaError('Não foi possível confirmar as páginas anteriores do design. Use Vincular página existente para retomar.', 409);
+    }
+    if (pendingMergedPage(beforeIds, pages)) return { ready: false };
+    try { await bindPage(admin, productId, colorId, productDesign.design_id, insertedPage(beforeIds, pages)); }
     catch (error) { await patchColor(admin, colorId, { page_stage: 'recovery' }); throw error; }
     return { ready: true, token, designId: productDesign.design_id };
   });

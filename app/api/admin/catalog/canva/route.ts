@@ -29,12 +29,16 @@ export async function GET(request: Request) {
     ]);
     let filename: string | null = null;
     try { filename = photoFilename(product.sku_optotica, Number(color.color_variant_number), Number(product.frame_total_width_mm)); } catch {}
-    return NextResponse.json({ filename, pageNumber: link?.page_number, pageTitle: link?.page_filename,
+    const designTitle = Array.from(`${product.sku_optotica} — Prova online`).slice(0, 50).join('');
+    const hasResumableDesign = !!link && !link.page_id && !!link.source_design_id &&
+      (link.page_stage === 'imported' || (link.page_stage === 'merging' && !!link.merge_job_id));
+    return NextResponse.json({ filename, designTitle, pageNumber: link?.page_number, pageTitle: link?.page_filename,
       templateUrl: template ? 'data:image/png;base64,' + template.png_base64 : null,
       templateReady: !!template?.has_transparency, configured: ready, configurationError: configuration.error,
       connected: !!current,
       productName: product.model_name, colorName: color.color_name, frameWidthMm: product.frame_total_width_mm,
-      originalUrl, currentUrl, hasDesign: !!link?.page_id, needsRecovery: !!link && (link.page_stage === 'recovery' || (link.page_stage === 'importing' && !link.import_job_id) || (link.page_stage === 'merging' && !link.merge_job_id)),
+      originalUrl, currentUrl, hasDesign: !!link?.page_id, hasResumableDesign,
+      needsRecovery: !!link && (link.page_stage === 'recovery' || (link.page_stage === 'importing' && !link.import_job_id) || (link.page_stage === 'merging' && !link.merge_job_id)),
       sourceChanged: !!link && link.source_path !== color.original_image_path
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) { return failure(error); }
