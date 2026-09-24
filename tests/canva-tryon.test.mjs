@@ -14,12 +14,17 @@ function load(file, mocks = {}) {
 }
 const security = load('../lib/canva/security.ts');
 const canvaApi = load('../lib/canva/api.ts', { './security': security });
+const navigation = load('../lib/canva/navigation.ts');
 const key = '4a'.repeat(32);
 const productId = '11111111-1111-4111-8111-111111111111', colorId = '22222222-2222-4222-8222-222222222222';
 const sessionId = '33333333-3333-4333-8333-333333333333';
 test('OAuth requests only the Canva scopes used by the workflow', () => {
   assert.equal(canvaApi.SCOPES, 'design:content:read design:content:write design:meta:read profile:read');
   assert.equal(canvaApi.SCOPES.includes('asset:'), false);
+});
+test('the portal return URL keeps the product route and records the Canva edit session', () => {
+  const url = navigation.withCanvaSession('https://portal.test/admin/catalogo/product/canva/color?canva_error=old#review', sessionId);
+  assert.equal(url, `https://portal.test/admin/catalogo/product/canva/color?session=${sessionId}#review`);
 });
 test('OAuth tokens are encrypted and bound to the user and token purpose', () => {
   const sealed = security.encrypt('secret-token', key, 'master:access');

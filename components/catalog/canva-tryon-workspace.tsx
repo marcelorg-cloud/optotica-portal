@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { withCanvaSession } from '@/lib/canva/navigation';
 
 type Info = {
   templateUrl: string | null; templateReady: boolean; filename: string | null; pageNumber: number | null; pageTitle: string | null;
@@ -12,7 +13,7 @@ type Info = {
 type Result = {
   status?: string; sessionId?: string; previewUrl?: string; editUrl?: string; authorizeUrl?: string; message?: string;
 };
-const PROMPT = 'Use a foto pequena no canto como referência do produto e a imagem modelo grande apenas como guia de posição. Substitua a armação do modelo pela armação da foto de referência, preservando o produto real. Remova a foto pequena ao concluir. Prepare esta armação para prova virtual. Mantenha somente a parte frontal. Remova as hastes, o fundo, as sombras externas e os reflexos das lentes. Deixe o fundo e o interior das lentes totalmente transparentes. Preserve fielmente a cor, a espessura e o desenho da armação. Nivele e centralize os óculos. Mantenha apenas o resultado na página desta cor, sem textos ou outros elementos.';
+const PROMPT = 'Considere as duas imagens selecionadas. A imagem menor, na parte superior, é a foto de origem: use exclusivamente o modelo de óculos dela e preserve fielmente formato, cor, material, proporções, espessura, ponte e detalhes. A imagem maior, abaixo, é somente a referência de posição, tamanho, escala, alinhamento, enquadramento, vista frontal e transparência; não copie o formato, a cor ou os detalhes do óculos de referência. Transforme o óculos da imagem menor em vista perfeitamente frontal. Remova completamente o fundo, as duas hastes laterais, as lentes, os reflexos e as sombras. Mantenha somente a parte frontal da armação e deixe o interior das lentes totalmente transparente. O resultado deve substituir a imagem maior e ocupar toda a largura horizontal disponível. As extremidades devem chegar às bordas da área transparente, sem cortes nem margens laterais. Amplie proporcionalmente, sem esticar ou deformar, preservando a centralização e o posicionamento vertical da referência. Entregue uma única armação frontal, com fundo totalmente transparente e contornos limpos. Não misture os modelos, não invente detalhes e não altere nenhuma característica do óculos da imagem menor.';
 const previewStyle = {
   width: '100%', maxWidth: 440, aspectRatio: '1 / 1', objectFit: 'contain' as const,
   border: '1px solid var(--line)', borderRadius: 8,
@@ -70,22 +71,30 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
   }, [poll, refresh]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    active.current = controller;
-    async function start() {
-      try {
-        await refresh(controller.signal);
-        const params = new URLSearchParams(window.location.search);
-        const error = params.get('canva_error');
-        if (error) setMessage(error);
-        const sessionId = params.get('session');
-        if (sessionId) await importPreview(sessionId, controller.signal);
-      } catch (error) {
-        if (!controller.signal.aborted) setMessage(error instanceof Error ? error.message : 'Falha de conexão.');
-      } finally { if (!controller.signal.aborted) setBusy(''); }
+    function resume() {
+      active.current?.abort();
+      const controller = new AbortController();
+      active.current = controller;
+      setBusy('Atualizando a página do Canva…');
+      void (async () => {
+        try {
+          await refresh(controller.signal);
+          const params = new URLSearchParams(window.location.search);
+          const error = params.get('canva_error');
+          if (error) setMessage(error);
+          const sessionId = params.get('session');
+          if (sessionId) await importPreview(sessionId, controller.signal);
+        } catch (error) {
+          if (!controller.signal.aborted) setMessage(error instanceof Error ? error.message : 'Falha de conexão.');
+        } finally { if (!controller.signal.aborted) setBusy(''); }
+      })();
     }
-    void start();
-    return () => { controller.abort(); active.current?.abort(); };
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) resume();
+    };
+    resume();
+    window.addEventListener('pageshow', handlePageShow);
+    return () => { window.removeEventListener('pageshow', handlePageShow); active.current?.abort(); };
   }, [refresh, importPreview]);
 
   async function run(label: string, task: (signal: AbortSignal) => Promise<void>) {
@@ -97,9 +106,11 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
     finally { if (!controller.signal.aborted) setBusy(''); }
   }
   function openEditor() {
+    setPreview(null); setSaved(false); setReviewed(false);
     void run('Preparando o design desta cor…', async signal => {
       const result = await poll('open', undefined, signal);
-      if (!result.editUrl) throw new Error('Não foi possível abrir o editor.');
+      if (!result.editUrl || !result.sessionId) throw new Error('Não foi possível abrir o editor.');
+      window.history.replaceState(window.history.state, '', withCanvaSession(window.location.href, result.sessionId));
       window.location.assign(result.editUrl);
     });
   }
@@ -108,8 +119,7 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
     void run('Importando do Canva…', async signal => {
       const result = await post('import', {}, signal);
       if (!result.sessionId) throw new Error('Não foi possível iniciar a importação.');
-      const url = new URL(window.location.href); url.searchParams.set('session', result.sessionId);
-      window.history.replaceState(null, '', url.toString());
+      window.history.replaceState(window.history.state, '', withCanvaSession(window.location.href, result.sessionId));
       await importPreview(result.sessionId, signal);
     });
   }
@@ -172,7 +182,7 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
           </div>
         </div>
         {info.configured && info.connected && <>
-          <p>Edite a página desta cor: use o modelo como guia para posicionar a frente da armação real. Remova a foto pequena do canto e a armação usada como modelo. Deixe o fundo e o interior das lentes transparentes. Ao terminar, use o botão de retorno à Optótica no Canva.</p>
+          <p>Edite a página desta cor: use o modelo como guia para posicionar a frente da armação real. Remova a foto pequena do canto e a armação usada como modelo. Deixe o fundo e o interior das lentes transparentes. Ao terminar, volte a esta página pelo botão Voltar do navegador; a importação começará automaticamente.</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             <button type="button" className="button" disabled={!!busy || !info.originalUrl || !(Number(info.frameWidthMm) > 0) || info.needsRecovery || (!info.hasDesign && !info.templateReady) || !info.filename} onClick={openEditor}>
               {info.hasDesign ? 'Editar página no Canva' : 'Criar página desta cor no Canva'}
