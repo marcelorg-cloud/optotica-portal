@@ -1,0 +1,28 @@
+name: Canva try-on checks
+on:
+  push:
+    branches: [feat/canva-tryon]
+  pull_request:
+    paths:
+      - 'lib/canva/**'
+      - 'app/api/admin/catalog/canva/**'
+      - 'app/admin/catalogo/**/canva/**'
+      - 'components/catalog/canva-tryon-workspace.tsx'
+      - 'tests/canva-tryon.test.mjs'
+      - '.github/workflows/canva-tryon.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx --no-install next typegen
+      - run: npm run typecheck
+      - run: node --test tests/canva-tryon.test.mjs
