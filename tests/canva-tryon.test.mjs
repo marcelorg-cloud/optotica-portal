@@ -13,9 +13,14 @@ function load(file, mocks = {}) {
   return loadedModule.exports;
 }
 const security = load('../lib/canva/security.ts');
+const canvaApi = load('../lib/canva/api.ts', { './security': security });
 const key = '4a'.repeat(32);
 const productId = '11111111-1111-4111-8111-111111111111', colorId = '22222222-2222-4222-8222-222222222222';
 const sessionId = '33333333-3333-4333-8333-333333333333';
+test('OAuth requests only the Canva scopes used by the workflow', () => {
+  assert.equal(canvaApi.SCOPES, 'design:content:read design:content:write design:meta:read profile:read');
+  assert.equal(canvaApi.SCOPES.includes('asset:'), false);
+});
 test('OAuth tokens are encrypted and bound to the user and token purpose', () => {
   const sealed = security.encrypt('secret-token', key, 'master:access');
   assert.equal(security.decrypt(sealed, key, 'master:access'), 'secret-token');
@@ -30,7 +35,6 @@ test('PKCE matches the published RFC 7636 example', () => {
   assert.equal(security.challenge('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'),
     'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
 });
-const canvaApi = load('../lib/canva/api.ts', { './security': security });
 test('OAuth failures keep an actionable, non-secret Canva error code', () => {
   const invalidClient = canvaApi.oauthTokenError(401, { code: 'invalid_client', message: 'do not expose this response' });
   assert.equal(invalidClient.code, 'invalid_client');

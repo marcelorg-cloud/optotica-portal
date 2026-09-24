@@ -5,7 +5,9 @@ import { CanvaError, config, encrypt, decrypt, digest, challenge, workspace } fr
 export type Admin = ReturnType<typeof createAdminSupabaseClient>;
 const API = 'https://api.canva.com/rest/v1';
 export const BUCKET = 'catalog-product-photos';
-export const SCOPES = 'asset:read asset:write design:content:read design:content:write design:meta:read profile:read';
+// The workflow imports self-contained ODP files, so it never reads or writes
+// Canva assets directly. Keep OAuth limited to the APIs used below.
+export const SCOPES = 'design:content:read design:content:write design:meta:read profile:read';
 export type Connection = {
   user_id: string; canva_user_id: string; canva_team_id: string;
   access_token: string; refresh_token: string; expires_at: string;
