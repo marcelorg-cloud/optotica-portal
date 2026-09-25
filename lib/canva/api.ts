@@ -26,6 +26,26 @@ export type DesignLink = {
   source_design_id: string | null; before_page_ids: string[] | null;
   source_path: string; asset_id: string | null; upload_job_id: string | null; design_id: string | null; creating: boolean;
 };
+
+function hasStablePageSnapshot(pageIds: string[] | null) {
+  return Array.isArray(pageIds) && pageIds.length > 0 &&
+    pageIds.every(id => typeof id === 'string' && id.length > 0) && new Set(pageIds).size === pageIds.length;
+}
+
+export function canResumeDesignLink(link: DesignLink | null) {
+  return !!link && !link.page_id && !!link.source_design_id && (
+    link.page_stage === 'imported' ||
+    (link.page_stage === 'merging' && !!link.merge_job_id) ||
+    (link.page_stage === 'recovery' && (!link.merge_job_id || hasStablePageSnapshot(link.before_page_ids)))
+  );
+}
+
+export function designLinkNeedsRecovery(link: DesignLink | null) {
+  if (!link || (link.page_id && link.design_id)) return false;
+  return (link.page_stage === 'recovery' && !canResumeDesignLink(link)) ||
+    (link.page_stage === 'importing' && !link.import_job_id) ||
+    (link.page_stage === 'merging' && !link.merge_job_id);
+}
 export type Job = { id?: string; status: 'in_progress' | 'success' | 'failed';
   asset?: { id: string }; urls?: string[]; error?: { code?: string } };
 

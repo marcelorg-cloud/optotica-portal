@@ -217,7 +217,9 @@ test('Canva workspace reports an existing design whose page link can be safely r
     '@/lib/catalog/require-master': { requireMaster: async () => ({ ok: true, userId: 'master', admin: {} }) },
     '@/lib/canva/security': { ...security, configurationStatus: () => ({ configured: true, error: null }) },
     '@/lib/canva/api': {
+      canResumeDesignLink: canvaApi.canResumeDesignLink,
       connection: async () => ({ user_id: 'master' }),
+      designLinkNeedsRecovery: canvaApi.designLinkNeedsRecovery,
       getColor: async () => ({ color: { original_image_path: `${productId}/${colorId}.png`, color_variant_number: 1, color_name: 'Preto' },
         product: { sku_optotica: 'GE-AC-003', model_name: 'Retangular', frame_total_width_mm: 113 } }),
       getLink: async () => link,
@@ -242,6 +244,26 @@ test('Canva workspace reports an existing design whose page link can be safely r
   const interrupted = await get();
   assert.equal(interrupted.hasResumableDesign, false);
   assert.equal(interrupted.needsRecovery, true);
+
+  link = { ...link, page_stage: 'recovery', source_design_id: 'SOURCE', merge_job_id: null };
+  const recoverable = await get();
+  assert.equal(recoverable.hasResumableDesign, true);
+  assert.equal(recoverable.needsRecovery, false);
+
+  link = { ...link, page_stage: 'recovery', source_design_id: 'SOURCE', merge_job_id: 'MERGE', before_page_ids: ['P1'] };
+  const recoverableMerge = await get();
+  assert.equal(recoverableMerge.hasResumableDesign, true);
+  assert.equal(recoverableMerge.needsRecovery, false);
+
+  link = { ...link, page_stage: 'recovery', source_design_id: 'SOURCE', merge_job_id: 'MERGE', before_page_ids: null };
+  const ambiguousMerge = await get();
+  assert.equal(ambiguousMerge.hasResumableDesign, false);
+  assert.equal(ambiguousMerge.needsRecovery, true);
+
+  link = { ...link, page_stage: 'recovery', source_design_id: null, merge_job_id: null };
+  const unrecoverable = await get();
+  assert.equal(unrecoverable.hasResumableDesign, false);
+  assert.equal(unrecoverable.needsRecovery, true);
 
   link = { ...link, page_id: 'PAGE', page_stage: 'ready', merge_job_id: null };
   assert.equal((await get()).hasResumableDesign, false);
@@ -289,6 +311,37 @@ test('stable page IDs survive reordering and ambiguous additions are rejected', 
   assert.equal(pagesModule.insertedPage(['A'], pages).id, 'B');
   assert.throws(() => pagesModule.insertedPage(['A'], [...pages, { id: 'C', page_number: 3 }]));
   assert.throws(() => pagesModule.insertedPage(['A', 'DELETED'], pages));
+});
+
+test('manual linking accepts a 1080 square page and stores its stable Canva ID', async () => {
+  const current = { user_id: 'master', canva_user_id: 'cu', canva_team_id: 'ct' };
+  const product = { product_id: productId, ...current, design_id: null, pending_color_id: null };
+  const db = { canva_product_designs: new Map([[productId, product]]), catalog_canva_designs: new Map() };
+  const admin = { from: name => {
+    const table = db[name], key = name === 'canva_product_designs' ? 'product_id' : 'color_id';
+    return {
+      upsert: async data => { if (!table.has(data[key])) table.set(data[key], { ...data }); return { error: null }; },
+      insert: async data => { table.set(data[key], { page_stage: 'idle', ...data }); return { error: null }; },
+      select: () => ({ eq: (_key, id) => ({ single: async () => ({ data: { ...table.get(id) }, error: null }) }) }),
+      update: data => ({ eq: async (_key, id) => { Object.assign(table.get(id), data); return { error: null }; } })
+    };
+  } };
+  const pages = load('../lib/canva/pages.ts', { './security': security, './layout': layout, './template': {},
+    './api': {
+      access: async () => ({ token: 'token', connection: current }), BUCKET: 'bucket',
+      canResumeDesignLink: canvaApi.canResumeDesignLink, dbError: error => { if (error) throw error; },
+      getColor: async () => ({ color: { color_variant_number: 1, original_image_path: `${productId}/${colorId}.png` },
+        product: { sku_optotica: 'GE-AC-003', frame_total_width_mm: 113 } }),
+      getLink: async () => null, lease: async (_admin, _table, _column, _id, run) => run(), sameAccount: () => {},
+      api: async (_token, path) => path === '/designs/D1'
+        ? { design: { owner: { user_id: 'cu', team_id: 'ct' } } }
+        : { items: [{ id: 'P1', page_number: 1, dimensions: { width: 1080, height: 1080 } }] }
+    }
+  });
+  await pages.linkColorPage(admin, 'master', productId, colorId, 'https://www.canva.com/design/D1/edit', 1);
+  assert.equal(db.catalog_canva_designs.get(colorId).design_id, 'D1');
+  assert.equal(db.catalog_canva_designs.get(colorId).page_id, 'P1');
+  assert.equal(db.catalog_canva_designs.get(colorId).page_stage, 'ready');
 });
 test('the corner reference must be removed before preparing the final PNG', async () => {
   const model = await transparentModel();
@@ -374,11 +427,11 @@ test('two colors append to one product design, while a pending color blocks conc
   assert.equal(calls.filter(c => c[1] === 'POST').length, writesBefore);
 });
 
-function existingCanvaPageWorkflow({ productDesignId, pageStage, pageResponses, beforePageIds = null }) {
+function existingCanvaPageWorkflow({ productDesignId, pageStage, pageResponses, beforePageIds = null, mergeJobId = pageStage === 'merging' ? 'MERGE' : null }) {
   const current = { user_id: 'master', canva_user_id: 'cu', canva_team_id: 'ct' };
   const product = { product_id: productId, ...current, design_id: productDesignId, pending_color_id: colorId };
   const link = { color_id: colorId, product_id: productId, ...current, design_id: null, page_id: null,
-    page_stage: pageStage, import_job_id: 'IMPORT', merge_job_id: pageStage === 'merging' ? 'MERGE' : null,
+    page_stage: pageStage, import_job_id: 'IMPORT', merge_job_id: mergeJobId,
     source_design_id: 'SOURCE', before_page_ids: beforePageIds, source_path: `${productId}/${colorId}.png` };
   const db = { canva_product_designs: new Map([[productId, product]]), catalog_canva_designs: new Map([[colorId, link]]) };
   const calls = [];
@@ -394,6 +447,7 @@ function existingCanvaPageWorkflow({ productDesignId, pageStage, pageResponses, 
   const pages = load('../lib/canva/pages.ts', { './security': security, './layout': layout, './template': {},
     './api': {
       access: async () => ({ token: 'token', connection: current }), sameAccount: () => {},
+      canResumeDesignLink: canvaApi.canResumeDesignLink,
       dbError: error => { if (error) throw error; },
       getColor: async () => ({ color: { color_variant_number: 1, original_image_path: `${productId}/${colorId}.png` },
         product: { sku_optotica: 'GE-AC-003', frame_total_width_mm: 113 } }),
@@ -414,11 +468,11 @@ function existingCanvaPageWorkflow({ productDesignId, pageStage, pageResponses, 
   return { admin, calls, db, pages };
 }
 
-test('an imported Canva design keeps polling until its single page metadata is complete', async () => {
+test('an imported Canva design keeps polling and accepts the 1080 square created by Canva', async () => {
   const fixture = existingCanvaPageWorkflow({ productDesignId: null, pageStage: 'imported', pageResponses: [
     [],
     [{ id: 'P1', page_number: 1 }],
-    [{ id: 'P1', page_number: 1, dimensions: { width: 540, height: 540 } }]
+    [{ id: 'P1', page_number: 1, dimensions: { width: 1080, height: 1080 } }]
   ] });
   assert.equal((await fixture.pages.ensureColorPage(fixture.admin, 'master', productId, colorId)).ready, false);
   assert.equal(fixture.db.catalog_canva_designs.get(colorId).page_stage, 'imported');
@@ -429,10 +483,36 @@ test('an imported Canva design keeps polling until its single page metadata is c
   assert.equal(fixture.calls.some(([, method]) => method === 'POST'), false);
 });
 
+test('a recoverable imported design is rechecked and bound without creating a duplicate', async () => {
+  const fixture = existingCanvaPageWorkflow({ productDesignId: null, pageStage: 'recovery', pageResponses: [[
+    { id: 'P1', page_number: 1, dimensions: { width: 1080, height: 1080 } }
+  ]] });
+  const result = await fixture.pages.ensureColorPage(fixture.admin, 'master', productId, colorId);
+  assert.equal(result.designId, 'SOURCE');
+  assert.equal(fixture.db.catalog_canva_designs.get(colorId).page_id, 'P1');
+  assert.equal(fixture.db.catalog_canva_designs.get(colorId).page_stage, 'ready');
+  assert.equal(fixture.calls.some(([, method]) => method === 'POST'), false);
+});
+
+test('a recoverable merged page is rechecked and bound without repeating the merge', async () => {
+  const existing = { id: 'P1', page_number: 1, dimensions: { width: 540, height: 540 } };
+  const fixture = existingCanvaPageWorkflow({ productDesignId: 'D1', pageStage: 'recovery', mergeJobId: 'MERGE',
+    beforePageIds: ['P1'], pageResponses: [[
+      existing,
+      { id: 'P2', page_number: 2, dimensions: { width: 1080, height: 1080 } }
+    ]] });
+  const result = await fixture.pages.ensureColorPage(fixture.admin, 'master', productId, colorId);
+  assert.equal(result.designId, 'D1');
+  assert.equal(fixture.db.catalog_canva_designs.get(colorId).page_id, 'P2');
+  assert.equal(fixture.db.catalog_canva_designs.get(colorId).page_stage, 'ready');
+  assert.equal(fixture.calls.some(([, method]) => method === 'POST'), false);
+});
+
 test('complete but inconsistent imported page data enters recovery', async () => {
   const invalidResponses = [
     [{ id: 'P1', page_number: 2, dimensions: { width: 540, height: 540 } }],
     [{ id: 'P1', page_number: 1, dimensions: { width: 600, height: 540 } }],
+    [{ id: 'P1', page_number: 1, dimensions: { width: 400, height: 400 } }],
     [
       { id: 'P1', page_number: 1, dimensions: { width: 540, height: 540 } },
       { id: 'P2', page_number: 2, dimensions: { width: 540, height: 540 } }

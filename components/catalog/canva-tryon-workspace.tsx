@@ -133,7 +133,7 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
       {message && <p role="alert" style={{ color: '#a32020' }}>{message}</p>}
       {busy && <p role="status" aria-live="polite">{busy}</p>}
       {info && <>
-        <p>Um design por produto, com uma página de 540 × 540 px para cada cor.</p>
+        <p>Um design por produto, com uma página quadrada para cada cor. O portal exporta o PNG final em 540 × 540 px.</p>
         <p>Nome do design no Canva: <strong>{info.designTitle}</strong></p>
         {info.filename && <p>Nome do PNG desta cor: <strong>{info.filename}</strong></p>}
         {info.pageTitle && info.pageTitle !== info.filename && <p>O SKU ou a medida mudou desde a criação desta página. A exportação do portal usará o novo nome do PNG mostrado acima.</p>}

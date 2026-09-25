@@ -27,7 +27,8 @@ A preparação usa um ODP com uma página nomeada e duas imagens independentes. 
 A primeira importação vira o design principal. Para cores adicionais, `/merges` insere a página do design auxiliar no design do produto. Esses designs auxiliares de importação permanecem na conta Canva.
 
 As APIs [Merge](https://www.canva.dev/docs/apps/rest-apis/reference/merges/create-design-merge-job/) e [Get design pages](https://www.canva.dev/docs/apps/rest-apis/reference/designs/get-design-pages/) estão em **preview**. A documentação informa que apps públicos que usam APIs preview não passam pela revisão para distribuição geral. Confirmar disponibilidade na integração/conta usada no piloto antes de ativar. Cada merge usa uma única operação.
-A preservação do título da página e a dimensão importada precisam ser conferidas no teste real do Canva. O portal exige uma página 540 × 540 com ID estável para vinculá-la; em recuperação, **Vincular página existente** exige design e número da página.
+A preservação do título da página e a dimensão importada precisam ser conferidas no teste real do Canva. O Canva pode representar a página importada como 1080 × 1080 px; o portal aceita páginas quadradas com pelo menos 540 px por lado e exporta o PNG final em 540 × 540 px. Em recuperação, **Vincular página existente** exige design e número da página.
+Se a importação ou o merge já tiver sido concluído, o portal retoma o mesmo design ou job e confere novamente os IDs das páginas, sem enviar outra operação de criação ao Canva.
 
 O ID da página, e não sua posição, identifica a cor. Antes de exportar, o portal resolve sua posição atual. Alterações na ordem durante uma exportação interrompem a importação para evitar salvar outra cor.
 O canto reservado à referência precisa estar vazio antes de importar. A conferência humana verifica se o modelo foi substituído pelo produto real e se as lentes estão transparentes; isso não é garantido apenas pela análise do PNG.
