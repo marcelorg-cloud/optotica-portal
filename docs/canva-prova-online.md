@@ -57,7 +57,7 @@ Se outro ambiente usar outro banco, aplique ambas antes de ativar as variáveis.
 
 ## Proteções e verificação
 - Somente master; origem verificada nas mutações. OAuth PKCE e state de uso único.
-- Tokens AES-256-GCM no servidor; refresh serializado; retorno RS256 validado por conta/equipe/design.
+- Tokens AES-256-GCM no servidor; refresh serializado; retorno EdDSA/Ed25519 validado pelas chaves públicas atuais do Canva e conferido por conta/equipe/design.
 - RLS ativo, grants revogados de anon/authenticated. O [aviso informativo RLS sem políticas](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) é esperado para essas tabelas exclusivas do serviço.
 - Bloqueio por produto, operações assíncronas persistidas, recuperação sem repetir criação de resultado desconhecido.
 - Índice único impede vincular a mesma página a duas cores.

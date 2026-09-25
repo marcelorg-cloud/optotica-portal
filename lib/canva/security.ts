@@ -91,9 +91,10 @@ export function verifyReturnJwt(token: string, keys: Jwk[], audience: string, no
   const parts = token.split('.');
   if (parts.length !== 3) throw new CanvaError('Retorno do Canva inválido.');
   const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
-  if (header.alg !== 'RS256' || typeof header.kid !== 'string') throw new CanvaError('Assinatura do Canva inválida.');
-  const jwk = keys.find(item => item.kid === header.kid && item.kty === 'RSA' && (!item.alg || item.alg === 'RS256') && (!item.use || item.use === 'sig'));
-  if (!jwk || !verify('RSA-SHA256', Buffer.from(parts[0] + '.' + parts[1]),
+  if (header.alg !== 'EdDSA' || typeof header.kid !== 'string') throw new CanvaError('Assinatura do Canva inválida.');
+  const jwk = keys.find(item => item.kid === header.kid && item.kty === 'OKP' && item.crv === 'Ed25519' &&
+    (!item.alg || item.alg === 'EdDSA') && (!item.use || item.use === 'sig'));
+  if (!jwk || !verify(null, Buffer.from(parts[0] + '.' + parts[1]),
     createPublicKey({ key: jwk, format: 'jwk' }), Buffer.from(parts[2], 'base64url'))) {
     throw new CanvaError('Assinatura do Canva inválida.');
   }

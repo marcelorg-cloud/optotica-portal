@@ -135,23 +135,81 @@ test('only authenticated HTTPS Canva hosts can be used for export and editing', 
   for (const url of ['http://canva.com/x', 'https://canva.com.evil.test/x', 'https://canva.com@evil.test/x',
     'https://127.0.0.1/x', 'https://canva.com:444/x', 'https://user:password@canva.com/x']) assert.throws(() => security.canvaUrl(url));
 });
-const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
-const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'key-1', alg: 'RS256', use: 'sig' };
+const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'key-1' };
 const claims = { aud: 'app', exp: 2000, sub: 'canva-user', team_id: 'team', type: 'rti', jti: 'jwt-id',
   design_id: 'D123', correlation_state: sessionId };
-function jwt(payload = claims, header = { alg: 'RS256', kid: 'key-1' }) {
+function jwt(payload = claims, header = { alg: 'EdDSA', kid: 'key-1' }) {
   const data = [header, payload].map(v => Buffer.from(JSON.stringify(v)).toString('base64url')).join('.');
-  return data + '.' + sign('RSA-SHA256', Buffer.from(data), privateKey).toString('base64url');
+  return data + '.' + sign(null, Buffer.from(data), privateKey).toString('base64url');
 }
-test('Canva return verifies signature, audience, expiry, type and correlation ID', () => {
+test('Canva return verifies the current EdDSA signature, audience, expiry, type and correlation ID', () => {
   assert.deepEqual(security.verifyReturnJwt(jwt(), [jwk], 'app', 1000), claims);
   assert.throws(() => security.verifyReturnJwt(jwt(), [jwk], 'another-app', 1000));
   assert.throws(() => security.verifyReturnJwt(jwt(), [jwk], 'app', 2000));
   assert.throws(() => security.verifyReturnJwt(jwt({ ...claims, type: 'other' }), [jwk], 'app', 1000));
   assert.throws(() => security.verifyReturnJwt(jwt({ ...claims, correlation_state: '//evil' }), [jwk], 'app', 1000));
   assert.throws(() => security.verifyReturnJwt(jwt(claims, { alg: 'none', kid: 'key-1' }), [jwk], 'app', 1000));
+  assert.throws(() => security.verifyReturnJwt(jwt(claims, { alg: 'RS256', kid: 'key-1' }), [jwk], 'app', 1000));
+  assert.throws(() => security.verifyReturnJwt(jwt(), [{ ...jwk, kid: 'another-key' }], 'app', 1000));
+  assert.throws(() => security.verifyReturnJwt(jwt(), [{ ...jwk, kty: 'RSA' }], 'app', 1000));
+  assert.throws(() => security.verifyReturnJwt(jwt(), [{ ...jwk, crv: 'X25519' }], 'app', 1000));
   const parts = jwt().split('.'); parts[1] = Buffer.from(JSON.stringify({ ...claims, design_id: 'D_OTHER' })).toString('base64url');
   assert.throws(() => security.verifyReturnJwt(parts.join('.'), [jwk], 'app', 1000));
+});
+function returnRoute(session, updated) {
+  const query = { eq() { return this; }, then(resolve) { resolve({ error: null }); } };
+  const admin = { from(name) {
+    assert.equal(name, 'canva_edit_sessions');
+    return { update(fields) { updated.push(fields); return query; } };
+  } };
+  return load('../app/api/admin/catalog/canva/return/route.ts', {
+    'next/server': { NextResponse: {
+      json: (data, init) => Response.json(data, init),
+      redirect: url => new Response(null, { status: 307, headers: { location: url.toString() } })
+    } },
+    '@/lib/catalog/require-master': { requireMaster: async () => ({ ok: true, userId: 'master', admin }) },
+    '@/lib/canva/api': { dbError: error => { if (error) throw error; }, getSession: async (_admin, _userId, id) => {
+      if (id !== session.id) throw Error('unexpected session');
+      return session;
+    } },
+    '@/lib/canva/security': { ...security, config: () => ({ clientId: 'app', origin: 'https://portal.test' }) }
+  });
+}
+test('Canva return marks an Ed25519-signed session and redirects to its product color', async () => {
+  const updated = [], session = { id: sessionId, product_id: productId, color_id: colorId,
+    design_id: 'D123', canva_user_id: 'canva-user', canva_team_id: 'team' };
+  const route = returnRoute(session, updated), originalFetch = globalThis.fetch;
+  const token = jwt({ ...claims, exp: Math.floor(Date.now() / 1000) + 3600 });
+  globalThis.fetch = async () => Response.json({ keys: [jwk] });
+  try {
+    const response = await route.GET(new Request('https://portal.test/api/admin/catalog/canva/return?correlation_jwt=' + token));
+    const location = new URL(response.headers.get('location'));
+    assert.equal(location.pathname, `/admin/catalogo/${productId}/canva/${colorId}`);
+    assert.equal(location.searchParams.get('session'), sessionId);
+    assert.equal(updated.length, 1);
+    assert.match(updated[0].return_verified_at, /^\d{4}-\d{2}-\d{2}T/);
+  } finally { globalThis.fetch = originalFetch; }
+});
+test('an invalid Canva return keeps the recoverable product route without trusting the token', async () => {
+  const updated = [], session = { id: sessionId, product_id: productId, color_id: colorId,
+    design_id: 'D123', canva_user_id: 'canva-user', canva_team_id: 'team' };
+  const route = returnRoute(session, updated), originalFetch = globalThis.fetch, originalError = console.error;
+  const token = jwt({ ...claims, exp: Math.floor(Date.now() / 1000) + 3600 });
+  const parts = token.split('.'); parts[2] = Buffer.alloc(64).toString('base64url');
+  let logged;
+  globalThis.fetch = async () => Response.json({ keys: [jwk] });
+  console.error = (...args) => { logged = args; };
+  try {
+    const response = await route.GET(new Request('https://portal.test/api/admin/catalog/canva/return?correlation_jwt=' + parts.join('.')));
+    const location = new URL(response.headers.get('location'));
+    assert.equal(location.pathname, `/admin/catalogo/${productId}/canva/${colorId}`);
+    assert.equal(location.searchParams.has('session'), false);
+    assert.match(location.searchParams.get('canva_error'), /design foi preservado/);
+    assert.equal(updated.length, 0);
+    assert.deepEqual(logged[1], { stage: 'signature', kind: 'canva_validation' });
+    assert.doesNotMatch(JSON.stringify(logged), /correlation_jwt|D123|canva-user/);
+  } finally { globalThis.fetch = originalFetch; console.error = originalError; }
 });
 const image = load('../lib/canva/image.ts', { './security': security });
 test('opaque, blank and non-PNG exports cannot become try-on images', async () => {
