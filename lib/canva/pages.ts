@@ -40,7 +40,7 @@ export function insertedPage(beforeIds: string[], pages: CanvaPage[]) {
   }
   return added[0];
 }
-function hasCompletePageMetadata(page: CanvaPage) {
+export function hasCompletePageMetadata(page: CanvaPage) {
   return page.id !== undefined && page.page_number !== undefined && page.dimensions !== undefined &&
     page.dimensions.width !== undefined && page.dimensions.height !== undefined;
 }
@@ -56,7 +56,7 @@ function pendingMergedPage(beforeIds: string[], pages: CanvaPage[]) {
   const candidates = pages.filter(page => !page.id || !before.has(page.id));
   return candidates.length === 1 && !hasCompletePageMetadata(candidates[0]);
 }
-function requireSquare(page: CanvaPage) {
+export function requireSquare(page: CanvaPage) {
   const width = page.dimensions?.width, height = page.dimensions?.height;
   if (!page.id || !Number.isInteger(page.page_number) || page.page_number < 1 || page.page_number > 500 ||
       typeof width !== 'number' || typeof height !== 'number' || !Number.isFinite(width) || !Number.isFinite(height) ||

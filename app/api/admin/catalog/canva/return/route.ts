@@ -52,7 +52,8 @@ export async function GET(request: Request) {
       try {
         const session = await getSession(auth.admin, auth.userId, correlationState);
         const target = new URL(workspace(session.product_id, session.color_id), portalOrigin);
-        target.searchParams.set('canva_error', 'Não foi possível validar o retorno do Canva. O design foi preservado; use Importar do Canva nesta cor.');
+        target.searchParams.set('session', session.id);
+        target.searchParams.set('canva_error', 'Não foi possível validar o retorno do Canva, mas o design foi preservado e será importado para conferência.');
         return NextResponse.redirect(target);
       } catch { /* Keep the generic authenticated fallback below. */ }
     }

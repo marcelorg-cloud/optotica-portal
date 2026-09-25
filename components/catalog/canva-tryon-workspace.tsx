@@ -2,13 +2,13 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { withCanvaSession } from '@/lib/canva/navigation';
+import { withCanvaRedo, withCanvaSession } from '@/lib/canva/navigation';
 
 type Info = {
   templateUrl: string | null; templateReady: boolean; filename: string | null; designTitle: string; pageNumber: number | null; pageTitle: string | null;
   configured: boolean; configurationError: string | null; connected: boolean; hasDesign: boolean; hasResumableDesign: boolean; needsRecovery: boolean;
   productName: string; colorName: string; frameWidthMm: number | null;
-  originalUrl: string | null; currentUrl: string | null; sourceChanged: boolean;
+  originalUrl: string | null; currentUrl: string | null; sourceChanged: boolean; recoverableSessionId: string | null;
 };
 type Result = {
   status?: string; sessionId?: string; previewUrl?: string; editUrl?: string; authorizeUrl?: string; message?: string;
@@ -37,6 +37,7 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Não foi possível carregar esta cor.');
     setInfo(data);
+    return data as Info;
   }, [productId, colorId]);
   const post = useCallback(async (action: string, extra: Record<string, string> = {}, signal?: AbortSignal): Promise<Result> => {
     const response = await fetch(apiUrl, { method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
@@ -46,11 +47,13 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
     return data;
   }, [productId, colorId]);
 
-  const poll = useCallback(async (action: 'open' | 'export', sessionId: string | undefined, signal: AbortSignal) => {
+  const poll = useCallback(async (action: 'open' | 'redo' | 'export', sessionId: string | undefined, signal: AbortSignal) => {
     const deadline = Date.now() + 180000;
+    let currentSessionId = sessionId;
     while (!signal.aborted) {
-      const result = await post(action, sessionId ? { sessionId } : {}, signal);
-      if (result.status !== 'processing') return result;
+      const result = await post(action, currentSessionId ? { sessionId: currentSessionId } : {}, signal);
+      currentSessionId = result.sessionId || currentSessionId;
+      if (result.status !== 'processing') return { ...result, sessionId: result.sessionId || currentSessionId };
       if (Date.now() >= deadline) throw new Error('O Canva ainda está processando. Aguarde um pouco e tente novamente.');
       await new Promise<void>((resolve, reject) => {
         const stop = () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')); };
@@ -70,6 +73,13 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
     await refresh(signal);
   }, [poll, refresh]);
 
+  const openFreshEditor = useCallback(async (sessionId: string, signal: AbortSignal) => {
+    const result = await poll('redo', sessionId, signal);
+    if (!result.editUrl || !result.sessionId) throw new Error('Não foi possível abrir o novo rascunho.');
+    window.history.replaceState(window.history.state, '', withCanvaSession(window.location.href, result.sessionId));
+    window.location.assign(result.editUrl);
+  }, [poll]);
+
   useEffect(() => {
     function resume() {
       active.current?.abort();
@@ -78,11 +88,20 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
       setBusy('Atualizando a página do Canva…');
       void (async () => {
         try {
-          await refresh(controller.signal);
+          const fresh = await refresh(controller.signal);
           const params = new URLSearchParams(window.location.search);
           const error = params.get('canva_error');
           if (error) setMessage(error);
-          const sessionId = params.get('session');
+          const redoId = params.get('redo');
+          if (redoId) {
+            setBusy('Recriando a página com as referências…');
+            await openFreshEditor(redoId, controller.signal);
+            return;
+          }
+          const sessionId = params.get('session') || fresh.recoverableSessionId;
+          if (sessionId && !params.get('session')) {
+            window.history.replaceState(window.history.state, '', withCanvaSession(window.location.href, sessionId));
+          }
           if (sessionId) await importPreview(sessionId, controller.signal);
         } catch (error) {
           if (!controller.signal.aborted) setMessage(error instanceof Error ? error.message : 'Falha de conexão.');
@@ -95,7 +114,7 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
     resume();
     window.addEventListener('pageshow', handlePageShow);
     return () => { window.removeEventListener('pageshow', handlePageShow); active.current?.abort(); };
-  }, [refresh, importPreview]);
+  }, [refresh, importPreview, openFreshEditor]);
 
   async function run(label: string, task: (signal: AbortSignal) => Promise<void>) {
     active.current?.abort();
@@ -113,6 +132,12 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
       window.history.replaceState(window.history.state, '', withCanvaSession(window.location.href, result.sessionId));
       window.location.assign(result.editUrl);
     });
+  }
+  function redoEditor() {
+    setPreview(null); setSaved(false); setReviewed(false);
+    const sessionId = crypto.randomUUID();
+    window.history.replaceState(window.history.state, '', withCanvaRedo(window.location.href, sessionId));
+    void run('Recriando a página com as referências…', signal => openFreshEditor(sessionId, signal));
   }
   function importManually() {
     setPreview(null); setSaved(false); setReviewed(false);
@@ -166,7 +191,7 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
             if (result.authorizeUrl) window.location.assign(result.authorizeUrl);
           })}>Conectar Canva</button>
         </div>}
-        {info.sourceChanged && <p role="status">A foto original desta cor mudou desde a criação do design. Confira e, se necessário, substitua a imagem dentro do Canva.</p>}
+        {info.sourceChanged && <p role="status">A foto original desta cor mudou desde a criação do design. Use <strong>Refazer com as referências</strong> para abrir uma página nova com a foto atual.</p>}
         {!(Number(info.frameWidthMm) > 0) && <p>Preencha e salve a <strong>Frente Total (mm)</strong> no <Link href={productUrl}>cadastro do produto</Link> antes de continuar.</p>}
         {Number(info.frameWidthMm) > 0 && <p>Frente total cadastrada: <strong>{info.frameWidthMm} mm</strong>.</p>}
         {!info.originalUrl && <p>Cadastre a foto original desta cor no produto.</p>}
@@ -183,12 +208,18 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
           </div>
         </div>
         {info.configured && info.connected && <>
-          <p>Edite a página desta cor: use o modelo como guia para posicionar a frente da armação real. Remova a foto pequena do canto e a armação usada como modelo. Deixe o fundo e o interior das lentes transparentes. Ao terminar, volte a esta página pelo botão Voltar do navegador; a importação começará automaticamente.</p>
+          <p>{info.hasDesign ? 'Para uma nova tentativa com as duas imagens, use Refazer com as referências. Para apenas ajustar o trabalho anterior, use Editar resultado atual.' : 'Crie a página desta cor e use o modelo como guia para posicionar a frente da armação real.'} No Canva, remova a foto pequena do canto e a armação usada como modelo. Deixe o fundo e o interior das lentes transparentes. Ao terminar, volte a esta página pelo botão Voltar do navegador; a importação começará automaticamente.</p>
           {info.hasResumableDesign && <p role="status">O design desta cor já existe no Canva. O portal concluirá o vínculo e abrirá esse mesmo design, sem criar outra página.</p>}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-            <button type="button" className="button" disabled={!!busy || !info.originalUrl || !(Number(info.frameWidthMm) > 0) || info.needsRecovery || (!info.hasDesign && !info.hasResumableDesign && !info.templateReady) || !info.filename} onClick={openEditor}>
-              {info.hasDesign ? 'Editar página no Canva' : info.hasResumableDesign ? 'Concluir vínculo e abrir no Canva' : 'Criar página desta cor no Canva'}
-            </button>
+            {info.hasDesign ? <>
+              <button type="button" className="button"
+              disabled={!!busy || !info.originalUrl || !(Number(info.frameWidthMm) > 0) || !info.templateReady || !info.filename}
+              onClick={redoEditor}>Refazer com as referências</button>
+              <button type="button" className="button secondary" disabled={!!busy || !info.originalUrl || !(Number(info.frameWidthMm) > 0) || !info.filename}
+                onClick={openEditor}>Editar resultado atual</button>
+            </> : <button type="button" className="button" disabled={!!busy || !info.originalUrl || !(Number(info.frameWidthMm) > 0) || info.needsRecovery || (!info.hasResumableDesign && !info.templateReady) || !info.filename} onClick={openEditor}>
+              {info.hasResumableDesign ? 'Concluir vínculo e abrir no Canva' : 'Criar página desta cor no Canva'}
+            </button>}
             {info.hasDesign && <button type="button" className="button secondary" disabled={!!busy} onClick={importManually}>Importar do Canva</button>}
             <button type="button" className="text-button" disabled={!!busy} onClick={() => void run('Conectando…', async signal => {
               const result = await post('connect', {}, signal);

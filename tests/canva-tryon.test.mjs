@@ -204,7 +204,7 @@ test('an invalid Canva return keeps the recoverable product route without trusti
     const response = await route.GET(new Request('https://portal.test/api/admin/catalog/canva/return?correlation_jwt=' + parts.join('.')));
     const location = new URL(response.headers.get('location'));
     assert.equal(location.pathname, `/admin/catalogo/${productId}/canva/${colorId}`);
-    assert.equal(location.searchParams.has('session'), false);
+    assert.equal(location.searchParams.get('session'), sessionId);
     assert.match(location.searchParams.get('canva_error'), /design foi preservado/);
     assert.equal(updated.length, 0);
     assert.deepEqual(logged[1], { stage: 'signature', kind: 'canva_validation' });
@@ -235,17 +235,19 @@ test('transparent margins are normalized while preserving navy pixels and lens h
   assert.equal(pixel(0, 270)[3], 255); assert.equal(pixel(539, 270)[3], 255);
 });
 test('a completed preview is reused without issuing another paid export', async () => {
-  const session = { id: sessionId, staged_path: 'prepared.png', saved_at: null };
+  const session = { id: sessionId, product_id: productId, color_id: colorId, staged_path: 'prepared.png', saved_at: null };
   const workflow = load('../lib/canva/workflow.ts', { './security': security, './image': {}, './pages': {}, './layout': {},
+    './navigation': navigation, './template': {},
     './api': { getSession: async () => session, lease: async (_a, _t, _c, _id, fn) => fn(),
-      signedPreview: async () => 'https://preview.test/prepared.png',
       access: () => { throw Error('unexpected Canva request'); } } });
   const result = await workflow.exportSession({}, 'master', sessionId);
-  assert.equal(result.status, 'ready'); assert.equal(result.previewUrl, 'https://preview.test/prepared.png');
+  assert.equal(result.status, 'ready');
+  assert.equal(result.previewUrl, `/api/admin/catalog/canva/image?productId=${productId}&colorId=${colorId}&kind=preview&sessionId=${sessionId}`);
 });
 test('saving requires a prepared preview and reports stale-photo conflicts', async () => {
   let session = { id: sessionId, staged_path: null, product_id: productId, color_id: colorId };
   const workflow = load('../lib/canva/workflow.ts', { './security': security, './image': {}, './pages': {}, './layout': {},
+    './navigation': navigation, './template': {},
     './api': { getSession: async () => session } });
   await assert.rejects(workflow.saveSession({}, 'master', sessionId), /prévia/);
   session.staged_path = 'prepared.png';
@@ -257,6 +259,7 @@ test('master authorization and session-color binding precede export or save', as
     'next/server': { NextResponse: { json: (data, init) => Response.json(data, init) } },
     '@/lib/catalog/require-master': { requireMaster: async () => auth },
     '@/lib/canva/security': security, '@/lib/canva/template': {}, '@/lib/canva/layout': {},
+    '@/lib/canva/navigation': navigation,
     '@/lib/canva/api': { getColor: async () => ({}), getSession: async () => ({ product_id: productId, color_id: 'other' }) },
     '@/lib/canva/workflow': { exportSession: () => { throw Error('unexpected export'); } }
   });
@@ -267,6 +270,47 @@ test('master authorization and session-color binding precede export or save', as
   auth = { ok: true, userId: 'master', admin: {} };
   const response = await route.POST(request()); assert.equal(response.status, 403);
   assert.match((await response.json()).message, /outra cor/);
+});
+function imageRoute({ auth, color, session }) {
+  return load('../app/api/admin/catalog/canva/image/route.ts', {
+    'next/server': { NextResponse: { json: (data, init) => Response.json(data, init) } },
+    '@/lib/catalog/require-master': { requireMaster: async () => auth },
+    '@/lib/canva/security': security,
+    '@/lib/canva/api': {
+      BUCKET: 'catalog-product-photos',
+      getColor: async () => ({ color }),
+      getSession: async () => session
+    }
+  });
+}
+test('the image proxy serves the private original through the authenticated portal without exposing a signed URL', async () => {
+  let requested;
+  const bytes = await sharp({ create: { width: 2, height: 2, channels: 3, background: '#123456' } }).webp().toBuffer();
+  const auth = { ok: true, userId: 'master', admin: { storage: { from: bucket => {
+    assert.equal(bucket, 'catalog-product-photos');
+    return { download: async (path, _options, requestOptions) => {
+      requested = path; assert.equal(requestOptions.cache, 'no-store');
+      return { data: new Blob([bytes], { type: 'application/octet-stream' }), error: null };
+    } };
+  } } } };
+  const route = imageRoute({ auth, color: { original_image_path: `${productId}/photo.webp`, processed_image_path: null } });
+  const response = await route.GET(new Request(`https://portal.test/api/admin/catalog/canva/image?productId=${productId}&colorId=${colorId}&kind=original`));
+  assert.equal(response.status, 200); assert.equal(requested, `${productId}/photo.webp`);
+  assert.equal(response.headers.get('content-type'), 'image/webp');
+  assert.equal(response.headers.get('cache-control'), 'private, no-store, max-age=0');
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
+});
+test('the image proxy rejects traversal and previews from another color before downloading storage', async () => {
+  let downloads = 0;
+  const auth = { ok: true, userId: 'master', admin: { storage: { from: () => ({ download: async () => {
+    downloads++; return { data: new Blob(['x'], { type: 'image/png' }), error: null };
+  } }) } } };
+  let route = imageRoute({ auth, color: { original_image_path: `${productId}/../secret.webp`, processed_image_path: null } });
+  let response = await route.GET(new Request(`https://portal.test/api/admin/catalog/canva/image?productId=${productId}&colorId=${colorId}&kind=original`));
+  assert.equal(response.status, 403); assert.equal(downloads, 0);
+  route = imageRoute({ auth, color: {}, session: { product_id: productId, color_id: '44444444-4444-4444-8444-444444444444', staged_path: 'x' } });
+  response = await route.GET(new Request(`https://portal.test/api/admin/catalog/canva/image?productId=${productId}&colorId=${colorId}&kind=preview&sessionId=${sessionId}`));
+  assert.equal(response.status, 403); assert.equal(downloads, 0);
 });
 test('Canva workspace reports an existing design whose page link can be safely resumed', async () => {
   let link;
@@ -281,8 +325,9 @@ test('Canva workspace reports an existing design whose page link can be safely r
       getColor: async () => ({ color: { original_image_path: `${productId}/${colorId}.png`, color_variant_number: 1, color_name: 'Preto' },
         product: { sku_optotica: 'GE-AC-003', model_name: 'Retangular', frame_total_width_mm: 113 } }),
       getLink: async () => link,
-      signedPreview: async () => null
+      recoverableSession: async () => null
     },
+    '@/lib/canva/navigation': navigation,
     '@/lib/canva/template': { getTemplate: async () => ({ has_transparency: true, png_base64: '' }) },
     '@/lib/canva/layout': { photoFilename: () => 'GE-AC-003-C1-113mm.png' },
     '@/lib/canva/workflow': {}
@@ -328,6 +373,86 @@ test('Canva workspace reports an existing design whose page link can be safely r
 });
 const layout = load('../lib/canva/layout.ts', { './security': security });
 const pagesModule = load('../lib/canva/pages.ts', { './security': security, './api': {}, './layout': layout, './template': {} });
+test('refazer creates one resumable draft without changing the canonical Canva link', async () => {
+  const current = { user_id: 'master', canva_user_id: 'cu', canva_team_id: 'ct' };
+  let row = null, importStarts = 0, importPolls = 0;
+  const matches = filters => filters.every(([kind, key, value]) => kind === 'eq'
+    ? row?.[key] === value : kind === 'is' ? row?.[key] === value : true);
+  function sessionQuery() {
+    let inserted, update, filters = [];
+    const applyUpdate = () => {
+      if (!row || !matches(filters)) return null;
+      Object.assign(row, update); return { id: row.id };
+    };
+    const query = {
+      insert(value) { inserted = value; return this; },
+      update(value) { update = value; return this; },
+      select() { return this; },
+      eq(key, value) { filters.push(['eq', key, value]); return this; },
+      is(key, value) { filters.push(['is', key, value]); return this; },
+      async single() {
+        assert.equal(row, null);
+        row = { export_job_id: null, staged_path: null, saved_at: null, return_verified_at: null,
+          export_page_ids: null, expires_at: new Date(Date.now() + 3600000).toISOString(),
+          created_at: new Date().toISOString(), ...inserted };
+        return { data: { ...row }, error: null };
+      },
+      async maybeSingle() {
+        if (update) return { data: applyUpdate(), error: null };
+        return { data: row && matches(filters) ? { ...row } : null, error: null };
+      },
+      then(resolve, reject) {
+        Promise.resolve({ data: update ? applyUpdate() : null, error: null }).then(resolve, reject);
+      }
+    };
+    return query;
+  }
+  const original = new Blob([Uint8Array.from([1, 2, 3])], { type: 'image/webp' });
+  const admin = {
+    from(name) { assert.equal(name, 'canva_edit_sessions'); return sessionQuery(); },
+    storage: { from: bucket => {
+      assert.equal(bucket, 'catalog-product-photos');
+      return { download: async path => {
+        assert.equal(path, `${productId}/original.webp`); return { data: original, error: null };
+      } };
+    } }
+  };
+  const workflow = load('../lib/canva/workflow.ts', {
+    './security': security, './image': {}, './navigation': navigation,
+    './template': { getTemplate: async () => ({ has_transparency: true, png_base64: Buffer.from('template').toString('base64') }) },
+    './layout': { ODP_MIME: 'application/vnd.oasis.opendocument.presentation',
+      photoFilename: () => 'GE-AC-003-C1-113mm.png',
+      colorPageDocument: async (template, photo, filename) => {
+        assert.equal(template.toString(), 'template'); assert.deepEqual(photo, Buffer.from([1, 2, 3]));
+        assert.equal(filename, 'GE-AC-003-C1-113mm.png'); return Buffer.from('odp');
+      } },
+    './pages': { hasCompletePageMetadata: pagesModule.hasCompletePageMetadata,
+      requireSquare: pagesModule.requireSquare,
+      listPages: async () => [{ id: 'PAGE', page_number: 1, dimensions: { width: 1080, height: 1080 } }] },
+    './api': {
+      BUCKET: 'catalog-product-photos', dbError: error => { if (error) throw error; },
+      getColor: async () => ({ color: { original_image_path: `${productId}/original.webp`, processed_image_path: null,
+        processed_at: null, color_variant_number: 1 }, product: { sku_optotica: 'GE-AC-003', frame_total_width_mm: 113 } }),
+      access: async () => ({ token: 'token', connection: current }), sameAccount: canvaApi.sameAccount,
+      getSession: async () => ({ ...row }), lease: async (_admin, _table, _column, _id, run) => run(),
+      api: async (_token, path) => {
+        if (path === '/imports') { importStarts++; return { job: { id: 'IMPORT' } }; }
+        if (path === '/imports/IMPORT') { importPolls++; return { job: { id: 'IMPORT', status: 'success', result: { designs: [{ id: 'DRAFT' }] } } }; }
+        if (path === '/designs/DRAFT') return { design: { urls: { edit_url: 'https://www.canva.com/design/DRAFT/edit' } } };
+        throw new Error(`Unexpected Canva path ${path}`);
+      }
+    }
+  });
+  const first = await workflow.redoDesign(admin, 'master', productId, colorId, sessionId);
+  assert.deepEqual(first, { status: 'processing', sessionId });
+  assert.equal(row.design_id, 'redo:import:IMPORT'); assert.equal(importStarts, 1);
+  const ready = await workflow.redoDesign(admin, 'master', productId, colorId, sessionId);
+  assert.equal(ready.status, 'ready'); assert.equal(ready.sessionId, sessionId);
+  assert.equal(new URL(ready.editUrl).searchParams.get('correlation_state'), sessionId);
+  assert.equal(row.design_id, 'DRAFT'); assert.equal(row.page_id, 'PAGE');
+  await workflow.redoDesign(admin, 'master', productId, colorId, sessionId);
+  assert.equal(importStarts, 1); assert.equal(importPolls, 1);
+});
 test('filenames use the existing color SKU and actual physical width', () => {
   assert.equal(layout.photoFilename('GE-AC-003', 2, 113), 'GE-AC-003-C2-113mm.png');
   assert.equal(layout.photoFilename('GE-AC-003', 2, 95), 'GE-AC-003-C2-095mm.png');
@@ -413,6 +538,7 @@ test('export selects the page ID for this color and uses 540 square transparent 
   const calls = [];
   const admin = { from: () => ({ update: fields => { calls.push(fields); return { eq: async () => ({ error: null }) }; } }) };
   const workflow = load('../lib/canva/workflow.ts', { './security': security, './image': {}, './layout': layout,
+    './navigation': navigation, './template': {},
     './pages': { ...pagesModule, listPages: async () => [{ id: 'A', page_number: 1 }, { id: 'B', page_number: 2 }] },
     './api': { getSession: async () => session, lease: async (_a, _b, _c, _d, run) => run(),
       access: async () => ({ token: 't', connection: {} }), sameAccount: () => {}, dbError: () => {},
