@@ -18,6 +18,7 @@ export type Session = {
   previous_path: string | null; previous_processed_at: string | null; frame_width_mm: number;
   export_job_id: string | null; staged_path: string | null; saved_at: string | null;
   expires_at: string; return_verified_at: string | null; page_id: string | null; export_filename: string | null; export_page_ids: string[] | null;
+  sku_snapshot: string | null; variant_snapshot: number | null; created_at: string;
 };
 export type DesignLink = {
   color_id: string; product_id: string; user_id: string; canva_user_id: string; canva_team_id: string;
@@ -212,13 +213,25 @@ export async function getSession(admin: Admin, userId: string, sessionId: string
   if (!data) throw new CanvaError('Esta edição expirou. Abra o design novamente pelo produto.', 410);
   return data as Session;
 }
+export async function recoverableSession(admin: Admin, userId: string, productId: string, colorId: string,
+  color: { original_image_path: string | null; processed_image_path: string | null; processed_at: string | null; color_variant_number: number | null },
+  product: { sku_optotica: string; frame_total_width_mm: number | string | null }) {
+  if (!color.original_image_path || !product.sku_optotica || color.color_variant_number === null ||
+      !(Number(product.frame_total_width_mm) > 0)) return null;
+  let query = admin.from('canva_edit_sessions').select('*')
+    .eq('user_id', userId).eq('product_id', productId).eq('color_id', colorId)
+    .eq('original_path', color.original_image_path).eq('frame_width_mm', product.frame_total_width_mm)
+    .eq('sku_snapshot', product.sku_optotica).eq('variant_snapshot', color.color_variant_number)
+    .is('saved_at', null).gt('expires_at', new Date().toISOString())
+    .or('return_verified_at.not.is.null,staged_path.not.is.null');
+  query = color.processed_image_path === null ? query.is('previous_path', null) : query.eq('previous_path', color.processed_image_path);
+  query = color.processed_at === null ? query.is('previous_processed_at', null) : query.eq('previous_processed_at', color.processed_at);
+  const { data, error } = await query.order('created_at', { ascending: false }).limit(1);
+  dbError(error);
+  return ((data || []) as Session[])[0] || null;
+}
 export function sameAccount(link: { user_id: string; canva_user_id: string; canva_team_id: string }, current: Connection) {
   if (link.user_id !== current.user_id || link.canva_user_id !== current.canva_user_id || link.canva_team_id !== current.canva_team_id) {
     throw new CanvaError('Este design está vinculado a outra conta ou equipe Canva. Use a conta que criou o design.', 403);
   }
-}
-export async function signedPreview(admin: Admin, path: string | null) {
-  if (!path) return null;
-  const { data, error } = await admin.storage.from(BUCKET).createSignedUrl(path, 3600);
-  dbError(error); return data?.signedUrl || null;
 }
