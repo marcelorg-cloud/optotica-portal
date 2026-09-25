@@ -1,6 +1,6 @@
-import { access, api, BUCKET, dbError, getColor, getLink, lease, sameAccount, type Admin } from './api';
+import { access, api, BUCKET, canResumeDesignLink, dbError, getColor, getLink, lease, sameAccount, type Admin } from './api';
 import { CanvaError, canvaUrl } from './security';
-import { colorPageDocument, ODP_MIME, photoFilename } from './layout';
+import { colorPageDocument, ODP_MIME, photoFilename, SIZE } from './layout';
 import { getTemplate } from './template';
 
 export type CanvaPage = { id?: string; page_number: number; dimensions?: { width: number; height: number } };
@@ -57,9 +57,11 @@ function pendingMergedPage(beforeIds: string[], pages: CanvaPage[]) {
   return candidates.length === 1 && !hasCompletePageMetadata(candidates[0]);
 }
 function requireSquare(page: CanvaPage) {
+  const width = page.dimensions?.width, height = page.dimensions?.height;
   if (!page.id || !Number.isInteger(page.page_number) || page.page_number < 1 || page.page_number > 500 ||
-      page.dimensions?.width !== 540 || page.dimensions?.height !== 540) {
-    throw new CanvaError('A página precisa ter 540 × 540 px e um identificador estável no Canva. Confira o tamanho no editor.', 422);
+      typeof width !== 'number' || typeof height !== 'number' || !Number.isFinite(width) || !Number.isFinite(height) ||
+      width !== height || width < SIZE || width > 25000) {
+    throw new CanvaError('A página precisa ser quadrada, ter ao menos 540 px por lado e um identificador estável no Canva.', 422);
   }
 }
 async function initializeProduct(admin: Admin, productId: string, current: { user_id: string; canva_user_id: string; canva_team_id: string }) {
@@ -101,7 +103,9 @@ export async function ensureColorPage(admin: Admin, userId: string, productId: s
       link = (await getLink(admin, colorId))!;
     }
     if (link.product_id !== productId) throw new CanvaError('Vínculo de cor inválido.', 409);
-    if ((link.page_stage === 'importing' && !link.import_job_id) || (link.page_stage === 'merging' && !link.merge_job_id) || link.page_stage === 'recovery') {
+    if ((link.page_stage === 'importing' && !link.import_job_id) ||
+        (link.page_stage === 'merging' && !link.merge_job_id) ||
+        (link.page_stage === 'recovery' && !canResumeDesignLink(link))) {
       throw new CanvaError('Uma criação foi interrompida. Confira no Canva e use Vincular página existente para retomar sem duplicar.', 409);
     }
     if (!link.source_design_id) {
