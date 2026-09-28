@@ -17,7 +17,11 @@ export async function GET() {
     .order('created_at', { ascending: false });
   if (error) return NextResponse.json({ message: 'Não foi possível carregar os fornecedores.' }, { status: 500 });
 
-  return NextResponse.json({ suppliers: data || [] });
+  return NextResponse.json({ suppliers: (data || []).map((supplier) => ({
+    id: supplier.id, name: supplier.name, storeId: supplier.store_id,
+    sellerId: supplier.seller_id, status: supplier.status, notes: supplier.notes,
+    createdAt: supplier.created_at
+  })) });
 }
 
 export async function POST(request: Request) {

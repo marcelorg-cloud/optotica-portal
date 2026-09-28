@@ -6,10 +6,13 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { parseAliexpressJson, type ParsedAliexpressColor } from '@/lib/catalog/parse-aliexpress-json';
 import { FORMAT_OPTIONS, MATERIAL_OPTIONS, COLOR_VOCABULARY } from '@/lib/catalog/sku-standard';
+import { SupplierProductSelection } from '@/components/catalog/supplier-product-selection';
 
 type Supplier = { id: string; name: string; storeId: string; status: string };
 type Product = {
   id: string;
+  supplierId: string;
+  supplierItemId: string;
   modelName: string;
   skuOptotica: string;
   lensWidthMm: number | null;
@@ -34,6 +37,7 @@ export function CatalogProductsPanel() {
   const [products, setProducts] = useState<Product[] | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [showNewSupplier, setShowNewSupplier] = useState(false);
+  const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [showNewProduct, setShowNewProduct] = useState(false);
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -118,7 +122,7 @@ export function CatalogProductsPanel() {
     });
     setBusy(false);
     setMessage({ kind: ok ? 'success' : 'error', text: payload.message || (ok ? 'Fornecedor liberado.' : 'Erro.') });
-    if (ok) { event.currentTarget.reset(); setShowNewSupplier(false); load(); }
+    if (ok) { event.currentTarget.reset(); setShowNewSupplier(false); setSelectedSupplierId(payload.id); load(); }
   }
 
   function handleParseAliexpress() {
@@ -346,6 +350,17 @@ export function CatalogProductsPanel() {
 
       {!suppliers.length && !showNewSupplier && (
         <p className="helper" style={{ marginBottom: 16 }}>Nenhum fornecedor liberado ainda — libere um antes de criar produtos.</p>
+      )}
+
+      {suppliers.length > 0 && <div className="field" style={{ marginBottom: 16 }}>
+        <label htmlFor="supplier-list-select">Ver produtos de um fornecedor liberado</label>
+        <select id="supplier-list-select" value={selectedSupplierId} onChange={(event) => setSelectedSupplierId(event.target.value)}>
+          <option value="">Selecione uma loja</option>
+          {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name} · Store ID {supplier.storeId}</option>)}
+        </select>
+      </div>}
+      {suppliers.filter((supplier) => supplier.id === selectedSupplierId).map((supplier) =>
+        <SupplierProductSelection key={supplier.id} supplier={supplier} existing={products} onImported={load} />
       )}
 
       <div className="catalog-filter-panel">
