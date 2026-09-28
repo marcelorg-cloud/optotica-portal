@@ -101,6 +101,8 @@ export async function POST(
     // .../images/[colorImageId] (route.ts).
     patch.processed_image_path = null;
     patch.processed_at = null;
+    patch.processed_reference_revision = null;
+    patch.processed_template_updated_at = null;
     patch.validated_by = null;
     patch.validated_at = null;
     patch.rejection_reason = null;

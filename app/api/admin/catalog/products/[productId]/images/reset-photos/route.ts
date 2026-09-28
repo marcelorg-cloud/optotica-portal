@@ -129,6 +129,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
           status: 'pendente',
           processed_image_path: null,
           processed_at: null,
+          processed_reference_revision: null,
+          processed_template_updated_at: null,
           validated_by: null,
           validated_at: null,
           rejection_reason: null,

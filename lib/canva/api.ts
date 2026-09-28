@@ -18,14 +18,17 @@ export type Session = {
   previous_path: string | null; previous_processed_at: string | null; frame_width_mm: number;
   export_job_id: string | null; staged_path: string | null; saved_at: string | null;
   expires_at: string; return_verified_at: string | null; page_id: string | null; export_filename: string | null; export_page_ids: string[] | null;
-  sku_snapshot: string | null; variant_snapshot: number | null; created_at: string;
+  sku_snapshot: string | null; variant_snapshot: number | null; reference_revision: number | null;
+  template_updated_at: string | null; created_at: string;
 };
 export type DesignLink = {
   color_id: string; product_id: string; user_id: string; canva_user_id: string; canva_team_id: string;
   page_id: string | null; page_number: number | null; page_filename: string | null;
   page_stage: string; import_job_id: string | null; merge_job_id: string | null;
   source_design_id: string | null; before_page_ids: string[] | null;
-  source_path: string; asset_id: string | null; upload_job_id: string | null; design_id: string | null; creating: boolean;
+  source_path: string; reference_revision: number | null; template_updated_at: string | null;
+  asset_id: string | null; upload_job_id: string | null;
+  design_id: string | null; creating: boolean;
 };
 
 function hasStablePageSnapshot(pageIds: string[] | null) {
@@ -194,9 +197,9 @@ export async function beginOAuth(admin: Admin, userId: string, productId: string
 export async function getColor(admin: Admin, productId: string, colorId: string) {
   workspace(productId, colorId);
   const [colorResult, productResult] = await Promise.all([
-    admin.from('catalog_product_color_images').select('id, product_id, color_name, color_variant_number, color_principal, color_secondary, original_image_path, processed_image_path, processed_at')
+    admin.from('catalog_product_color_images').select('id, product_id, color_name, color_variant_number, color_principal, color_secondary, original_image_path, processed_image_path, processed_at, processed_reference_revision, processed_template_updated_at')
       .eq('id', colorId).eq('product_id', productId).maybeSingle(),
-    admin.from('catalog_products').select('id, model_name, sku_optotica, frame_total_width_mm').eq('id', productId).maybeSingle()
+    admin.from('catalog_products').select('id, model_name, sku_optotica, position_image_path, position_image_updated_at, lens_width_mm, lens_height_mm, bridge_mm, lens_diagonal_mm, temple_length_mm, rim_mm, frame_total_width_mm, standard_height_mm, canva_reference_revision').eq('id', productId).maybeSingle()
   ]);
   dbError(colorResult.error || productResult.error);
   if (!colorResult.data || !productResult.data) throw new CanvaError('Produto ou cor não encontrados.', 404);
@@ -215,13 +218,16 @@ export async function getSession(admin: Admin, userId: string, sessionId: string
 }
 export async function recoverableSession(admin: Admin, userId: string, productId: string, colorId: string,
   color: { original_image_path: string | null; processed_image_path: string | null; processed_at: string | null; color_variant_number: number | null },
-  product: { sku_optotica: string; frame_total_width_mm: number | string | null }) {
+  product: { sku_optotica: string; frame_total_width_mm: number | string | null; canva_reference_revision: number | string },
+  templateUpdatedAt: string | null) {
   if (!color.original_image_path || !product.sku_optotica || color.color_variant_number === null ||
-      !(Number(product.frame_total_width_mm) > 0)) return null;
+      !(Number(product.frame_total_width_mm) > 0) || !templateUpdatedAt) return null;
   let query = admin.from('canva_edit_sessions').select('*')
     .eq('user_id', userId).eq('product_id', productId).eq('color_id', colorId)
     .eq('original_path', color.original_image_path).eq('frame_width_mm', product.frame_total_width_mm)
     .eq('sku_snapshot', product.sku_optotica).eq('variant_snapshot', color.color_variant_number)
+    .eq('reference_revision', product.canva_reference_revision)
+    .eq('template_updated_at', templateUpdatedAt)
     .is('saved_at', null).gt('expires_at', new Date().toISOString())
     .or('return_verified_at.not.is.null,staged_path.not.is.null');
   query = color.processed_image_path === null ? query.is('previous_path', null) : query.eq('previous_path', color.processed_image_path);

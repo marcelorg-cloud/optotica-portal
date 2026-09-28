@@ -35,6 +35,8 @@ const RESTORABLE_FIELDS = [
   'originalImagePath',
   'processedImagePath',
   'processedAt',
+  'processedReferenceRevision',
+  'processedTemplateUpdatedAt',
   'validatedBy',
   'validatedAt',
   'rejectionReason',
@@ -46,6 +48,8 @@ const RESTORABLE_COLUMN_BY_FIELD: Record<typeof RESTORABLE_FIELDS[number], strin
   originalImagePath: 'original_image_path',
   processedImagePath: 'processed_image_path',
   processedAt: 'processed_at',
+  processedReferenceRevision: 'processed_reference_revision',
+  processedTemplateUpdatedAt: 'processed_template_updated_at',
   validatedBy: 'validated_by',
   validatedAt: 'validated_at',
   rejectionReason: 'rejection_reason',
@@ -137,6 +141,8 @@ export async function PATCH(
         original_image_path: originalImagePath,
         processed_image_path: null,
         processed_at: null,
+        processed_reference_revision: null,
+        processed_template_updated_at: null,
         validated_by: null,
         validated_at: null,
         rejection_reason: null,
@@ -155,26 +161,38 @@ export async function PATCH(
     // fica boa o suficiente, o master pode subir aqui um PNG já pronto
     // (recortado e colorido fora do sistema) na mesma medida. Não muda
     // `status` (pode enviar de novo numa cor já 'validada', mesmo padrão de
-    // "reprocessar" que já existia) nem mexe em nenhum outro campo — a
-    // "Frente Total (mm)" (lida do nome do arquivo, no navegador) é gravada
-    // à parte, pelo componente, num PATCH comum em .../products/[productId]
-    // (campo de produto, compartilhado por todas as cores — não tem uma
-    // cópia por cor aqui).
+    // "reprocessar" que já existia). A medida e a ativação da foto são
+    // confirmadas juntas pela RPC, sem estado parcial entre duas chamadas.
     if (image.status === 'incompleto') {
       return NextResponse.json({ message: 'Esta cor ainda não tem foto — use "Adicionar foto" ou "Importar do AliExpress" antes.' }, { status: 409 });
     }
     const processedImagePath = typeof body?.processedImagePath === 'string' ? body.processedImagePath : '';
+    const expectedOriginalPath = typeof body?.expectedOriginalPath === 'string' ? body.expectedOriginalPath : '';
+    const frameWidthMm = Number(body?.frameWidthMm);
+    const expectedReferenceRevision = Number(body?.expectedReferenceRevision);
     if (!processedImagePath || !processedImagePath.startsWith(`${productId}/`)) {
       return NextResponse.json({ message: 'Envio inválido.' }, { status: 400 });
+    }
+    if (!expectedOriginalPath || !expectedOriginalPath.startsWith(`${productId}/`) ||
+        !Number.isFinite(frameWidthMm) || frameWidthMm <= 0 || frameWidthMm > 400 ||
+        !Number.isSafeInteger(expectedReferenceRevision) || expectedReferenceRevision < 1) {
+      return NextResponse.json({ message: 'Referências ou medida inválidas. Recarregue a página e tente de novo.' }, { status: 400 });
     }
     const { error: signError } = await auth.admin.storage.from(BUCKET).createSignedUrl(processedImagePath, 60);
     if (signError) return NextResponse.json({ message: 'Não encontramos o arquivo enviado. Tente enviar de novo.' }, { status: 400 });
 
-    const { error } = await auth.admin
-      .from('catalog_product_color_images')
-      .update({ processed_image_path: processedImagePath, processed_at: now, updated_at: now })
-      .eq('id', colorImageId);
+    const { data: saved, error } = await auth.admin.rpc('save_manual_tryon_upload', {
+      p_product_id: productId,
+      p_color_id: colorImageId,
+      p_processed_image_path: processedImagePath,
+      p_frame_width_mm: frameWidthMm,
+      p_expected_original_path: expectedOriginalPath,
+      p_expected_reference_revision: expectedReferenceRevision
+    });
     if (error) return NextResponse.json({ message: 'Não foi possível salvar o óculos da prova online.' }, { status: 500 });
+    if (saved !== true) {
+      return NextResponse.json({ message: 'A foto original ou as medidas mudaram. Recarregue a página e envie de novo.' }, { status: 409 });
+    }
     return NextResponse.json({ message: 'Óculos da prova online salvo.' });
   }
 

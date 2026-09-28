@@ -8,12 +8,12 @@ type Info = {
   templateUrl: string | null; templateReady: boolean; filename: string | null; designTitle: string; pageNumber: number | null; pageTitle: string | null;
   configured: boolean; configurationError: string | null; connected: boolean; hasDesign: boolean; hasResumableDesign: boolean; needsRecovery: boolean;
   productName: string; colorName: string; frameWidthMm: number | null;
-  originalUrl: string | null; currentUrl: string | null; sourceChanged: boolean; recoverableSessionId: string | null;
+  prompt: string; measurements: string[]; originalUrl: string | null; measurementUrl: string | null; currentUrl: string | null;
+  sourceChanged: boolean; designReferencesChanged: boolean; tryonReferencesChanged: boolean; recoverableSessionId: string | null;
 };
 type Result = {
   status?: string; sessionId?: string; previewUrl?: string; editUrl?: string; authorizeUrl?: string; message?: string;
 };
-const PROMPT = 'Considere as duas imagens selecionadas. A imagem menor, na parte superior, é a foto de origem: use exclusivamente o modelo de óculos dela e preserve fielmente formato, cor, material, proporções, espessura, ponte e detalhes. A imagem maior, abaixo, é somente a referência de posição, tamanho, escala, alinhamento, enquadramento, vista frontal e transparência; não copie o formato, a cor ou os detalhes do óculos de referência. Transforme o óculos da imagem menor em vista perfeitamente frontal. Remova completamente o fundo, as duas hastes laterais, as lentes, os reflexos e as sombras. Mantenha somente a parte frontal da armação e deixe o interior das lentes totalmente transparente. O resultado deve substituir a imagem maior e ocupar toda a largura horizontal disponível. As extremidades devem chegar às bordas da área transparente, sem cortes nem margens laterais. Amplie proporcionalmente, sem esticar ou deformar, preservando a centralização e o posicionamento vertical da referência. Entregue uma única armação frontal, com fundo totalmente transparente e contornos limpos. Não misture os modelos, não invente detalhes e não altere nenhuma característica do óculos da imagem menor.';
 const previewStyle = {
   width: '100%', maxWidth: 440, aspectRatio: '1 / 1', objectFit: 'contain' as const,
   border: '1px solid var(--line)', borderRadius: 8,
@@ -124,9 +124,15 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
     catch (error) { if (!controller.signal.aborted) setMessage(error instanceof Error ? error.message : 'Falha de conexão.'); }
     finally { if (!controller.signal.aborted) setBusy(''); }
   }
+  async function copyPromptToClipboard() {
+    if (!info?.prompt || !navigator.clipboard) return false;
+    try { await navigator.clipboard.writeText(info.prompt); return true; }
+    catch { return false; }
+  }
   function openEditor() {
     setPreview(null); setSaved(false); setReviewed(false);
     void run(info?.hasResumableDesign ? 'Concluindo o vínculo desta cor…' : 'Preparando o design desta cor…', async signal => {
+      await copyPromptToClipboard();
       const result = await poll('open', undefined, signal);
       if (!result.editUrl || !result.sessionId) throw new Error('Não foi possível abrir o editor.');
       window.history.replaceState(window.history.state, '', withCanvaSession(window.location.href, result.sessionId));
@@ -137,7 +143,10 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
     setPreview(null); setSaved(false); setReviewed(false);
     const sessionId = crypto.randomUUID();
     window.history.replaceState(window.history.state, '', withCanvaRedo(window.location.href, sessionId));
-    void run('Recriando a página com as referências…', signal => openFreshEditor(sessionId, signal));
+    void run('Recriando a página com as referências…', async signal => {
+      await copyPromptToClipboard();
+      await openFreshEditor(sessionId, signal);
+    });
   }
   function importManually() {
     setPreview(null); setSaved(false); setReviewed(false);
@@ -162,9 +171,9 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
         <p>Nome do design no Canva: <strong>{info.designTitle}</strong></p>
         {info.filename && <p>Nome do PNG desta cor: <strong>{info.filename}</strong></p>}
         {info.pageTitle && info.pageTitle !== info.filename && <p>O SKU ou a medida mudou desde a criação desta página. A exportação do portal usará o novo nome do PNG mostrado acima.</p>}
-        <details>
+        <details open>
           <summary>Imagem modelo da prova online</summary>
-          <p>Esta imagem será usada como guia nas novas páginas. A foto original da cor será inserida separadamente no canto superior direito.</p>
+          <p>Esta imagem será usada como guia nas novas páginas. A foto da cor ficará separada no canto superior direito e a foto de medidas no canto superior esquerdo.</p>
           {info.templateUrl && <img src={info.templateUrl} alt="Imagem modelo cadastrada" style={{ ...previewStyle, maxWidth: 240 }} />}
           {!info.templateReady && <p role="status">{info.templateUrl ? 'A imagem cadastrada está com fundo branco ou sem transparência. Envie a versão com fundo e lentes transparentes.' : 'Cadastre o PNG modelo transparente de 540 × 540 px.'}</p>}
           <label>Substituir imagem modelo (PNG, 540 × 540 px)
@@ -191,15 +200,24 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
             if (result.authorizeUrl) window.location.assign(result.authorizeUrl);
           })}>Conectar Canva</button>
         </div>}
-        {info.sourceChanged && <p role="status">A foto original desta cor mudou desde a criação do design. Use <strong>Refazer com as referências</strong> para abrir uma página nova com a foto atual.</p>}
+        {info.designReferencesChanged && <p role="status">A foto da cor, as medidas ou a imagem modelo mudaram desde a criação desta página. Use <strong>Refazer com as referências</strong> para abrir um arquivo novo com as três imagens atuais.</p>}
+        {info.tryonReferencesChanged && <p role="status">A foto de prova salva é anterior a uma das referências atuais, incluindo a imagem modelo. Refaça e salve novamente para manter o resultado atualizado.</p>}
         {!(Number(info.frameWidthMm) > 0) && <p>Preencha e salve a <strong>Frente Total (mm)</strong> no <Link href={productUrl}>cadastro do produto</Link> antes de continuar.</p>}
         {Number(info.frameWidthMm) > 0 && <p>Frente total cadastrada: <strong>{info.frameWidthMm} mm</strong>.</p>}
         {!info.originalUrl && <p>Cadastre a foto original desta cor no produto.</p>}
+        {!info.measurementUrl && <p>Cadastre a <strong>Foto de medidas do modelo</strong> no <Link href={productUrl}>produto</Link> antes de criar ou refazer a página no Canva.</p>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 24 }}>
           <div>
             <h2>Foto original da cor</h2>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {info.originalUrl && <img src={info.originalUrl} alt={'Foto original — ' + info.colorName} style={{ ...previewStyle, background: '#fff' }} />}
+          </div>
+          <div>
+            <h2>Foto de medidas do modelo</h2>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {info.measurementUrl ? <img src={info.measurementUrl} alt={'Medidas — ' + info.productName} style={{ ...previewStyle, background: '#fff' }} /> : <p>Ainda sem foto de medidas.</p>}
+            {info.measurements.length > 0 && <ul>{info.measurements.map(line => <li key={line}>{line.replace(/^- /, '')}</li>)}</ul>}
+            {info.measurementUrl && <p>O Canva também deverá ler as cotas escritas nesta imagem, inclusive as que ainda não estão preenchidas nos campos acima.</p>}
           </div>
           <div>
             <h2>{preview ? 'Prévia para salvar' : 'Foto de prova atual'}</h2>
@@ -208,46 +226,52 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
           </div>
         </div>
         {info.configured && info.connected && <>
-          <p>{info.hasDesign ? 'Para uma nova tentativa com as duas imagens, use Refazer com as referências. Para apenas ajustar o trabalho anterior, use Editar resultado atual.' : 'Crie a página desta cor e use o modelo como guia para posicionar a frente da armação real.'} No Canva, remova a foto pequena do canto e a armação usada como modelo. Deixe o fundo e o interior das lentes transparentes. Ao terminar, volte a esta página pelo botão Voltar do navegador; a importação começará automaticamente.</p>
-          {info.hasResumableDesign && <p role="status">O design desta cor já existe no Canva. O portal concluirá o vínculo e abrirá esse mesmo design, sem criar outra página.</p>}
+          <details open>
+            <summary>Prompt específico deste modelo para copiar</summary>
+            <p>Copie este texto antes de abrir o Canva. Ao usar os botões abaixo, o portal também tentará copiá-lo automaticamente.</p>
+            <textarea aria-label="Comando para editar a armação no Canva" readOnly value={info.prompt} rows={18} style={{ width: '100%' }} />
+            <button type="button" className="button secondary small" onClick={async () => {
+              setMessage(await copyPromptToClipboard() ? 'Comando copiado.' : 'Selecione o texto acima e copie o comando.');
+            }}>Copiar comando</button>
+          </details>
+          <p>{info.designReferencesChanged
+            ? 'A preparação anterior não pode mais ser usada. Abra um novo rascunho com Refazer com as referências.'
+            : info.hasDesign
+              ? 'Para uma nova tentativa com as três imagens, use Refazer com as referências. Para apenas ajustar o trabalho anterior, use Editar resultado atual.'
+              : 'Crie a página desta cor com as três referências.'} No Canva, selecione juntas a imagem grande, a foto da cor e a foto de medidas antes de usar <strong>Pede pro Canva</strong>. Depois, remova as duas imagens pequenas dos cantos e a armação usada como modelo. Deixe somente o resultado, com o fundo e o interior das lentes transparentes. Ao terminar, volte a esta página pelo botão Voltar do navegador; a importação começará automaticamente.</p>
+          {info.hasResumableDesign && !info.designReferencesChanged && <p role="status">O design desta cor já existe no Canva. O portal concluirá o vínculo e abrirá esse mesmo design, sem criar outra página.</p>}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-            {info.hasDesign ? <>
+            {info.hasDesign || info.designReferencesChanged ? <>
               <button type="button" className="button"
-              disabled={!!busy || !info.originalUrl || !(Number(info.frameWidthMm) > 0) || !info.templateReady || !info.filename}
+              disabled={!!busy || !info.originalUrl || !info.measurementUrl || !(Number(info.frameWidthMm) > 0) || !info.templateReady || !info.filename}
               onClick={redoEditor}>Refazer com as referências</button>
-              <button type="button" className="button secondary" disabled={!!busy || !info.originalUrl || !(Number(info.frameWidthMm) > 0) || !info.filename}
+              {info.hasDesign && <button type="button" className="button secondary" disabled={!!busy || info.designReferencesChanged || !info.originalUrl || !(Number(info.frameWidthMm) > 0) || !info.filename}
                 onClick={openEditor}>Editar resultado atual</button>
-            </> : <button type="button" className="button" disabled={!!busy || !info.originalUrl || !(Number(info.frameWidthMm) > 0) || info.needsRecovery || (!info.hasResumableDesign && !info.templateReady) || !info.filename} onClick={openEditor}>
+              }
+            </> : <button type="button" className="button" disabled={!!busy || !info.originalUrl || !info.measurementUrl || !(Number(info.frameWidthMm) > 0) || info.needsRecovery || (!info.hasResumableDesign && !info.templateReady) || !info.filename} onClick={openEditor}>
               {info.hasResumableDesign ? 'Concluir vínculo e abrir no Canva' : 'Criar página desta cor no Canva'}
             </button>}
-            {info.hasDesign && <button type="button" className="button secondary" disabled={!!busy} onClick={importManually}>Importar do Canva</button>}
+            {info.hasDesign && <button type="button" className="button secondary" disabled={!!busy || info.designReferencesChanged} onClick={importManually}>Importar do Canva</button>}
             <button type="button" className="text-button" disabled={!!busy} onClick={() => void run('Conectando…', async signal => {
               const result = await post('connect', {}, signal);
               if (result.authorizeUrl) window.location.assign(result.authorizeUrl);
             })}>Reconectar conta</button>
           </div>
-          <details>
-            <summary>Comando sugerido para a edição</summary>
-            <p>Copie e use no editor do Canva, se o recurso estiver disponível na sua conta.</p>
-            <textarea aria-label="Comando para editar a armação no Canva" readOnly value={PROMPT} rows={5} style={{ width: '100%' }} />
-            <button type="button" className="button secondary small" onClick={async () => {
-              try { await navigator.clipboard.writeText(PROMPT); setMessage('Comando copiado.'); }
-              catch { setMessage('Selecione o texto acima e copie o comando.'); }
-            }}>Copiar comando</button>
-          </details>
           {!info.hasDesign && <details open={info.needsRecovery || undefined}>
             <summary>Vincular página existente</summary>
-            <p>Informe o design do produto e o número da página desta cor. Confira a página no Canva antes de vincular.</p>
+            <p>Informe o design do produto e o número da página desta cor. Antes de vincular, abra o design no Canva, aguarde qualquer inclusão ainda em processamento e confira cuidadosamente a página. Essa escolha explícita confirma que a página selecionada corresponde às referências atuais.</p>
             <label>Link do design no Canva<input type="url" value={designUrl} onChange={event => setDesignUrl(event.target.value)} style={{ width: '100%' }} /></label>
             <label>Número da página<input type="number" min="1" max="500" value={pageNumber} onChange={event => setPageNumber(event.target.value)} /></label>
-            <button type="button" className="button secondary small" disabled={!!busy || !designUrl || !pageNumber} onClick={() => void run('Vinculando design…', async signal => {
+            <button type="button" className="button secondary small"
+              disabled={!!busy || !designUrl || !pageNumber || !info.originalUrl || !info.measurementUrl || !(Number(info.frameWidthMm) > 0) || !info.templateReady || !info.filename}
+              onClick={() => void run('Vinculando design…', async signal => {
               await post('link', { designUrl, pageNumber }, signal); await refresh(signal);
             })}>Vincular a esta cor</button>
           </details>}
         </>}
         {preview && !saved && <div style={{ display: 'grid', gap: 10 }}>
           <p>Confira a cor, o formato da armação e a transparência dentro das lentes. Ao salvar, esta prévia passa a ser a foto de prova desta cor.</p>
-          <label><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} /> Conferi: esta é a armação da cor correta, sem a foto pequena e sem a armação usada como modelo.</label>
+          <label><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} /> Conferi: esta é a armação da cor correta, sem as duas imagens pequenas e sem a armação usada como modelo.</label>
           <button type="button" className="button" disabled={!!busy || !reviewed} onClick={() => void run('Salvando a foto de prova…', async signal => {
             await post('save', { sessionId: preview.sessionId }, signal); setSaved(true); await refresh(signal);
           })}>Salvar como foto de prova desta cor</button>

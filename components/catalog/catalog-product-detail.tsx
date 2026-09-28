@@ -22,6 +22,7 @@ type Product = {
   templeLengthMm: number | null;
   rimMm: number | null;
   frameTotalWidthMm: number | null;
+  canvaReferenceRevision: number;
   standardHeightMm: number | null;
   measurementSource: string;
   status: string;
@@ -54,6 +55,9 @@ type ColorImage = {
   // razão do comentário em Product.positionImagePath acima.
   originalImagePath: string | null;
   processedImagePath: string | null;
+  processedAt: string | null;
+  processedReferenceRevision: number | null;
+  processedTemplateUpdatedAt: string | null;
   hasSourceImageUrl: boolean;
   // Padrão de SKU/cor (13/09/2026) — ver lib/catalog/sku-standard.ts. Cores
   // criadas antes dessa data podem ter esses campos nulos até a migração de
@@ -103,6 +107,9 @@ type ColorSnapshot = {
   status: string;
   originalImagePath: string | null;
   processedImagePath: string | null;
+  processedAt: string | null;
+  processedReferenceRevision: number | null;
+  processedTemplateUpdatedAt: string | null;
   rejectionReason: string | null;
   validatedAt: string | null;
   missingRequiredFields: string[];
@@ -114,6 +121,9 @@ function snapshotColor(color: ColorImage): ColorSnapshot {
     status: color.status,
     originalImagePath: color.originalImagePath,
     processedImagePath: color.processedImagePath,
+    processedAt: color.processedAt,
+    processedReferenceRevision: color.processedReferenceRevision,
+    processedTemplateUpdatedAt: color.processedTemplateUpdatedAt,
     rejectionReason: color.rejectionReason,
     validatedAt: color.validatedAt,
     missingRequiredFields: color.missingRequiredFields,
@@ -777,10 +787,10 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     const file = selectedPositionFile;
     if (!file) { setMessage({ kind: 'error', text: 'Escolha um arquivo antes de clicar em "Salvar foto de medidas".' }); return; }
     // Capturado ANTES da chamada (15/09/2026, "Desfazer última ação").
-    // Simplificado na mesma data: esta rota deixou de resetar as cores como
-    // efeito colateral (não alimenta mais nenhum processamento — ver
-    // estado-consolidado.md seção 0.67), então desfazer só precisa
-    // restaurar a foto de medidas em si.
+    // Simplificado na mesma data: esta rota deixou de apagar ou reprocessar
+    // as fotos das cores, então desfazer só precisa restaurar a foto de
+    // medidas. Cada troca (inclusive o desfazer) cria uma nova revisão das
+    // referências Canva pelo trigger do banco.
     const beforePositionPath = product?.positionImagePath ?? null;
     setBusy(true);
     setMessage(null);
@@ -935,38 +945,27 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorImageId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'enviar_oculos', processedImagePath: uploaded.path })
+        body: JSON.stringify({
+          action: 'enviar_oculos',
+          processedImagePath: uploaded.path,
+          frameWidthMm,
+          expectedReferenceRevision: product?.canvaReferenceRevision,
+          expectedOriginalPath: before?.originalImagePath
+        })
       });
       if (!ok) { setMessage({ kind: 'error', text: payload.message }); return; }
-      // Segunda chamada, mesma rota/campo que "Frente Total (mm)" no
-      // formulário do produto no topo da página — só reaproveita a validação
-      // que já existe lá (OPTIONAL_MEASUREMENTS em .../route.ts).
-      const productPatch = await fetchJson(`/api/admin/catalog/products/${productId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ frameTotalWidthMm: frameWidthMm })
-      });
-      setMessage({
-        kind: productPatch.ok ? 'success' : 'error',
-        text: productPatch.ok
-          ? `Óculos enviado — Frente Total atualizada para ${frameWidthMm}mm.`
-          : `Óculos enviado, mas não foi possível atualizar a Frente Total (${productPatch.payload.message}).`
-      });
+      setMessage({ kind: 'success', text: `Óculos enviado — Frente Total atualizada para ${frameWidthMm}mm.` });
       if (before) {
         setLastAction({
           label: 'enviar óculos da prova online',
           undo: async () => {
             await restoreColorSnapshot(colorImageId, snapshotColor(before));
-            // A Frente Total só mudou de verdade se a segunda chamada acima
-            // deu certo — se ela falhou, não há nada a desfazer nesse campo.
-            if (productPatch.ok) {
-              const { ok: prodOk, payload: prodPayload } = await fetchJson(`/api/admin/catalog/products/${productId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ frameTotalWidthMm: beforeFrameTotalWidthMm ?? '' })
-              });
-              if (!prodOk) throw new Error(prodPayload.message);
-            }
+            const { ok: prodOk, payload: prodPayload } = await fetchJson(`/api/admin/catalog/products/${productId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ frameTotalWidthMm: beforeFrameTotalWidthMm ?? '' })
+            });
+            if (!prodOk) throw new Error(prodPayload.message);
           }
         });
       }
@@ -1386,25 +1385,20 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
           <label>Frente Total (mm)<input name="frameTotalWidthMm" type="number" step="0.1" defaultValue={product.frameTotalWidthMm ?? ''} /></label>
           <label>Altura padrão (mm)<input name="standardHeightMm" type="number" step="0.1" defaultValue={product.standardHeightMm ?? ''} /></label>
         </div>
-        <p className="helper">Origem da medida: {product.measurementSource === 'manual' ? 'corrigida manualmente' : 'API do fornecedor'}. As 6 medidas extras (Ponte, Diagonal, Hastes, Aro, Frente Total, Altura padrão) são opcionais — só referência pro laboratório, não afetam a Prova Online. Product ID, SKU e loja ficam só neste painel — nunca aparecem para o paciente.</p>
+        <p className="helper">Origem da medida: {product.measurementSource === 'manual' ? 'corrigida manualmente' : 'API do fornecedor'}. As 6 medidas extras (Ponte, Diagonal, Hastes, Aro, Frente Total, Altura padrão) são opcionais e orientam o laboratório; as medidas preenchidas também orientam as proporções no Canva. Product ID, SKU e loja ficam só neste painel — nunca aparecem para o paciente.</p>
         <button className="button primary" type="submit" disabled={busy}>Salvar alterações</button>
       </form>
 
-      {/* Foto de medidas do produto (13/09/2026, 2ª rodada — depois mudou de
-          sentido na 4ª rodada). SEM USO FUNCIONAL desde 15/09/2026 (fim da
-          recolorização por IA — ver estado-consolidado.md seção 0.67): esta
-          foto só alimentava aquele passo (dar a forma/pose pra IA recolorir
-          por cima). O usuário pediu explicitamente pra MANTER esta seção na
-          tela mesmo assim (pode voltar a servir pra algo no futuro) — só o
-          texto de ajuda abaixo foi ajustado pra não afirmar algo que não é
-          mais verdade; upload/armazenamento continuam idênticos. */}
+      {/* Foto de medidas do produto: além da exibição nos painéis, desde
+          25/09/2026 é a terceira referência geométrica enviada nas novas
+          páginas e refações do fluxo Canva. */}
       <div className="card catalog-position-card">
         <div className="preview">
           {product.positionImageUrl ? <img src={product.positionImageUrl} alt="Foto de medidas do produto" /> : 'sem foto de medidas'}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <span className="section-label">Foto de medidas do modelo</span>
-          <span className="helper">Exibida enquanto a prova online é gerada e ao passar o mouse ou tocar na foto de prova, nos painéis profissional e do paciente.</span>
+          <span className="helper">Exibida nos painéis profissional e do paciente e enviada ao Canva para orientar as proporções da foto de prova.</span>
           <input
             type="file"
             accept="image/png,image/jpeg,image/webp"

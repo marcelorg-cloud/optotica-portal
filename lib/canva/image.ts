@@ -49,15 +49,48 @@ export async function prepareTryonPng(input: Buffer) {
     .png().toBuffer();
 }
 
-// The reference photo lives above the frame. Reject remaining visible pixels in
-// that reserved corner instead of silently including them in the try-on width.
+// The color and measurement references are separate elements in the two upper
+// corners. Detect detached alpha components that still live in those reserved
+// areas instead of rejecting every corner pixel: a tall/oversized frame can
+// legitimately reach both areas while remaining connected to the central frame.
 export async function rejectReferencePhoto(input: Buffer) {
   const { data, info } = await sharp(input, { limitInputPixels: 16000000 }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  let visible = 0;
-  for (let y = 0; y < Math.floor(info.height * 0.27); y++) {
-    for (let x = Math.floor(info.width * 0.60); x < info.width; x++) {
-      if (data[(y * info.width + x) * info.channels + info.channels - 1] > 4) visible++;
+  const pixels = info.width * info.height;
+  const visited = new Uint8Array(pixels);
+  const queue = new Uint32Array(pixels);
+  const alpha = info.channels - 1;
+  const topLimit = Math.ceil(info.height * 0.32);
+  const leftLimit = Math.ceil(info.width * 0.43);
+  const rightLimit = Math.floor(info.width * 0.57);
+  const minimumReferenceInk = Math.max(64, Math.round(pixels * 0.00035));
+  let detachedLeft = 0, detachedRight = 0;
+
+  for (let start = 0; start < pixels; start++) {
+    if (visited[start] || data[start * info.channels + alpha] <= 4) continue;
+    let head = 0, tail = 0, size = 0;
+    let left = info.width, right = -1, bottom = -1;
+    queue[tail++] = start;
+    visited[start] = 1;
+    while (head < tail) {
+      const index = queue[head++];
+      const x = index % info.width;
+      const y = Math.floor(index / info.width);
+      size++;
+      left = Math.min(left, x); right = Math.max(right, x); bottom = Math.max(bottom, y);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || nx >= info.width || ny < 0 || ny >= info.height) continue;
+        const next = ny * info.width + nx;
+        if (visited[next] || data[next * info.channels + alpha] <= 4) continue;
+        visited[next] = 1;
+        queue[tail++] = next;
+      }
     }
+    if (bottom < topLimit && right < leftLimit) detachedLeft += size;
+    if (bottom < topLimit && left >= rightLimit) detachedRight += size;
   }
-  if (visible > 10) throw new CanvaError('Remova a foto pequena do canto e deixe somente a frente da armação centralizada antes de importar.', 422);
+  if (detachedLeft >= minimumReferenceInk || detachedRight >= minimumReferenceInk) {
+    throw new CanvaError('Remova as duas imagens pequenas de referência dos cantos e deixe somente a frente da armação centralizada antes de importar.', 422);
+  }
 }

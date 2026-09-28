@@ -5,8 +5,9 @@ import { beginOAuth, canResumeDesignLink, connection, designLinkNeedsRecovery, g
 import { CanvaError, configurationStatus, sameOrigin, uuid } from '@/lib/canva/security';
 import { createSession, exportSession, linkExisting, openDesign, redoDesign, saveSession } from '@/lib/canva/workflow';
 import { canvaImageUrl } from '@/lib/canva/navigation';
+import { buildCanvaEditPrompt, measurementLines } from '@/lib/canva/prompt';
 
-import { getTemplate } from '@/lib/canva/template';
+import { getTemplate, sameTemplateSnapshot } from '@/lib/canva/template';
 import { photoFilename } from '@/lib/canva/layout';
 
 export const runtime = 'nodejs';
@@ -25,29 +26,41 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url), productId = url.searchParams.get('productId'), colorId = url.searchParams.get('colorId');
     if (!uuid(productId) || !uuid(colorId)) throw new CanvaError('Produto ou cor inválidos.');
-    const { color, product } = await getColor(auth.admin, productId, colorId);
+    const [{ color, product }, template] = await Promise.all([
+      getColor(auth.admin, productId, colorId), getTemplate(auth.admin)
+    ]);
     const configuration = configurationStatus(), ready = configuration.configured;
-    const [current, link, recoverable, template] = await Promise.all([
+    const [current, link, recoverable] = await Promise.all([
       ready ? connection(auth.admin, auth.userId) : null,
       ready ? getLink(auth.admin, colorId) : null,
-      recoverableSession(auth.admin, auth.userId, productId, colorId, color, product), getTemplate(auth.admin)
+      recoverableSession(auth.admin, auth.userId, productId, colorId, color, product, template?.updated_at || null)
     ]);
     let filename: string | null = null;
     try { filename = photoFilename(product.sku_optotica, Number(color.color_variant_number), Number(product.frame_total_width_mm)); } catch {}
     const designTitle = Array.from(`${product.sku_optotica} — Prova online`).slice(0, 50).join('');
     const hasResumableDesign = canResumeDesignLink(link);
+    const hasMeasurementImage = !!product.position_image_path?.startsWith(productId + '/');
+    const designReferencesChanged = !!link && (link.source_path !== color.original_image_path ||
+      Number(link.reference_revision) !== Number(product.canva_reference_revision) ||
+      !sameTemplateSnapshot(link.template_updated_at, template?.updated_at));
+    const tryonReferencesChanged = !!color.processed_image_path &&
+      (Number(color.processed_reference_revision) !== Number(product.canva_reference_revision) ||
+       !sameTemplateSnapshot(color.processed_template_updated_at, template?.updated_at));
     return NextResponse.json({ filename, designTitle, pageNumber: link?.page_number, pageTitle: link?.page_filename,
       templateUrl: template ? 'data:image/png;base64,' + template.png_base64 : null,
       templateReady: !!template?.has_transparency, configured: ready, configurationError: configuration.error,
       connected: !!current,
       productName: product.model_name, colorName: color.color_name, frameWidthMm: product.frame_total_width_mm,
+      prompt: buildCanvaEditPrompt(product, color.color_name), measurements: measurementLines(product),
       originalUrl: color.original_image_path
         ? canvaImageUrl(productId, colorId, 'original', undefined, imageVersion(color.original_image_path)) : null,
+      measurementUrl: hasMeasurementImage
+        ? canvaImageUrl(productId, colorId, 'measurements', undefined, imageVersion(product.position_image_path)) : null,
       currentUrl: color.processed_image_path
         ? canvaImageUrl(productId, colorId, 'current', undefined, imageVersion(color.processed_image_path)) : null,
       recoverableSessionId: recoverable?.id || null, hasDesign: !!link?.page_id, hasResumableDesign,
       needsRecovery: designLinkNeedsRecovery(link),
-      sourceChanged: !!link && link.source_path !== color.original_image_path
+      sourceChanged: designReferencesChanged, designReferencesChanged, tryonReferencesChanged
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) { return failure(error); }
 }
