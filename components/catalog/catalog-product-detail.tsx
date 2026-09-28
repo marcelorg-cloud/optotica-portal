@@ -9,6 +9,7 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/browser-client';
 import { parseAliexpressJson, type ParsedAliexpressColor } from '@/lib/catalog/parse-aliexpress-json';
 import { COLOR_VOCABULARY } from '@/lib/catalog/sku-standard';
 import { colorSwatchBackground, colorSwatchIsLight, colorSwatchSolidHex } from '@/lib/catalog/color-swatch-style';
+import { suggestGalleryColors } from '@/lib/catalog/suggest-gallery-colors';
 
 type Product = {
   id: string;
@@ -33,7 +34,7 @@ type Product = {
   // Fotos da galeria com marcação manual de cor (13/09/2026, migração
   // 202609131400 — "Substitui — só marcação manual daqui pra frente") —
   // alimenta a seção "Todas as fotos do anúncio".
-  galleryPhotos: { id: string; url: string; colorImageIds: string[] }[];
+  galleryPhotos: { id: string; url: string; colorImageIds: string[]; colorTagsReviewed: boolean }[];
   positionImageUrl: string | null;
   // Caminho cru no Storage (15/09/2026, "Desfazer última ação") — só usado
   // pra guardar/restaurar o valor de antes, nunca mostrado na tela (a URL
@@ -59,6 +60,7 @@ type ColorImage = {
   processedReferenceRevision: number | null;
   processedTemplateUpdatedAt: string | null;
   hasSourceImageUrl: boolean;
+  sourceImageUrl: string | null;
   // Padrão de SKU/cor (13/09/2026) — ver lib/catalog/sku-standard.ts. Cores
   // criadas antes dessa data podem ter esses campos nulos até a migração de
   // dados rodar (202609131101).
@@ -226,6 +228,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   // foto".
   const glassesFileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   const [selectedGlassesFile, setSelectedGlassesFile] = useState<Record<string, File | null>>({});
+  const [missingColorFiles, setMissingColorFiles] = useState<Record<string, File | null>>({});
 
   // Seleção múltipla em "Todas as fotos do anúncio" (14/09/2026, pedido do
   // usuário: "quando for pra remover se a gente pudesse selecionar vários e
@@ -294,7 +297,11 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const [undoing, setUndoing] = useState(false);
 
   function applyLoad({ ok, payload }: Awaited<ReturnType<typeof fetchJson>>) {
-    if (ok) { setProduct(payload.product); setColors(payload.colorImages); setPendingGalleryColors({}); setColorOrderDraft(null); }
+    if (ok) {
+      setProduct(payload.product); setColors(payload.colorImages);
+      setPendingGalleryColors(suggestGalleryColors(payload.product.galleryPhotos, payload.colorImages));
+      setColorOrderDraft(null);
+    }
     else setMessage({ kind: 'error', text: payload.message || 'Produto não encontrado.' });
   }
 
@@ -344,7 +351,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   // ID novo) e, se ela tinha marcação de cor, salvar essa marcação de novo
   // depois — a rota de criação em lote (`.../gallery`) não aceita cores
   // junto, só URLs.
-  async function restoreDeletedGalleryPhotos(photos: { url: string; colorImageIds: string[] }[]) {
+  async function restoreDeletedGalleryPhotos(photos: { url: string; colorImageIds: string[]; colorTagsReviewed: boolean }[]) {
     if (!photos.length) return;
     const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/gallery`, {
       method: 'POST',
@@ -356,7 +363,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     if (!loadOk) throw new Error(loadPayload.message || 'Não foi possível desfazer.');
     const freshPhotos: { id: string; url: string; colorImageIds: string[] }[] = loadPayload.product.galleryPhotos;
     for (const photo of photos) {
-      if (!photo.colorImageIds.length) continue;
+      if (!photo.colorTagsReviewed && !photo.colorImageIds.length) continue;
       const match = freshPhotos.find((p) => p.url === photo.url);
       if (!match) continue;
       const { ok: tagOk, payload: tagPayload } = await fetchJson(`/api/admin/catalog/products/${productId}/gallery/${match.id}/colors`, {
@@ -826,6 +833,47 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     }
   }
 
+  async function handleRetryMissingColorPhoto(color: ColorImage) {
+    if (color.originalImagePath || !color.hasSourceImageUrl) return;
+    const before = snapshotColor(color);
+    setBusy(true); setMessage(null);
+    try {
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${color.id}/import-photo`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
+      });
+      if (!ok) throw new Error(payload.message || 'Não foi possível importar a foto da cor.');
+      setLastAction({ label: `importar foto de ${color.colorName}`, undo: () => restoreColorSnapshot(color.id, before) });
+      setMessage({ kind: 'success', text: payload.message });
+      await load();
+    } catch (error) {
+      setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Não foi possível importar a foto.' });
+    } finally { setBusy(false); }
+  }
+
+  async function handleUploadMissingColorPhoto(color: ColorImage) {
+    const file = missingColorFiles[color.id];
+    if (!file) { setMessage({ kind: 'error', text: 'Escolha a foto desta cor antes de enviar.' }); return; }
+    const before = snapshotColor(color);
+    setBusy(true); setMessage(null);
+    try {
+      const uploaded = await uploadPhoto(productId, file);
+      if (!uploaded.ok) throw new Error(uploaded.message);
+      const action = color.status === 'incompleto' ? 'completar' : 'trocar_foto';
+      const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${color.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, originalImagePath: uploaded.path,
+          ...(action === 'completar' ? { stillMissing: color.missingRequiredFields.filter(field => field !== 'foto_real_por_cor') } : {}) })
+      });
+      if (!ok) throw new Error(payload.message || 'Não foi possível vincular a foto à cor.');
+      setLastAction({ label: `enviar foto de ${color.colorName}`, undo: () => restoreColorSnapshot(color.id, before) });
+      setMessage({ kind: 'success', text: 'Foto da cor enviada.' });
+      setMissingColorFiles(previous => ({ ...previous, [color.id]: null }));
+      await load();
+    } catch (error) {
+      setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Não foi possível enviar a foto da cor.' });
+    } finally { setBusy(false); }
+  }
+
   // Reescrito de vez em 15/09/2026 (fim da recolorização — ver
   // estado-consolidado.md seção 0.67): não mexe mais em status/foto tratada
   // da cor, e não apaga mais nada — só ACRESCENTA fotos de exibição novas
@@ -1204,6 +1252,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const dirtyGalleryPhotos = (product?.galleryPhotos || []).filter((p) => {
     const pending = pendingGalleryColors[p.id];
     if (!pending) return false;
+    if (!p.colorTagsReviewed) return true; // Confirma também "nenhuma cor" após descartar uma sugestão.
     const a = [...p.colorImageIds].sort().join(',');
     const b = [...pending].sort().join(',');
     return a !== b;
@@ -1269,7 +1318,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       if (!ok) setMessage({ kind: 'error', text: payload.message || 'Não foi possível remover esta foto.' });
       if (ok) {
         if (before) {
-          setLastAction({ label: 'remover foto da galeria', undo: () => restoreDeletedGalleryPhotos([{ url: before.url, colorImageIds: before.colorImageIds }]) });
+          setLastAction({ label: 'remover foto da galeria', undo: () => restoreDeletedGalleryPhotos([{ url: before.url, colorImageIds: before.colorImageIds, colorTagsReviewed: before.colorTagsReviewed }]) });
         }
         load();
       }
@@ -1300,7 +1349,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     if (!confirm(`Remover ${ids.length} foto(s) selecionada(s) da galeria deste produto? Isso não pode ser desfeito.`)) return;
     const beforePhotos = (product?.galleryPhotos || [])
       .filter((p) => selectedGalleryIds.has(p.id))
-      .map((p) => ({ url: p.url, colorImageIds: p.colorImageIds }));
+      .map((p) => ({ url: p.url, colorImageIds: p.colorImageIds, colorTagsReviewed: p.colorTagsReviewed }));
     setBusy(true);
     setMessage(null);
     try {
@@ -1434,8 +1483,8 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         <div className="card" style={{ padding: 16, marginBottom: 20 }}>
           <span className="section-label">Todas as fotos do anúncio — marque quais cores aparecem em cada foto</span>
           <p className="helper" style={{ margin: '4px 0 12px' }}>
-            Clique nas bolinhas de cor abaixo de cada foto para marcar/desmarcar — é só uma pré-seleção,
-            ainda não salva nada. Clique em &quot;Salvar marcações&quot; quando terminar. Ao processar uma cor
+            Fotos que correspondem à amostra da cor pelo arquivo de origem já vêm pré-selecionadas. Confira e ajuste as bolinhas abaixo de cada foto; sugestões não são salvas automaticamente.
+            Clique em &quot;Salvar marcações&quot; quando terminar. Ao processar uma cor
             com IA, ela recorta só as fotos marcadas (e já salvas) para aquela cor.
           </p>
           {/* Salvar/descartar a pré-seleção (14/09/2026, pedido do usuário:
@@ -1604,6 +1653,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       <div className="catalog-toolbar">
         <h2 style={{ margin: 0, fontSize: 18 }}>Cores e fotos de prova</h2>
         <div style={{ display: 'flex', gap: 8 }}>
+          <Link className="button secondary" href={`/admin/catalogo/${productId}/canva`}>Preparar todas no Canva</Link>
           <button className="button secondary" type="button" onClick={handleOpenAliexpressImport}>Importar/atualizar do AliExpress</button>
           <button className="button secondary" type="button" onClick={() => setShowNewColor((v) => !v)}>+ Adicionar cor</button>
         </div>
@@ -1799,6 +1849,21 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                 {color.supplierSku && <span className="muted" style={{ fontSize: 11 }}>SKU do fornecedor {color.supplierSku}</span>}
                 <span className={`catalog-badge ${color.isActive ? 'validada' : 'rejeitada'}`}>{color.isActive ? 'Ativada — disponível quando o produto estiver publicado' : 'Oculta — não aparece no catálogo'}</span>
                 {color.rejectionReason && <span className="helper">Motivo: {color.rejectionReason}</span>}
+
+                {!color.originalImagePath && <div className="catalog-color-section" style={{ display: 'grid', gap: 8 }}>
+                  <span className="section-label">Foto desta cor ausente</span>
+                  {color.hasSourceImageUrl && <button type="button" className="button secondary small" disabled={busy}
+                    onClick={() => void handleRetryMissingColorPhoto(color)} style={{ justifySelf: 'start' }}>
+                    Tentar importar novamente a foto da cor
+                  </button>}
+                  {!color.hasSourceImageUrl && <span className="helper">Não há foto de origem registrada para esta cor. Envie uma imagem do seu computador.</span>}
+                  <label>Inserir manualmente a foto da cor
+                    <input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy}
+                      onChange={event => setMissingColorFiles(previous => ({ ...previous, [color.id]: event.target.files?.[0] || null }))} />
+                  </label>
+                  <button type="button" className="button secondary small" disabled={busy || !missingColorFiles[color.id]}
+                    onClick={() => void handleUploadMissingColorPhoto(color)} style={{ justifySelf: 'start' }}>Salvar foto da cor</button>
+                </div>}
 
                 {color.status !== 'incompleto' && (
                   <div className="catalog-color-section">

@@ -69,5 +69,10 @@ export async function PUT(
     }
   }
 
+  const { error: reviewedError } = await auth.admin.from('catalog_product_gallery_images')
+    .update({ color_tags_reviewed_at: new Date().toISOString() })
+    .eq('id', galleryImageId).eq('product_id', productId);
+  if (reviewedError) return NextResponse.json({ message: 'As marcações foram gravadas, mas não foi possível registrar a revisão. Recarregue a página.' }, { status: 500 });
+
   return NextResponse.json({ message: 'Marcação de cores salva.', colorImageIds });
 }

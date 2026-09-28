@@ -30,7 +30,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
   // desmarcar cor e pra process/route.ts encontrar as fotos marcadas).
   const { data: gallery } = await auth.admin
     .from('catalog_product_gallery_images')
-    .select('id, image_url')
+    .select('id, image_url, color_tags_reviewed_at')
     .eq('product_id', productId)
     .order('position', { ascending: true });
 
@@ -127,6 +127,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       processedReferenceRevision: image.processed_reference_revision,
       processedTemplateUpdatedAt: image.processed_template_updated_at,
       hasSourceImageUrl: Boolean(image.source_image_url),
+      sourceImageUrl: image.source_image_url,
       // Padrão de SKU/cor (13/09/2026): variante (C1, C2...) + cor
       // padronizada num campo à parte — ver lib/catalog/sku-standard.ts.
       // Cores criadas antes dessa data podem ter `colorVariantNumber`/
@@ -198,7 +199,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       // Fotos da galeria com `id` + cores já marcadas nelas (13/09/2026,
       // migração 202609131400) — alimenta a seção nova "Todas as fotos do
       // anúncio", onde o master marca/desmarca cor por foto.
-      galleryPhotos: (gallery || []).map((g) => ({ id: g.id, url: g.image_url, colorImageIds: tagsByGalleryImage.get(g.id) || [] })),
+      galleryPhotos: (gallery || []).map((g) => ({ id: g.id, url: g.image_url,
+        colorImageIds: tagsByGalleryImage.get(g.id) || [], colorTagsReviewed: !!g.color_tags_reviewed_at })),
       positionImageUrl: positionSigned.data?.signedUrl || null,
       // Caminho cru (15/09/2026, "Desfazer última ação") — mesma razão do
       // comentário acima em originalImagePath/processedImagePath.

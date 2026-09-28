@@ -71,3 +71,19 @@ Em caso de diferença entre as referências, siga esta prioridade:
 - formato, cor, material e detalhes: foto real da cor;
 - posição, centralização e largura final: imagem maior da prova online.`;
 }
+
+export function buildCanvaBatchPrompt(product: CanvaReferenceProduct, colors: { name: string; filename: string }[]) {
+  return `Prepare as fotos de prova online do modelo “${product.model_name}” (SKU ${product.sku_optotica}), uma por página, mantendo cada cor na sua própria página.
+
+Identifique cada página pelo nome preparado, independentemente da ordem no design:
+${colors.map((color, index) => `${index + 1}. ${color.filename} — cor “${color.name}”`).join('\n')}
+
+Medidas deste modelo, iguais para todas as cores:
+${measurementLines(product).join('\n') || '- leia as cotas na imagem de medidas de cada página'}
+
+Em CADA página, selecione somente as três imagens daquela página. A imagem grande é a referência de posição, centralização e largura horizontal; não copie dela a forma ou a cor. A foto pequena da cor, no canto superior direito, define exclusivamente a forma real, cor, material e detalhes da armação daquela página. A foto de medidas, no canto superior esquerdo, define geometria e proporções; leia as cotas também quando não estiverem listadas acima. Nunca use a foto de outra página como referência.
+
+Transforme a armação real numa vista frontal ortográfica, reta e simétrica. Mostre somente a frente, sem hastes. A frente deve ocupar toda a largura marcada pelo modelo grande, sem cortar nem deformar. Mantenha as proporções das lentes e ponte dadas pelas medidas. Fundo e interior dos aros devem ter transparência real. Remova reflexos, lentes, sombras e os dois quadros de referência pequenos do resultado final.
+
+Confira separadamente cada página: uma armação por página, com o nome/SKU da cor correspondente. Não misture características de cores diferentes. Se o Pede pro Canva editar apenas a página atual, execute estas mesmas instruções em cada página, selecionando sempre as três imagens da própria página.`;
+}
