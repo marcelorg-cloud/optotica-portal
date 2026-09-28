@@ -11,14 +11,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
 
   const { data: product } = await auth.admin
     .from('catalog_products')
-    .select('id, supplier_id, supplier_item_id, model_name, sku_optotica, format_code, material_code, model_number, lens_width_mm, lens_height_mm, bridge_mm, lens_diagonal_mm, temple_length_mm, rim_mm, frame_total_width_mm, standard_height_mm, measurement_source, status, created_at, position_image_path, catalog_suppliers(name, store_id)')
+    .select('id, supplier_id, supplier_item_id, model_name, sku_optotica, format_code, material_code, model_number, lens_width_mm, lens_height_mm, bridge_mm, lens_diagonal_mm, temple_length_mm, rim_mm, frame_total_width_mm, standard_height_mm, measurement_source, status, created_at, position_image_path, canva_reference_revision, catalog_suppliers(name, store_id)')
     .eq('id', productId)
     .maybeSingle();
   if (!product) return NextResponse.json({ message: 'Produto não encontrado.' }, { status: 404 });
 
   const { data: images } = await auth.admin
     .from('catalog_product_color_images')
-    .select('id, color_name, supplier_sku, original_image_path, processed_image_path, status, missing_required_fields, rejection_reason, validated_at, created_at, source_image_url, color_variant_number, color_principal, color_secondary, supplier_color_name, color_note, is_active, display_order')
+    .select('id, color_name, supplier_sku, original_image_path, processed_image_path, processed_at, processed_reference_revision, processed_template_updated_at, status, missing_required_fields, rejection_reason, validated_at, created_at, source_image_url, color_variant_number, color_principal, color_secondary, supplier_color_name, color_note, is_active, display_order')
     .eq('product_id', productId)
     .order('color_variant_number', { ascending: true, nullsFirst: false });
 
@@ -123,6 +123,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       // isso — usado só pelo botão de desfazer, nunca mostrado na tela.
       originalImagePath: image.original_image_path,
       processedImagePath: image.processed_image_path,
+      processedAt: image.processed_at,
+      processedReferenceRevision: image.processed_reference_revision,
+      processedTemplateUpdatedAt: image.processed_template_updated_at,
       hasSourceImageUrl: Boolean(image.source_image_url),
       // Padrão de SKU/cor (13/09/2026): variante (C1, C2...) + cor
       // padronizada num campo à parte — ver lib/catalog/sku-standard.ts.
@@ -182,6 +185,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ prod
       templeLengthMm: product.temple_length_mm,
       rimMm: product.rim_mm,
       frameTotalWidthMm: product.frame_total_width_mm,
+      canvaReferenceRevision: product.canva_reference_revision,
       standardHeightMm: product.standard_height_mm,
       measurementSource: product.measurement_source,
       status: product.status,

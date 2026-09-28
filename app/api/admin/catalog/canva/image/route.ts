@@ -35,10 +35,10 @@ export async function GET(request: Request) {
     const params = new URL(request.url).searchParams;
     const productId = params.get('productId'), colorId = params.get('colorId');
     const kind = params.get('kind'), sessionId = params.get('sessionId');
-    if (!uuid(productId) || !uuid(colorId) || !['original', 'current', 'preview'].includes(kind || '')) {
+    if (!uuid(productId) || !uuid(colorId) || !['original', 'measurements', 'current', 'preview'].includes(kind || '')) {
       throw new CanvaError('Imagem inválida.');
     }
-    const { color } = await getColor(auth.admin, productId, colorId);
+    const { color, product } = await getColor(auth.admin, productId, colorId);
     let path: string | null;
     if (kind === 'preview') {
       if (!uuid(sessionId)) throw new CanvaError('Prévia inválida.');
@@ -51,7 +51,8 @@ export async function GET(request: Request) {
         throw new CanvaError('Caminho da prévia inválido.', 403);
       }
     } else {
-      path = kind === 'original' ? color.original_image_path : color.processed_image_path;
+      path = kind === 'original' ? color.original_image_path
+        : kind === 'measurements' ? product.position_image_path : color.processed_image_path;
       if (path && !storedPath(path, productId + '/')) throw new CanvaError('Caminho da imagem inválido.', 403);
     }
     if (!path) throw new CanvaError('Imagem ainda não disponível.', 404);

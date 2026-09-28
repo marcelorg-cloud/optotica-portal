@@ -14,7 +14,7 @@ export function withCanvaRedo(href: string, sessionId: string) {
   return url.toString();
 }
 
-export function canvaImageUrl(productId: string, colorId: string, kind: 'original' | 'current' | 'preview', sessionId?: string,
+export function canvaImageUrl(productId: string, colorId: string, kind: 'original' | 'measurements' | 'current' | 'preview', sessionId?: string,
   version?: string) {
   const params = new URLSearchParams({ productId, colorId, kind });
   if (sessionId) params.set('sessionId', sessionId);

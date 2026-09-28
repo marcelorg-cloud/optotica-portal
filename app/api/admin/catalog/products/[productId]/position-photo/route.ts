@@ -107,13 +107,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     .eq('id', productId);
   if (updateError) return NextResponse.json({ message: 'Não foi possível salvar a foto de medidas.' }, { status: 500 });
 
-  // Reset de todas as cores REMOVIDO (15/09/2026 — ver estado-consolidado.md
-  // seção 0.67): existia porque "Processar com IA" usava esta foto de
-  // posição como referência de forma para a recolorização — trocar a
-  // posição invalidava o resultado já pintado de cada cor. A recolorização
-  // saiu de vez do sistema; esta foto de medidas não alimenta mais nenhum
-  // processamento (fica na tela só porque o usuário pediu pra manter,
-  // mesmo sem uso funcional por enquanto) — então trocá-la não tem mais
-  // nenhum efeito colateral sobre as cores.
+  // O reset direto das cores continua removido: esta rota não apaga nem
+  // reprocessa as fotos de exibição. Desde 25/09/2026, porém, a foto de
+  // medidas é uma referência geométrica do fluxo Canva. O trigger
+  // `bump_canva_reference_revision` incrementa a revisão ao trocar esta
+  // foto; páginas e provas geradas com a revisão anterior passam a exigir
+  // "Refazer com as referências" antes de um novo salvamento.
   return NextResponse.json({ message: 'Foto de medidas salva.' });
 }
