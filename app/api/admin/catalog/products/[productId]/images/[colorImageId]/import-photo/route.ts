@@ -1,13 +1,10 @@
 import { NextResponse } from 'next/server';
+import sharp from 'sharp';
 import { requireMaster } from '@/lib/catalog/require-master';
 
 const BUCKET = 'catalog-product-photos';
 const MAX_BYTES = 15 * 1024 * 1024;
-const EXT_BY_CONTENT_TYPE: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp'
-};
+const MIME_BY_FORMAT: Record<string, string> = { jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
 
 // Importação automática de foto (pedido do usuário, 12/09/2026): em vez do
 // master baixar a imagem do AliExpress na mão e subir de novo pela tela,
@@ -41,7 +38,7 @@ export async function POST(
 
   const { data: image } = await auth.admin
     .from('catalog_product_color_images')
-    .select('id, status, source_image_url')
+    .select('id, status, original_image_path, source_image_url')
     .eq('id', colorImageId)
     .eq('product_id', productId)
     .maybeSingle();
@@ -58,7 +55,7 @@ export async function POST(
     if (!galleryMatch) return NextResponse.json({ message: 'Essa foto não está na galeria deste produto.' }, { status: 400 });
     sourceUrl = requestedUrl;
   } else {
-    if (image.status !== 'incompleto') {
+    if (image.original_image_path) {
       return NextResponse.json({ message: 'Esta cor já tem uma foto — escolha uma foto da galeria ou envie a sua para trocar.' }, { status: 409 });
     }
     if (!image.source_image_url) {
@@ -77,15 +74,25 @@ export async function POST(
     return NextResponse.json({ message: `Não foi possível baixar a foto (status ${response.status}). Use o envio manual.` }, { status: 502 });
   }
 
-  const contentType = (response.headers.get('content-type') || '').split(';')[0].trim();
-  const ext = EXT_BY_CONTENT_TYPE[contentType] || 'jpg'; // servidores de imagem do AliExpress às vezes omitem/variam o content-type — jpg é o formato real na quase totalidade dos casos observados
+  if (Number(response.headers.get('content-length')) > MAX_BYTES) {
+    return NextResponse.json({ message: 'A foto do fornecedor é grande demais. Envie manualmente.' }, { status: 502 });
+  }
   const buffer = Buffer.from(await response.arrayBuffer());
   if (buffer.byteLength === 0 || buffer.byteLength > MAX_BYTES) {
     return NextResponse.json({ message: 'A foto veio vazia ou grande demais. Use o envio manual.' }, { status: 502 });
   }
 
+  // O fornecedor pode devolver HTML de erro com HTTP 200 ou um content-type
+  // incorreto; só confirme a importação depois de verificar o arquivo real.
+  const metadata = await sharp(buffer, { limitInputPixels: 16_000_000 }).metadata().catch(() => null);
+  const contentType = metadata?.format ? MIME_BY_FORMAT[metadata.format] : null;
+  if (!contentType || !metadata?.width || !metadata.height) {
+    return NextResponse.json({ message: 'O fornecedor não enviou uma foto válida. Tente novamente ou envie manualmente.' }, { status: 502 });
+  }
+  const ext = metadata.format === 'jpeg' ? 'jpg' : metadata.format;
+
   const path = `${productId}/${Date.now()}.${ext}`;
-  const { error: uploadError } = await auth.admin.storage.from(BUCKET).upload(path, buffer, { contentType: contentType || 'image/jpeg' });
+  const { error: uploadError } = await auth.admin.storage.from(BUCKET).upload(path, buffer, { contentType });
   if (uploadError) {
     console.error('catalog_product_photo_import_upload_failed', { message: uploadError.message });
     return NextResponse.json({ message: 'A foto foi baixada, mas não foi possível salvar no Storage. Tente de novo.' }, { status: 500 });

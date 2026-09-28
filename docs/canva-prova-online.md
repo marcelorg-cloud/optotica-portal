@@ -1,6 +1,8 @@
 # Canva — prova online por produto e cor
 
 ## Fluxo
+Para preparar o produto inteiro, use **Preparar todas no Canva** na seção **Cores e fotos de prova**. O painel de lote prepara sequencialmente as cores que têm foto original e medidas válidas no mesmo design do produto; mostra progresso por cor e permite retomar sem duplicar uma página já vinculada. As operações de importação/merge do Canva continuam por cor sob a proteção de bloqueio já existente, mas não exigem cliques separados. Copie o comando do lote: ele identifica cada cor pelo nome do arquivo e instrui a IA a trabalhar apenas com as três referências da página atual. No Canva, aplique o Pede pro Canva em cada página, pois o portal não pode executar essa ferramenta automaticamente. Ao voltar, **Importar todas as páginas prontas** obtém uma prévia por cor; confira as prévias individualmente e marque as corretas antes de **Salvar fotos conferidas**. Uma página que falhe não impede a importação das demais. Se as referências de uma cor mudaram, refaça essa cor na página individual antes de incluí-la em um novo lote.
+
 1. Na Foto de Prova da cor, abra **Preparar no Canva**.
 2. Em **Imagem modelo da prova online**, cadastre um PNG de 540 × 540 px com fundo e lentes transparentes. O modelo é compartilhado pelas novas páginas de todos os produtos.
 3. No produto, cadastre a **Foto de medidas do modelo** e preencha as medidas conhecidas, principalmente a Frente Total.
