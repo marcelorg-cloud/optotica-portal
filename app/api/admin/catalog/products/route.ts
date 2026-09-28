@@ -61,6 +61,8 @@ export async function GET() {
 
   const result = (products || []).map((p) => ({
     id: p.id,
+    supplierId: p.supplier_id,
+    supplierItemId: p.supplier_item_id,
     modelName: p.model_name,
     skuOptotica: p.sku_optotica,
     formatCode: p.format_code,

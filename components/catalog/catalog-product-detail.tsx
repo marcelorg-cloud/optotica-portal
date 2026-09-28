@@ -101,6 +101,13 @@ type ColorImage = {
   }[];
 };
 
+function hasUnprocessedColorPhotos(color: ColorImage, galleryPhotos: Product['galleryPhotos']): boolean {
+  return Boolean(color.originalImageUrl) && (
+    !color.displayImages.some((image) => image.fromOwnColorPhoto) ||
+    galleryPhotos.some((photo) => photo.colorImageIds.includes(color.id) && !color.displayImages.some((image) => image.sourceGalleryImageId === photo.id))
+  );
+}
+
 // Instantâneo do que a linha da cor tinha ANTES da última ação (15/09/2026,
 // botão "Desfazer última ação") — só os campos que a tela já recebe do
 // servidor (ver ColorImage acima); escrito de volta via a ação `restaurar`
@@ -171,6 +178,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const messageRef = useRef<HTMLParagraphElement | null>(null);
   const [busy, setBusy] = useState(false);
+  const [batchProgress, setBatchProgress] = useState('');
   useProcessingFeedback(busy, 'Processando catálogo…');
   const [normalizationInstructions, setNormalizationInstructions] = useState<Record<string, string>>({});
   const [normalizationBeforeUrl, setNormalizationBeforeUrl] = useState<string | null>(null);
@@ -948,6 +956,44 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleProcessAllColors() {
+    if (busy || !product || !colors) return;
+    const candidates = colors.filter((color) => hasUnprocessedColorPhotos(color, product.galleryPhotos));
+    if (!candidates.length) return;
+    setBusy(true);
+    setMessage(null);
+    let successful = 0;
+    const failures: string[] = [];
+    const created: { colorId: string; imageId: string }[] = [];
+    try {
+      // Cada cor usa sua própria referência e a rota individual existente.
+      // A sequência evita disputar o orçamento de IA e mostra o progresso.
+      for (let index = 0; index < candidates.length; index++) {
+        const color = candidates[index];
+        setBatchProgress(`Processando cor ${index + 1} de ${candidates.length}: ${color.colorName}`);
+        try {
+          const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${color.id}/process`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }
+          });
+          if (ok) {
+            successful++;
+            for (const imageId of Array.isArray(payload.createdIds) ? payload.createdIds : []) created.push({ colorId: color.id, imageId });
+          } else failures.push(`${color.colorName}: ${payload.message || 'falha'}`);
+        } catch { failures.push(`${color.colorName}: falha de conexão`); }
+      }
+      setMessage({ kind: failures.length ? 'error' : 'success', text: `${successful} de ${candidates.length} cor(es) processada(s).${failures.length ? ` Falhas: ${failures.join(' | ')}` : ''} Confira as fotos geradas antes de validar.` });
+      if (created.length) setLastAction({ label: `processar ${successful} cor(es) com IA`, undo: async () => {
+        for (const { colorId, imageId } of created) {
+          const { ok, payload } = await fetchJson(`/api/admin/catalog/products/${productId}/images/${colorId}/display-images`, {
+            method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: imageId })
+          });
+          if (!ok) throw new Error(payload.message);
+        }
+      } });
+      await load();
+    } finally { setBatchProgress(''); setBusy(false); }
   }
 
   // "Enviar Óculos da Prova Online" (14/09/2026, pedido do usuário — seção
@@ -1764,6 +1810,12 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
       )}
 
       {colors.length ? (
+        <>
+        <div className="card" style={{ padding: 16, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <button className="button primary" type="button" disabled={busy || !colors.some((color) => hasUnprocessedColorPhotos(color, product.galleryPhotos))} onClick={handleProcessAllColors}>Processar todas as cores com IA</button>
+          <span className="helper">Processa cada cor individualmente com sua foto de referência e ignora as que não têm fotos novas.</span>
+          {batchProgress && <strong role="status">{batchProgress}</strong>}
+        </div>
         <div className="catalog-color-grid">
           {colors.map((color) => {
             // Layout em duas colunas (15/09/2026, pedido do usuário com
@@ -1781,7 +1833,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
             // foto candidata. Sem ela, não tem o que processar, mesmo com
             // fotos marcadas em "Todas as fotos do anúncio".
             const ownPhotoAlreadyProcessed = color.displayImages.some((d) => d.fromOwnColorPhoto);
-            const hasProcessCandidates = Boolean(color.originalImageUrl) && (taggedPhotos.length > 0 || !ownPhotoAlreadyProcessed);
+            const hasProcessCandidates = hasUnprocessedColorPhotos(color, product.galleryPhotos);
             return (
             <div key={color.id} id={`cor-${color.id}`} className="catalog-color-card">
               <div className="catalog-color-photos" style={{ flexDirection: 'column' }}>
@@ -1926,6 +1978,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
             );
           })}
         </div>
+        </>
       ) : (
         <div className="catalog-empty">Nenhuma cor cadastrada ainda.</div>
       )}
