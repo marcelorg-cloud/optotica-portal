@@ -288,7 +288,15 @@ export async function POST(request: Request) {
     .maybeSingle();
   if (processed && processed.status !== 'revoked') return NextResponse.json({ received: true });
 
-  const tokenMatch = processed?.status === 'revoked' ? null : message.text.match(/^OPTOTICA\s+([A-Za-z0-9_-]{32,})$/i);
+  // Convites chegam pré-preenchidos pelo wa.me, mas alguns clientes do WhatsApp
+  // podem inserir espaços/quebras de linha ao encaminhar/confirmar a mensagem.
+  // Aceitamos apenas o comando OPTOTICA + um token base64url válido, tolerando
+  // whitespace; isso não relaxa a conferência do número esperado do convite.
+  const normalizedInvitationText = message.text.replace(/\s+/g, ' ').trim();
+  const tokenMatch = processed?.status === 'revoked' ? null : normalizedInvitationText.match(/^OPTOTICA\s+([A-Za-z0-9_-]{32,})$/i);
+  if (!tokenMatch && /^OPTOTICA\b/i.test(normalizedInvitationText)) {
+    console.warn('patient_invitation_rejected', { reason: 'malformed_token', whatsappE164, messageId: message.messageId });
+  }
   let invitationId: string | null = null;
   let client: { id: string; organization_id: string; full_name: string } | null = null;
 
@@ -299,11 +307,24 @@ export async function POST(request: Request) {
       .select('id, organization_id, professional_user_id, patient_name, expected_whatsapp_e164, status, expires_at')
       .eq('token_hash', tokenHash)
       .maybeSingle();
-    const valid = invitation
-      && invitation.status === 'pending'
-      && new Date(invitation.expires_at).getTime() > Date.now()
-      && toCanonicalWhatsAppE164(invitation.expected_whatsapp_e164) === whatsappE164;
-    if (!valid || !invitation) {
+    const expectedWhatsApp = invitation ? toCanonicalWhatsAppE164(invitation.expected_whatsapp_e164) : '';
+    const rejectionReason = !invitation
+      ? 'token_not_found'
+      : invitation.status !== 'pending'
+        ? `status_${invitation.status}`
+        : new Date(invitation.expires_at).getTime() <= Date.now()
+          ? 'expired'
+          : expectedWhatsApp !== whatsappE164
+            ? 'whatsapp_mismatch'
+            : null;
+    if (rejectionReason || !invitation) {
+      console.warn('patient_invitation_rejected', {
+        reason: rejectionReason,
+        invitationId: invitation?.id,
+        whatsappE164,
+        expectedWhatsApp: rejectionReason === 'whatsapp_mismatch' ? expectedWhatsApp : undefined,
+        messageId: message.messageId
+      });
       await sendWhatsAppText(phoneDigits, 'Este convite é inválido, expirou ou pertence a outro número. Solicite um novo convite ao profissional.');
       return NextResponse.json({ received: true });
     }
@@ -313,14 +334,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true });
     }
 
-    const { data: claimed } = await admin.from('patient_access_invitations').update({
-      status: 'accepted',
-      accepted_whatsapp_e164: whatsappE164,
-      opt_in_message_id: message.messageId,
-      accepted_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }).eq('id', invitation.id).eq('status', 'pending').select('id').maybeSingle();
-    if (!claimed) return NextResponse.json({ received: true });
+    // Não consome o convite aqui. Ele só será marcado como accepted depois que
+    // cliente, vínculo, usuário e link de acesso tiverem sido criados com sucesso.
+    // Assim uma falha intermediária não inutiliza um convite válido.
     invitationId = invitation.id;
 
     const { data: existingClient } = await admin
@@ -411,6 +427,23 @@ export async function POST(request: Request) {
     { organization_id: client.organization_id, client_id: client.id, whatsapp_e164: whatsappE164, consent_type: 'transactional_messages', granted: true, source: 'whatsapp_inbound', policy_version: consentVersion, evidence: { whatsapp_message_id: message.messageId, invitation_id: invitationId } }
   ]);
   if (consentError) throw consentError;
+
+  if (invitationId) {
+    const { data: acceptedInvitation, error: acceptError } = await admin.from('patient_access_invitations').update({
+      status: 'accepted',
+      accepted_whatsapp_e164: whatsappE164,
+      opt_in_message_id: message.messageId,
+      accepted_by: authUser.id,
+      accepted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }).eq('id', invitationId).eq('status', 'pending').select('id').maybeSingle();
+    if (acceptError || !acceptedInvitation) {
+      console.error('patient_invitation_accept_failed', { invitationId, code: acceptError?.code, message: acceptError?.message });
+      await admin.from('whatsapp_access_requests').update({ status: 'revoked' }).eq('whatsapp_message_id', message.messageId);
+      await sendWhatsAppText(phoneDigits, 'Não foi possível concluir este convite. Solicite um novo convite ao profissional.');
+      return NextResponse.json({ received: true });
+    }
+  }
 
   try {
     await sendWhatsAppText(phoneDigits, `Seu acesso seguro ao Portal Optótica:\n${accessLink}\n\nO link é pessoal, expira em 15 minutos e funciona uma única vez.`);
