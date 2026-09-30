@@ -8,7 +8,7 @@ type Info = {
   templateUrl: string | null; templateReady: boolean; filename: string | null; designTitle: string; pageNumber: number | null; pageTitle: string | null;
   configured: boolean; configurationError: string | null; connected: boolean; hasDesign: boolean; hasResumableDesign: boolean; needsRecovery: boolean;
   productName: string; colorName: string; frameWidthMm: number | null;
-  prompt: string; measurements: string[]; originalUrl: string | null; measurementUrl: string | null; currentUrl: string | null;
+  prompt: string; refinementPrompt: string; measurements: string[]; originalUrl: string | null; measurementUrl: string | null; currentUrl: string | null;
   sourceChanged: boolean; designReferencesChanged: boolean; tryonReferencesChanged: boolean; recoverableSessionId: string | null;
 };
 type Result = {
@@ -173,7 +173,7 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
         {info.pageTitle && info.pageTitle !== info.filename && <p>O SKU ou a medida mudou desde a criação desta página. A exportação do portal usará o novo nome do PNG mostrado acima.</p>}
         <details open>
           <summary>Imagem modelo da prova online</summary>
-          <p>Esta imagem será usada como guia nas novas páginas. A foto da cor ficará separada no canto superior direito e a foto de medidas no canto superior esquerdo.</p>
+          <p>Esta imagem será usada somente como guia de posição, centro e largura. A referência de formato ficará maior na parte superior e a foto real da cor ficará maior na parte inferior.</p>
           {info.templateUrl && <img src={info.templateUrl} alt="Imagem modelo cadastrada" style={{ ...previewStyle, maxWidth: 240 }} />}
           {!info.templateReady && <p role="status">{info.templateUrl ? 'A imagem cadastrada está com fundo branco ou sem transparência. Envie a versão com fundo e lentes transparentes.' : 'Cadastre o PNG modelo transparente de 540 × 540 px.'}</p>}
           <label>Substituir imagem modelo (PNG, 540 × 540 px)
@@ -200,12 +200,12 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
             if (result.authorizeUrl) window.location.assign(result.authorizeUrl);
           })}>Conectar Canva</button>
         </div>}
-        {info.designReferencesChanged && <p role="status">A foto da cor, as medidas ou a imagem modelo mudaram desde a criação desta página. Use <strong>Refazer com as referências</strong> para abrir um arquivo novo com as três imagens atuais.</p>}
+        {info.designReferencesChanged && <p role="status">A foto da cor, a referência de formato ou a imagem modelo mudaram desde a criação desta página. Use <strong>Refazer com as referências</strong> para abrir um arquivo novo com as três imagens atuais.</p>}
         {info.tryonReferencesChanged && <p role="status">A foto de prova salva é anterior a uma das referências atuais, incluindo a imagem modelo. Refaça e salve novamente para manter o resultado atualizado.</p>}
         {!(Number(info.frameWidthMm) > 0) && <p>Preencha e salve a <strong>Frente Total (mm)</strong> no <Link href={productUrl}>cadastro do produto</Link> antes de continuar.</p>}
         {Number(info.frameWidthMm) > 0 && <p>Frente total cadastrada: <strong>{info.frameWidthMm} mm</strong>.</p>}
         {!info.originalUrl && <p>Cadastre a foto original desta cor no produto.</p>}
-        {!info.measurementUrl && <p>Cadastre a <strong>Foto de medidas do modelo</strong> no <Link href={productUrl}>produto</Link> antes de criar ou refazer a página no Canva.</p>}
+        {!info.measurementUrl && <p>Cadastre a <strong>Referência de formato e proporções</strong> no <Link href={productUrl}>produto</Link> antes de criar ou refazer a página no Canva.</p>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 24 }}>
           <div>
             <h2>Foto original da cor</h2>
@@ -213,11 +213,10 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
             {info.originalUrl && <img src={info.originalUrl} alt={'Foto original — ' + info.colorName} style={{ ...previewStyle, background: '#fff' }} />}
           </div>
           <div>
-            <h2>Foto de medidas do modelo</h2>
+            <h2>Referência de formato e proporções</h2>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            {info.measurementUrl ? <img src={info.measurementUrl} alt={'Medidas — ' + info.productName} style={{ ...previewStyle, background: '#fff' }} /> : <p>Ainda sem foto de medidas.</p>}
-            {info.measurements.length > 0 && <ul>{info.measurements.map(line => <li key={line}>{line.replace(/^- /, '')}</li>)}</ul>}
-            {info.measurementUrl && <p>O Canva também deverá ler as cotas escritas nesta imagem, inclusive as que ainda não estão preenchidas nos campos acima.</p>}
+            {info.measurementUrl ? <img src={info.measurementUrl} alt={'Formato e proporções — ' + info.productName} style={{ ...previewStyle, background: '#fff' }} /> : <p>Ainda sem referência de formato.</p>}
+            {info.measurementUrl && <p>O Canva usará somente o desenho visual desta imagem. Textos, números, setas e cotas serão ignorados.</p>}
           </div>
           <div>
             <h2>{preview ? 'Prévia para salvar' : 'Foto de prova atual'}</h2>
@@ -227,18 +226,28 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
         </div>
         {info.configured && info.connected && <>
           <details open>
-            <summary>Prompt específico deste modelo para copiar</summary>
+            <summary>1º comando — gerar mantendo as referências</summary>
             <p>Copie este texto antes de abrir o Canva. Ao usar os botões abaixo, o portal também tentará copiá-lo automaticamente.</p>
             <textarea aria-label="Comando para editar a armação no Canva" readOnly value={info.prompt} rows={18} style={{ width: '100%' }} />
             <button type="button" className="button secondary small" onClick={async () => {
               setMessage(await copyPromptToClipboard() ? 'Comando copiado.' : 'Selecione o texto acima e copie o comando.');
             }}>Copiar comando</button>
           </details>
+          <details>
+            <summary>2º comando — refinar o primeiro resultado</summary>
+            <p>Use somente se o primeiro resultado precisar de correção. As referências superior e inferior devem continuar na página.</p>
+            <textarea aria-label="Comando para refinar a armação no Canva" readOnly value={info.refinementPrompt} rows={12} style={{ width: '100%' }} />
+            <button type="button" className="button secondary small" onClick={async () => {
+              if (!navigator.clipboard) { setMessage('Selecione o texto acima e copie o comando.'); return; }
+              try { await navigator.clipboard.writeText(info.refinementPrompt); setMessage('Comando de refinamento copiado.'); }
+              catch { setMessage('Selecione o texto acima e copie o comando.'); }
+            }}>Copiar comando de refinamento</button>
+          </details>
           <p>{info.designReferencesChanged
             ? 'A preparação anterior não pode mais ser usada. Abra um novo rascunho com Refazer com as referências.'
             : info.hasDesign
-              ? 'Para uma nova tentativa com as três imagens, use Refazer com as referências. Para apenas ajustar o trabalho anterior, use Editar resultado atual.'
-              : 'Crie a página desta cor com as três referências.'} No Canva, selecione juntas a imagem grande, a foto da cor e a foto de medidas antes de usar <strong>Pede pro Canva</strong>. Depois, remova as duas imagens pequenas dos cantos e a armação usada como modelo. Deixe somente o resultado, com o fundo e o interior das lentes transparentes. Ao terminar, volte a esta página pelo botão Voltar do navegador; a importação começará automaticamente.</p>
+              ? 'Para uma nova tentativa com o novo arranjo das referências, use Refazer com as referências. Para apenas ajustar o trabalho anterior, use Editar resultado atual.'
+              : 'Crie a página desta cor com as três referências.'} No Canva, selecione juntas a imagem-modelo, a referência de formato na parte superior e a foto da cor na parte inferior antes de usar <strong>Pede pro Canva</strong>. No primeiro resultado, mantenha as referências superior e inferior para poder usar o comando de refinamento. Somente depois de aprovar o resultado, remova as duas referências e a armação-modelo, deixando apenas a nova frente com transparência. Ao terminar, volte a esta página pelo botão Voltar do navegador; a importação começará automaticamente.</p>
           {info.hasResumableDesign && !info.designReferencesChanged && <p role="status">O design desta cor já existe no Canva. O portal concluirá o vínculo e abrirá esse mesmo design, sem criar outra página.</p>}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             {info.hasDesign || info.designReferencesChanged ? <>
@@ -271,7 +280,7 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
         </>}
         {preview && !saved && <div style={{ display: 'grid', gap: 10 }}>
           <p>Confira a cor, o formato da armação e a transparência dentro das lentes. Ao salvar, esta prévia passa a ser a foto de prova desta cor.</p>
-          <label><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} /> Conferi: esta é a armação da cor correta, sem as duas imagens pequenas e sem a armação usada como modelo.</label>
+          <label><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} /> Conferi: esta é a armação da cor correta, sem as referências superior e inferior e sem a armação usada como modelo.</label>
           <button type="button" className="button" disabled={!!busy || !reviewed} onClick={() => void run('Salvando a foto de prova…', async signal => {
             await post('save', { sessionId: preview.sessionId }, signal); setSaved(true); await refresh(signal);
           })}>Salvar como foto de prova desta cor</button>
