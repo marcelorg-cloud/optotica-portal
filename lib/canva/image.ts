@@ -49,9 +49,9 @@ export async function prepareTryonPng(input: Buffer) {
     .png().toBuffer();
 }
 
-// The color and measurement references are separate elements in the two upper
-// corners. Detect detached alpha components that still live in those reserved
-// areas instead of rejecting every corner pixel: a tall/oversized frame can
+// The format reference is centered at the top and the color reference at the
+// bottom. Detect detached alpha components left in either reserved strip
+// instead of rejecting every pixel there: a tall/oversized frame can
 // legitimately reach both areas while remaining connected to the central frame.
 export async function rejectReferencePhoto(input: Buffer) {
   const { data, info } = await sharp(input, { limitInputPixels: 16000000 }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -60,15 +60,14 @@ export async function rejectReferencePhoto(input: Buffer) {
   const queue = new Uint32Array(pixels);
   const alpha = info.channels - 1;
   const topLimit = Math.ceil(info.height * 0.32);
-  const leftLimit = Math.ceil(info.width * 0.43);
-  const rightLimit = Math.floor(info.width * 0.57);
-  const minimumReferenceInk = Math.max(64, Math.round(pixels * 0.00035));
-  let detachedLeft = 0, detachedRight = 0;
+  const bottomLimit = Math.floor(info.height * 0.68);
+  const minimumReferenceInk = Math.max(256, Math.round(pixels * 0.0015));
+  let detachedTop = 0, detachedBottom = 0;
 
   for (let start = 0; start < pixels; start++) {
     if (visited[start] || data[start * info.channels + alpha] <= 4) continue;
     let head = 0, tail = 0, size = 0;
-    let left = info.width, right = -1, bottom = -1;
+    let top = info.height, bottom = -1;
     queue[tail++] = start;
     visited[start] = 1;
     while (head < tail) {
@@ -76,7 +75,7 @@ export async function rejectReferencePhoto(input: Buffer) {
       const x = index % info.width;
       const y = Math.floor(index / info.width);
       size++;
-      left = Math.min(left, x); right = Math.max(right, x); bottom = Math.max(bottom, y);
+      top = Math.min(top, y); bottom = Math.max(bottom, y);
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
         if (dx === 0 && dy === 0) continue;
         const nx = x + dx, ny = y + dy;
@@ -87,10 +86,10 @@ export async function rejectReferencePhoto(input: Buffer) {
         queue[tail++] = next;
       }
     }
-    if (bottom < topLimit && right < leftLimit) detachedLeft += size;
-    if (bottom < topLimit && left >= rightLimit) detachedRight += size;
+    if (bottom < topLimit) detachedTop += size;
+    if (top >= bottomLimit) detachedBottom += size;
   }
-  if (detachedLeft >= minimumReferenceInk || detachedRight >= minimumReferenceInk) {
-    throw new CanvaError('Remova as duas imagens pequenas de referência dos cantos e deixe somente a frente da armação centralizada antes de importar.', 422);
+  if (detachedTop >= minimumReferenceInk || detachedBottom >= minimumReferenceInk) {
+    throw new CanvaError('Remova as referências de formato e cor das partes superior e inferior e deixe somente a frente da armação centralizada antes de importar.', 422);
   }
 }

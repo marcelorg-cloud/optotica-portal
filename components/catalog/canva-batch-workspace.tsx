@@ -88,7 +88,7 @@ export function CanvaBatchWorkspace({ productId }: { productId: string }) {
         setProgress(previous => ({ ...previous, [color.id]: 'Página pronta' }));
       }
       await refresh(signal);
-      setMessage('Todas as páginas disponíveis foram preparadas no mesmo design. Abra o Canva e trabalhe cada página com suas próprias três imagens.');
+      setMessage('Todas as páginas disponíveis foram preparadas no mesmo design. Abra o Canva e trabalhe cada página com suas referências de formato em cima e cor embaixo.');
     });
   }
 
@@ -171,9 +171,9 @@ export function CanvaBatchWorkspace({ productId }: { productId: string }) {
     {batch && <>
       {!batch.configured && <p role="alert">{batch.configurationError}</p>}
       {!batch.connected && batch.configured && <p>Conecte sua conta Canva na <Link href={`${productUrl}/canva/${batch.colors[0]?.id || ''}`}>página de uma cor</Link> para começar.</p>}
-      {!batch.hasMeasurements && <p>Cadastre a foto de medidas do modelo no produto antes de preparar o lote.</p>}
+      {!batch.hasMeasurements && <p>Cadastre a referência de formato e proporções do modelo antes de preparar o lote.</p>}
       {!batch.templateReady && <p>Cadastre a imagem modelo transparente na página de uma cor antes de preparar o lote.</p>}
-      <p>O portal prepara as cores em sequência no mesmo design. Cada página recebe o modelo grande, a foto real daquela cor e a imagem de medidas. No Canva, use o Pede pro Canva em cada página; a geração por IA não é iniciada pelo portal.</p>
+      <p>O portal prepara as cores em sequência no mesmo design. Cada página recebe o modelo grande, a referência de formato ampliada em cima e a foto real da cor ampliada embaixo. No primeiro resultado, mantenha as duas referências para permitir refinamento; remova-as somente antes de importar. A geração por IA continua sendo iniciada no Pede pro Canva.</p>
       <details open><summary>Comando para copiar — todas as cores</summary>
         <textarea aria-label="Comando do lote para o Canva" readOnly value={batch.prompt} rows={18} style={{ width: '100%' }} />
         <button type="button" className="button secondary small" disabled={!batch.prompt} onClick={async () => {

@@ -5,7 +5,7 @@ import { beginOAuth, canResumeDesignLink, connection, designLinkNeedsRecovery, g
 import { CanvaError, configurationStatus, sameOrigin, uuid } from '@/lib/canva/security';
 import { createSession, exportSession, linkExisting, openDesign, redoDesign, saveSession } from '@/lib/canva/workflow';
 import { canvaImageUrl } from '@/lib/canva/navigation';
-import { buildCanvaEditPrompt, measurementLines } from '@/lib/canva/prompt';
+import { buildCanvaEditPrompt, buildCanvaRefinementPrompt, canvaColorLabel, measurementLines } from '@/lib/canva/prompt';
 
 import { getTemplate, sameTemplateSnapshot } from '@/lib/canva/template';
 import { photoFilename } from '@/lib/canva/layout';
@@ -38,6 +38,7 @@ export async function GET(request: Request) {
     let filename: string | null = null;
     try { filename = photoFilename(product.sku_optotica, Number(color.color_variant_number), Number(product.frame_total_width_mm)); } catch {}
     const designTitle = Array.from(`${product.sku_optotica} — Prova online`).slice(0, 50).join('');
+    const colorLabel = canvaColorLabel(color);
     const hasResumableDesign = canResumeDesignLink(link);
     const hasMeasurementImage = !!product.position_image_path?.startsWith(productId + '/');
     const designReferencesChanged = !!link && (link.source_path !== color.original_image_path ||
@@ -50,8 +51,9 @@ export async function GET(request: Request) {
       templateUrl: template ? 'data:image/png;base64,' + template.png_base64 : null,
       templateReady: !!template?.has_transparency, configured: ready, configurationError: configuration.error,
       connected: !!current,
-      productName: product.model_name, colorName: color.color_name, frameWidthMm: product.frame_total_width_mm,
-      prompt: buildCanvaEditPrompt(product, color.color_name), measurements: measurementLines(product),
+      productName: product.model_name, colorName: colorLabel, frameWidthMm: product.frame_total_width_mm,
+      prompt: buildCanvaEditPrompt(product, colorLabel),
+      refinementPrompt: buildCanvaRefinementPrompt(product, colorLabel), measurements: measurementLines(product),
       originalUrl: color.original_image_path
         ? canvaImageUrl(productId, colorId, 'original', undefined, imageVersion(color.original_image_path)) : null,
       measurementUrl: hasMeasurementImage

@@ -861,20 +861,25 @@ test('filenames use the existing color SKU and actual physical width', () => {
   assert.equal(layout.photoFilename('GE-AC-003', 2, 113.5), 'GE-AC-003-C2-113.5mm.png');
   for (const args of [['GE', 0, 113], ['GE', 1, 0], ['GE', 1, NaN]]) assert.throws(() => layout.photoFilename(...args));
 });
-test('the Canva prompt is specific to the model, color and available measurements', () => {
+test('the Canva prompts prioritize the visual format and keep references for refinement', () => {
+  assert.equal(prompt.canvaColorLabel({ color_name: 'Retangular em acetato 002 - Cor 5', color_principal: 'Verde-oliva', color_secondary: null }), 'Verde-oliva');
   const text = prompt.buildCanvaEditPrompt({ model_name: 'Retangular em acetato 002', sku_optotica: 'RT-AC-002',
     frame_total_width_mm: 143, lens_width_mm: 50, lens_height_mm: 43, bridge_mm: null,
     lens_diagonal_mm: null, temple_length_mm: null, rim_mm: null, standard_height_mm: null }, 'Preto');
   assert.match(text, /Retangular em acetato 002/);
   assert.match(text, /RT-AC-002/);
   assert.match(text, /cor “Preto”/);
-  assert.match(text, /largura total da frente \(D\): 143 mm/);
-  assert.match(text, /largura de cada lente \(A\): 50 mm/);
-  assert.match(text, /altura de cada lente \(B\): 43 mm/);
-  assert.doesNotMatch(text, /largura da ponte \(C\):/);
-  assert.match(text, /Leia também todas as cotas visíveis/);
-  assert.match(text, /CANTO SUPERIOR ESQUERDO/);
+  assert.doesNotMatch(text, /Medidas cadastradas|143 mm|50 mm|43 mm/);
+  assert.match(text, /IMAGEM MAIOR NA PARTE SUPERIOR/);
+  assert.match(text, /IMAGEM MAIOR NA PARTE INFERIOR/);
+  assert.match(text, /Não tente interpretar nem reproduzir medidas escritas/);
+  assert.match(text, /mantenha na página e sem alterações as duas referências auxiliares/);
   assert.match(text, /não deixe margens laterais/);
+  const refine = prompt.buildCanvaRefinementPrompt({ model_name: 'Retangular em acetato 002', sku_optotica: 'RT-AC-002' }, 'Preto');
+  assert.match(refine, /Refine a armação gerada/);
+  assert.match(refine, /sem alterar as duas imagens de referência/);
+  assert.match(refine, /imagem superior/);
+  assert.match(refine, /foto inferior/);
 });
 test('template snapshots compare the actual timestamp and reject missing legacy versions', () => {
   assert.equal(templateModule.sameTemplateSnapshot('2026-09-25T01:00:00.000Z', '2026-09-25 01:00:00+00'), true);
@@ -923,8 +928,8 @@ test('page document contains three independent images, exact square geometry and
   const content = await zip.file('content.xml').async('string');
   assert.equal((content.match(/<draw:frame /g) || []).length, 3);
   assert.match(content, /draw:name="GE-AC-003-C2-113mm.png"/);
-  assert.match(content, /Referência de medidas e proporções/);
-  assert.match(content, /Referência da cor e acabamento/);
+  assert.match(content, /Referência de formato e proporções — manter para refinamento/);
+  assert.match(content, /Referência da cor e acabamento — manter para refinamento/);
   assert.match(content, /draw:fill="none"/);
   const styles = await zip.file('styles.xml').async('string');
   assert.match(styles, /fo:page-width="5.625in" fo:page-height="5.625in"/);
@@ -1112,14 +1117,14 @@ test('a successful merge requires its unique inserted page, while a failed merge
   assert.equal(failed.db.catalog_canva_designs.get(colorId).page_id, 'P0');
   assert.equal(failed.product.pending_color_id, null);
 });
-test('both corner references must be removed before preparing the final PNG', async () => {
+test('both top and bottom references must be removed before preparing the final PNG', async () => {
   const model = await transparentModel();
   await image.rejectReferencePhoto(model);
-  const reference = await sharp({ create: { width: 100, height: 70, channels: 4, background: '#fff' } }).png().toBuffer();
-  const right = await sharp(model).composite([{ input: reference, left: 400, top: 42 }]).png().toBuffer();
-  const left = await sharp(model).composite([{ input: reference, left: 24, top: 24 }]).png().toBuffer();
-  await assert.rejects(image.rejectReferencePhoto(right), /duas imagens pequenas/);
-  await assert.rejects(image.rejectReferencePhoto(left), /duas imagens pequenas/);
+  const reference = await sharp({ create: { width: 260, height: 100, channels: 4, background: '#fff' } }).png().toBuffer();
+  const top = await sharp(model).composite([{ input: reference, left: 140, top: 10 }]).png().toBuffer();
+  const bottom = await sharp(model).composite([{ input: reference, left: 140, top: 430 }]).png().toBuffer();
+  await assert.rejects(image.rejectReferencePhoto(top), /partes superior e inferior/);
+  await assert.rejects(image.rejectReferencePhoto(bottom), /partes superior e inferior/);
 });
 test('corner validation accepts a tall oversized frame that legitimately reaches both reference zones', async () => {
   const model = await oversizedModel();
@@ -1143,8 +1148,8 @@ test('a transparent detached reference is still rejected without relying on a wh
     create: { width: 100, height: 60, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } }
   }).composite([{ input: Buffer.from('<svg width="100" height="60"><rect x="2" y="2" width="96" height="56" rx="12" fill="none" stroke="black" stroke-width="4"/></svg>') }])
     .png().toBuffer();
-  const composite = await sharp(model).composite([{ input: reference, left: 24, top: 12 }]).png().toBuffer();
-  await assert.rejects(image.rejectReferencePhoto(composite), /duas imagens pequenas/);
+  const composite = await sharp(model).composite([{ input: reference, left: 220, top: 12 }]).png().toBuffer();
+  await assert.rejects(image.rejectReferencePhoto(composite), /partes superior e inferior/);
 });
 test('export selects the page ID for this color and uses 540 square transparent output', async () => {
   const session = { id: sessionId, page_id: 'B', export_filename: 'GE-AC-003-C2-113mm.png', design_id: 'D', export_job_id: null };

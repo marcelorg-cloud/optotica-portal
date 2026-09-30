@@ -5,12 +5,12 @@ Para preparar o produto inteiro, use **Preparar todas no Canva** na seção **Co
 
 1. Na Foto de Prova da cor, abra **Preparar no Canva**.
 2. Em **Imagem modelo da prova online**, cadastre um PNG de 540 × 540 px com fundo e lentes transparentes. O modelo é compartilhado pelas novas páginas de todos os produtos.
-3. No produto, cadastre a **Foto de medidas do modelo** e preencha as medidas conhecidas, principalmente a Frente Total.
+3. No produto, cadastre a **Referência de formato e proporções**. A Frente Total continua necessária para o nome do arquivo e a escala da prova online, mas o prompt visual não pede à IA que leia cotas.
 4. Conecte sua conta Canva e clique **Criar página desta cor no Canva**.
 5. O primeiro envio cria o design do produto; as próximas cores acrescentam páginas ao mesmo design. Reabrir uma cor reutiliza sua página enquanto as referências não mudarem; depois de uma mudança, o portal exige **Refazer com as referências**.
-6. Cada página nova ou refação leva três imagens separadas: o modelo ocupa a página toda, a foto real da cor fica no canto superior direito e a foto de medidas no canto superior esquerdo.
-7. Selecione as três imagens e use o prompt específico exibido pelo portal em **Pede pro Canva**. A foto da cor define identidade/acabamento; a foto cotada e as medidas definem geometria; o modelo grande define enquadramento e largura.
-8. Remova as duas imagens pequenas e a armação modelo antes de exportar, deixando somente a frente real, sem hastes, com fundo e interior dos aros transparentes.
+6. Cada página nova ou refação leva três imagens separadas: o modelo ocupa a página toda; a referência de formato aparece ampliada e centralizada na parte superior; a foto real da cor aparece ampliada e centralizada na parte inferior.
+7. Selecione as três imagens e use o primeiro prompt exibido pelo portal em **Pede pro Canva**. A referência superior define formato/proporções; a foto inferior define cor/acabamento; o modelo grande define enquadramento e largura. Números, setas, textos e cotas da referência superior são ignorados.
+8. Na primeira geração, mantenha as duas referências auxiliares na página. Se necessário, use o segundo prompt de refinamento. Remova as referências e a armação modelo somente depois de aprovar o resultado, deixando apenas a frente real, sem hastes, com fundo e interior dos aros transparentes.
 9. Retorne ao portal ou clique **Importar do Canva**. Confira o PNG e confirme o salvamento.
 
 O arquivo e o título preparado da página seguem `[SKU da variante]-[frente em mm]mm.png`.
@@ -19,7 +19,7 @@ A medida vem do cadastro; `000mm` é apenas o marcador do arquivo modelo. Medida
 O resultado tem 540 × 540 px e transparência. Margens vazias são normalizadas para a largura do PNG corresponder à largura física da armação na prova.
 
 A edição visual acontece dentro do Canva. O portal não aciona automaticamente “Pede pro Canva”.
-O prompt é montado para cada modelo/cor e lista somente medidas estruturadas preenchidas. Ele também manda ler as cotas visíveis na foto de medidas, para cobrir valores presentes apenas no diagrama.
+O prompt é montado para cada modelo/cor e usa a referência superior apenas como guia visual de formato e proporções. O portal também apresenta um segundo prompt curto para corrigir o primeiro resultado sem perder as referências.
 Uma revisão monotônica muda quando a foto cotada ou qualquer medida geométrica é alterada. Página, sessão e PNG salvo registram essa revisão e também o `updated_at` exato da imagem modelo grande; trocar qualquer uma das três referências invalida os resultados anteriores e interrompe o salvamento de uma edição antiga.
 
 ## Imagem modelo recebida
@@ -37,7 +37,7 @@ O vínculo manual consulta qualquer merge identificado e bloqueia enquanto ele e
 Se a importação ou o merge já tiver sido concluído, o portal retoma o mesmo design ou job e confere novamente os IDs das páginas, sem enviar outra operação de criação ao Canva.
 
 O ID da página, e não sua posição, identifica a cor. Antes de exportar, o portal resolve sua posição atual. Alterações na ordem durante uma exportação interrompem a importação para evitar salvar outra cor.
-Os dois cantos reservados às referências precisam estar vazios antes de importar. A conferência humana verifica se o modelo foi substituído pelo produto real e se as lentes estão transparentes; isso não é garantido apenas pela análise do PNG.
+As áreas superior e inferior reservadas às referências precisam estar vazias antes de importar. A conferência humana verifica se o modelo foi substituído pelo produto real e se as lentes estão transparentes; isso não é garantido apenas pela análise do PNG.
 
 ## Ativação
 Crie a integração no [Canva Developers](https://www.canva.com/developers/), habilitando REST/Connect APIs e verificando acesso às APIs preview.
@@ -76,7 +76,7 @@ Confirme que todas as seis foram aplicadas no banco de cada ambiente antes de at
 - Originais/arquivos anteriores preservados; nenhuma ativação/publicação automática da cor.
 - Sessões expiram em 24h; estados OAuth em 10min. Prévias não confirmadas permanecem no bucket.
 
-Em 25/09/2026: a suíte do fluxo Canva cobre o ODP quadrado com três imagens independentes, prompt específico, proxy privado da foto de medidas, remoção das duas referências, vínculo por ID de página e conflitos de revisão.
+Em 30/09/2026: a suíte do fluxo Canva cobre o ODP quadrado com três imagens independentes, referências ampliadas em cima/embaixo, prompts de geração e refinamento, proxy privado da referência de formato, remoção final das referências, vínculo por ID de página e conflitos de revisão.
 
 ```sh
 npx next typegen
