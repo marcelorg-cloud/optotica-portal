@@ -31,5 +31,7 @@ export const serverEnv = {
   metaAppSecret: () => required('META_APP_SECRET', process.env.META_APP_SECRET),
   metaAccessToken: () => required('META_WHATSAPP_TOKEN', process.env.META_WHATSAPP_TOKEN),
   metaPhoneNumberId: () => required('META_PHONE_NUMBER_ID', process.env.META_PHONE_NUMBER_ID),
-  metaGraphVersion: () => process.env.META_GRAPH_API_VERSION || 'v23.0'
+  metaGraphVersion: () => process.env.META_GRAPH_API_VERSION || 'v23.0',
+  metaAuthTemplate: () => process.env.META_WHATSAPP_AUTH_TEMPLATE || 'codigo_acesso_portal',
+  metaAuthLanguage: () => process.env.META_WHATSAPP_AUTH_LANGUAGE || 'pt_BR'
 };

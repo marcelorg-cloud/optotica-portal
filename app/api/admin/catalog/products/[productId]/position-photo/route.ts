@@ -54,7 +54,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
       .update({ position_image_path: null, position_image_updated_at: now, updated_at: now })
       .eq('id', productId);
     if (clearError) return NextResponse.json({ message: 'Não foi possível desfazer.' }, { status: 500 });
-    return NextResponse.json({ message: 'Foto de medidas removida.' });
+    return NextResponse.json({ message: 'Referência do formato removida.' });
   }
 
   let path: string;
@@ -105,7 +105,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     .from('catalog_products')
     .update({ position_image_path: path, position_image_updated_at: now, updated_at: now })
     .eq('id', productId);
-  if (updateError) return NextResponse.json({ message: 'Não foi possível salvar a foto de medidas.' }, { status: 500 });
+  if (updateError) return NextResponse.json({ message: 'Não foi possível salvar a referência do formato.' }, { status: 500 });
 
   // O reset direto das cores continua removido: esta rota não apaga nem
   // reprocessa as fotos de exibição. Desde 25/09/2026, porém, a foto de
@@ -113,5 +113,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
   // `bump_canva_reference_revision` incrementa a revisão ao trocar esta
   // foto; páginas e provas geradas com a revisão anterior passam a exigir
   // "Refazer com as referências" antes de um novo salvamento.
-  return NextResponse.json({ message: 'Foto de medidas salva.' });
+  return NextResponse.json({ message: 'Referência visual do formato salva.' });
 }

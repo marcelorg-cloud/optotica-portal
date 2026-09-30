@@ -800,7 +800,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
   // no corpo por compatibilidade, mas não é mais chamada por nenhum botão.
   async function handleUploadProductPosition() {
     const file = selectedPositionFile;
-    if (!file) { setMessage({ kind: 'error', text: 'Escolha um arquivo antes de clicar em "Salvar foto de medidas".' }); return; }
+    if (!file) { setMessage({ kind: 'error', text: 'Escolha um arquivo antes de clicar em "Salvar referência do formato".' }); return; }
     // Capturado ANTES da chamada (15/09/2026, "Desfazer última ação").
     // Simplificado na mesma data: esta rota deixou de apagar ou reprocessar
     // as fotos das cores, então desfazer só precisa restaurar a foto de
@@ -1484,16 +1484,14 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         <button className="button primary" type="submit" disabled={busy}>Salvar alterações</button>
       </form>
 
-      {/* Foto de medidas do produto: além da exibição nos painéis, desde
-          25/09/2026 é a terceira referência geométrica enviada nas novas
-          páginas e refações do fluxo Canva. */}
+      {/* Referência visual do formato enviada nas novas páginas e refações do Canva. */}
       <div className="card catalog-position-card">
         <div className="preview">
-          {product.positionImageUrl ? <img src={product.positionImageUrl} alt="Foto de medidas do produto" /> : 'sem foto de medidas'}
+          {product.positionImageUrl ? <img src={product.positionImageUrl} alt="Referência visual do formato do produto" /> : 'sem referência do formato'}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <span className="section-label">Foto de medidas do modelo</span>
-          <span className="helper">Exibida nos painéis profissional e do paciente e enviada ao Canva para orientar as proporções da foto de prova.</span>
+          <span className="section-label">Referência visual limpa do formato</span>
+          <span className="helper">Envie uma imagem grande e nítida mostrando somente o formato frontal do óculos. Recorte textos, setas, números e cotas antes de enviar. Ela será ampliada no Canva para orientar todas as cores deste produto.</span>
           <input
             type="file"
             accept="image/png,image/jpeg,image/webp"
@@ -1503,10 +1501,10 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
           {selectedPositionFile ? (
             <span className="helper">Arquivo selecionado: {selectedPositionFile.name}</span>
           ) : (
-            <span className="helper">Envie uma imagem com as medidas do modelo (PNG, JPG ou WebP).</span>
+            <span className="helper">Envie o formato limpo do modelo (PNG, JPG ou WebP).</span>
           )}
           <button className="button secondary small" type="button" disabled={busy} style={{ justifySelf: 'start' }} onClick={handleUploadProductPosition}>
-            Salvar foto de medidas
+            Salvar referência do formato
           </button>
         </div>
       </div>
@@ -1845,8 +1843,8 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                   <span className="catalog-photo-label">Foto de Prova</span>
                   {color.processedImageUrl ? <img src={color.processedImageUrl} alt="Foto de Prova" /> : 'nenhuma ainda'}
                   <Link className="button secondary small" style={{ marginTop: 8 }}
-                    href={`/admin/catalogo/${productId}/canva/${color.id}`}>
-                    Preparar no Canva
+                    href={`/admin/catalogo/${productId}/canva#cor-${color.id}`}>
+                    Ver no lote do Canva
                   </Link>
                 </div>
                 <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>

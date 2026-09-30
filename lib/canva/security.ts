@@ -71,7 +71,7 @@ export function uuid(value: unknown): value is string {
 }
 export function workspace(productId: string, colorId: string) {
   if (!uuid(productId) || !uuid(colorId)) throw new CanvaError('Produto ou cor inválidos.');
-  return '/admin/catalogo/' + productId + '/canva/' + colorId;
+  return '/admin/catalogo/' + productId + '/canva#cor-' + colorId;
 }
 export function canvaUrl(value: string) {
   const url = new URL(value);

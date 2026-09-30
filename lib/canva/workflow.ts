@@ -107,7 +107,7 @@ function sameSnapshot(session: Session,
 function measurementPath(productId: string, path: string | null) {
   if (!path?.startsWith(productId + '/') || path.includes('\\') || path.includes('\0') ||
       path.split('/').some(segment => !segment || segment === '.' || segment === '..')) {
-    throw new CanvaError('Cadastre a foto de medidas deste modelo antes de criar ou refazer a página no Canva.', 422);
+    throw new CanvaError('Cadastre a referência visual limpa do formato antes de criar ou refazer a página no Canva.', 422);
   }
   return path;
 }

@@ -19,6 +19,34 @@ export async function sendWhatsAppText(to: string, body: string) {
   if (!response.ok) throw new Error(`Meta API respondeu ${response.status}`);
 }
 
+/** Envia um OTP usando um template de autenticação aprovado no WhatsApp Manager. */
+export async function sendWhatsAppAuthenticationCode(to: string, code: string) {
+  const endpoint = `https://graph.facebook.com/${serverEnv.metaGraphVersion()}/${serverEnv.metaPhoneNumberId()}/messages`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${serverEnv.metaAccessToken()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: to.replace(/\D/g, ''),
+      type: 'template',
+      template: {
+        name: serverEnv.metaAuthTemplate(),
+        language: { code: serverEnv.metaAuthLanguage() },
+        components: [
+          { type: 'body', parameters: [{ type: 'text', text: code }] },
+          { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: code }] }
+        ]
+      }
+    })
+  });
+  const payload = await response.json().catch(() => null) as { messages?: Array<{ id?: string }>; error?: { code?: number } } | null;
+  if (!response.ok || !payload?.messages?.[0]?.id) {
+    throw new Error(`Meta API recusou o template de autenticação (${response.status}/${payload?.error?.code || 'sem-codigo'})`);
+  }
+  return payload.messages[0].id;
+}
+
 export function firstIncomingMessage(payload: unknown): { phone: string; messageId: string; text: string } | null {
   const data = payload as { entry?: Array<{ changes?: Array<{ value?: { messages?: Array<{ from?: string; id?: string; text?: { body?: string } }> } }> }> };
   const message = data.entry?.[0]?.changes?.[0]?.value?.messages?.[0];

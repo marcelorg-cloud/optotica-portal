@@ -1,17 +1,17 @@
 # Canva — prova online por produto e cor
 
 ## Fluxo
-Para preparar o produto inteiro, use **Preparar todas no Canva** na seção **Cores e fotos de prova**. O painel de lote prepara sequencialmente as cores que têm foto original e medidas válidas no mesmo design do produto; mostra progresso por cor e permite retomar sem duplicar uma página já vinculada. As operações de importação/merge do Canva continuam por cor sob a proteção de bloqueio já existente, mas não exigem cliques separados. Copie o comando do lote: ele identifica cada cor pelo nome do arquivo e instrui a IA a trabalhar apenas com as três referências da página atual. No Canva, aplique o Pede pro Canva em cada página, pois o portal não pode executar essa ferramenta automaticamente. Ao voltar, **Importar todas as páginas prontas** obtém uma prévia por cor; confira as prévias individualmente e marque as corretas antes de **Salvar fotos conferidas**. Uma página que falhe não impede a importação das demais. Se as referências de uma cor mudaram, refaça essa cor na página individual antes de incluí-la em um novo lote.
+Para preparar o produto inteiro, use **Preparar todas no Canva** na seção **Cores e fotos de prova**. O portal abre uma única tela para o produto, com todas as cores, referências, prompt de geração e prompt de refinamento organizados por cor. O painel prepara sequencialmente as cores que têm foto original e referência de formato válida no mesmo design do produto; mostra progresso por cor e permite retomar sem duplicar uma página já vinculada. As operações de importação/merge do Canva continuam protegidas por cor, mas não exigem telas separadas. No Canva, cada cor ocupa uma página quadrada dentro do mesmo design, pois esse vínculo é o que permite importar o PNG correto. Ao voltar, **Importar todas as páginas prontas** obtém uma prévia por cor; confira as prévias individualmente e marque as corretas antes de **Salvar fotos conferidas**. Uma página que falhe não impede a importação das demais. **Refazer todas com novas referências** desvincula atomicamente o lote antigo do portal, preserva o design antigo no Canva e permite criar outro lote completo.
 
-1. Na Foto de Prova da cor, abra **Preparar no Canva**.
+1. No produto, abra **Preparar todas no Canva**.
 2. Em **Imagem modelo da prova online**, cadastre um PNG de 540 × 540 px com fundo e lentes transparentes. O modelo é compartilhado pelas novas páginas de todos os produtos.
-3. No produto, cadastre a **Referência de formato e proporções**. A Frente Total continua necessária para o nome do arquivo e a escala da prova online, mas o prompt visual não pede à IA que leia cotas.
-4. Conecte sua conta Canva e clique **Criar página desta cor no Canva**.
+3. No produto, cadastre a **Referência visual limpa do formato**: imagem grande, nítida e recortada, mostrando somente o desenho frontal, sem textos, setas, números ou cotas. A Frente Total continua necessária para o nome do arquivo e a escala da prova online, mas não é mostrada à IA.
+4. Conecte sua conta Canva e clique **Preparar todas as cores**.
 5. O primeiro envio cria o design do produto; as próximas cores acrescentam páginas ao mesmo design. Reabrir uma cor reutiliza sua página enquanto as referências não mudarem; depois de uma mudança, o portal exige **Refazer com as referências**.
 6. Cada página nova ou refação leva três imagens separadas: o modelo ocupa a página toda; a referência de formato aparece ampliada e centralizada na parte superior; a foto real da cor aparece ampliada e centralizada na parte inferior.
-7. Selecione as três imagens e use o primeiro prompt exibido pelo portal em **Pede pro Canva**. A referência superior define formato/proporções; a foto inferior define cor/acabamento; o modelo grande define enquadramento e largura. Números, setas, textos e cotas da referência superior são ignorados.
+7. Para cada página, selecione as três imagens e copie o prompt específico daquela cor exibido na tela única do portal. A referência superior limpa define formato/proporções; a foto inferior define cor/acabamento; o modelo grande define enquadramento e largura.
 8. Na primeira geração, mantenha as duas referências auxiliares na página. Se necessário, use o segundo prompt de refinamento. Remova as referências e a armação modelo somente depois de aprovar o resultado, deixando apenas a frente real, sem hastes, com fundo e interior dos aros transparentes.
-9. Retorne ao portal ou clique **Importar do Canva**. Confira o PNG e confirme o salvamento.
+9. O botão **Abrir design no Canva** sempre abre uma nova aba. Ao terminar, retorne à tela única do produto, clique **Importar todas as páginas prontas**, confira cada PNG e confirme o salvamento.
 
 O arquivo e o título preparado da página seguem `[SKU da variante]-[frente em mm]mm.png`.
 Exemplo: produto `GE-AC-003`, cor `C2`, Frente Total `113 mm` → `GE-AC-003-C2-113mm.png`.
@@ -20,7 +20,7 @@ O resultado tem 540 × 540 px e transparência. Margens vazias são normalizadas
 
 A edição visual acontece dentro do Canva. O portal não aciona automaticamente “Pede pro Canva”.
 O prompt é montado para cada modelo/cor e usa a referência superior apenas como guia visual de formato e proporções. O portal também apresenta um segundo prompt curto para corrigir o primeiro resultado sem perder as referências.
-Uma revisão monotônica muda quando a foto cotada ou qualquer medida geométrica é alterada. Página, sessão e PNG salvo registram essa revisão e também o `updated_at` exato da imagem modelo grande; trocar qualquer uma das três referências invalida os resultados anteriores e interrompe o salvamento de uma edição antiga.
+Uma revisão monotônica muda quando a referência visual do formato ou qualquer medida geométrica é alterada. Página, sessão e PNG salvo registram essa revisão e também o `updated_at` exato da imagem modelo grande; trocar qualquer uma das três referências invalida os resultados anteriores e interrompe o salvamento de uma edição antiga.
 
 ## Imagem modelo recebida
 Em 23/09/2026, o modelo foi substituído pelo PNG aprovado de 540 × 540 px e registrado na tabela privada `canva_tryon_template`.
@@ -62,8 +62,9 @@ Migrações versionadas para o fluxo Canva em 23 e 25/09/2026:
 - `20260925023750_canva_template_reference_snapshots.sql`
 - `20260925023846_canva_atomic_page_binding.sql`
 - `20260925030000_invalidate_stale_patient_tryons.sql`
+- `20260930015247_whatsapp_login_challenges.sql` — inclui a reinicialização atômica do lote Canva.
 
-Confirme que todas as seis foram aplicadas no banco de cada ambiente antes de ativar a integração.
+Confirme que todas as sete foram aplicadas no banco de cada ambiente antes de ativar a integração.
 
 ## Proteções e verificação
 - Somente master; origem verificada nas mutações. OAuth PKCE e state de uso único.

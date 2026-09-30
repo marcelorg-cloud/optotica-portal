@@ -164,7 +164,8 @@ test('OAuth callback returns a specific safe token error to the same product and
   try {
     const response = await route.GET(new Request('https://portal.test/api/admin/catalog/canva/oauth/callback?state=s&code=c'));
     const location = new URL(response.headers.get('location'));
-    assert.equal(location.pathname, `/admin/catalogo/${productId}/canva/${colorId}`);
+    assert.equal(location.pathname, `/admin/catalogo/${productId}/canva`);
+    assert.equal(location.hash, `#cor-${colorId}`);
     assert.match(location.searchParams.get('canva_error'), /Client Secret/);
     assert.deepEqual(logged[1], { stage: 'token_exchange', status: 401, code: 'invalid_client' });
     assert.doesNotMatch(JSON.stringify(logged), /access|refresh|verifier|state=s|code=c/);
@@ -173,7 +174,7 @@ test('OAuth callback returns a specific safe token error to the same product and
 test('OAuth callback stores the connected Canva account after a successful exchange', async () => {
   const inserted = [], route = callbackRoute({}, inserted);
   const response = await route.GET(new Request('https://portal.test/api/admin/catalog/canva/oauth/callback?state=s&code=c'));
-  assert.equal(response.headers.get('location'), `https://portal.test/admin/catalogo/${productId}/canva/${colorId}`);
+  assert.equal(response.headers.get('location'), `https://portal.test/admin/catalogo/${productId}/canva#cor-${colorId}`);
   assert.deepEqual(inserted, [{ user_id: 'master', canva_user_id: 'canva-user', canva_team_id: 'canva-team',
     access_token: 'sealed-access', refresh_token: 'sealed-refresh', expires_at: 'later' }]);
 });
@@ -237,7 +238,8 @@ test('Canva return marks an Ed25519-signed session and redirects to its product 
   try {
     const response = await route.GET(new Request('https://portal.test/api/admin/catalog/canva/return?correlation_jwt=' + token));
     const location = new URL(response.headers.get('location'));
-    assert.equal(location.pathname, `/admin/catalogo/${productId}/canva/${colorId}`);
+    assert.equal(location.pathname, `/admin/catalogo/${productId}/canva`);
+    assert.equal(location.hash, `#cor-${colorId}`);
     assert.equal(location.searchParams.get('session'), sessionId);
     assert.equal(updated.length, 1);
     assert.match(updated[0].return_verified_at, /^\d{4}-\d{2}-\d{2}T/);
@@ -255,7 +257,8 @@ test('an invalid Canva return keeps the recoverable product route without trusti
   try {
     const response = await route.GET(new Request('https://portal.test/api/admin/catalog/canva/return?correlation_jwt=' + parts.join('.')));
     const location = new URL(response.headers.get('location'));
-    assert.equal(location.pathname, `/admin/catalogo/${productId}/canva/${colorId}`);
+    assert.equal(location.pathname, `/admin/catalogo/${productId}/canva`);
+    assert.equal(location.hash, `#cor-${colorId}`);
     assert.equal(location.searchParams.get('session'), sessionId);
     assert.match(location.searchParams.get('canva_error'), /design foi preservado/);
     assert.equal(updated.length, 0);
@@ -345,7 +348,7 @@ test('a canonical Canva page with an old large model cannot create a new edit se
   await assert.rejects(workflow.createSession(admin, 'master', productId, colorId), /imagem modelo antigas/);
   assert.equal(inserted, false);
 });
-test('a canonical Canva page cannot be imported without the model measurement photo', async () => {
+test('a canonical Canva page cannot be imported without the clean format reference', async () => {
   let linkRead = false, inserted = false;
   const workflow = load('../lib/canva/workflow.ts', { './security': security, './image': {}, './pages': {},
     './layout': {}, './navigation': navigation,
@@ -358,7 +361,7 @@ test('a canonical Canva page cannot be imported without the model measurement ph
   });
   const admin = { from: () => ({ insert: () => { inserted = true; throw new Error('unexpected insert'); } }) };
   await assert.rejects(workflow.createSession(admin, 'master', productId, colorId), error =>
-    error?.status === 422 && /foto de medidas/.test(error.message));
+    error?.status === 422 && /referência visual limpa do formato/.test(error.message));
   assert.equal(linkRead, false);
   assert.equal(inserted, false);
 });
@@ -870,9 +873,10 @@ test('the Canva prompts prioritize the visual format and keep references for ref
   assert.match(text, /RT-AC-002/);
   assert.match(text, /cor “Preto”/);
   assert.doesNotMatch(text, /Medidas cadastradas|143 mm|50 mm|43 mm/);
-  assert.match(text, /IMAGEM MAIOR NA PARTE SUPERIOR/);
+  assert.match(text, /IMAGEM GRANDE NA PARTE SUPERIOR/);
   assert.match(text, /IMAGEM MAIOR NA PARTE INFERIOR/);
-  assert.match(text, /Não tente interpretar nem reproduzir medidas escritas/);
+  assert.match(text, /desenho limpo do óculos/);
+  assert.doesNotMatch(text, /medidas escritas|cotas/);
   assert.match(text, /mantenha na página e sem alterações as duas referências auxiliares/);
   assert.match(text, /não deixe margens laterais/);
   const refine = prompt.buildCanvaRefinementPrompt({ model_name: 'Retangular em acetato 002', sku_optotica: 'RT-AC-002' }, 'Preto');
@@ -928,8 +932,9 @@ test('page document contains three independent images, exact square geometry and
   const content = await zip.file('content.xml').async('string');
   assert.equal((content.match(/<draw:frame /g) || []).length, 3);
   assert.match(content, /draw:name="GE-AC-003-C2-113mm.png"/);
-  assert.match(content, /Referência de formato e proporções — manter para refinamento/);
+  assert.match(content, /Referência visual limpa do formato — manter para refinamento/);
   assert.match(content, /Referência da cor e acabamento — manter para refinamento/);
+  assert.equal((content.match(/svg:height="2\.1354166666666665in"/g) || []).length, 2);
   assert.match(content, /draw:fill="none"/);
   const styles = await zip.file('styles.xml').async('string');
   assert.match(styles, /fo:page-width="5.625in" fo:page-height="5.625in"/);

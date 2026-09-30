@@ -48,8 +48,8 @@ Considere as três imagens selecionadas. Cada uma tem uma função diferente:
 1. IMAGEM MAIOR — MODELO DA PROVA ONLINE
 Use somente como referência de enquadramento, posição, centralização, orientação, transparência do fundo e largura final, deixando o óculos de ponta a ponta do enquadramento. Não copie o formato, a cor nem os detalhes do óculos dessa imagem.
 
-2. REFERÊNCIA DE FORMATO E PROPORÇÕES — IMAGEM MAIOR NA PARTE SUPERIOR
-É a referência principal e obrigatória para a geometria, o desenho frontal e todas as proporções. Copie visualmente o mesmo contorno externo, formato das lentes, altura, largura, ponte, espessura relativa dos aros e relação entre todas as partes. Ignore completamente setas, linhas, letras, números, textos, fundo da folha e a cor da armação mostrada nessa imagem. Não tente interpretar nem reproduzir medidas escritas: siga apenas o formato visual e suas proporções.
+2. REFERÊNCIA VISUAL DO FORMATO — IMAGEM GRANDE NA PARTE SUPERIOR
+É a referência principal e obrigatória para a geometria, o desenho frontal e todas as proporções. Copie visualmente o mesmo contorno externo, formato das lentes, altura, largura, ponte, espessura relativa dos aros e relação entre todas as partes. Use somente o desenho limpo do óculos e não transfira a cor dessa referência.
 
 3. FOTO REAL DA COR — IMAGEM MAIOR NA PARTE INFERIOR
 É a referência principal para a cor, o material e os detalhes do produto. Reproduza fielmente a cor real da frente, o brilho do material, a espessura e acabamento dos aros, a ponte, ornamentos e demais detalhes visíveis. A foto pode estar em perspectiva: corrija-a para uma vista perfeitamente frontal, mas não use sua perspectiva para alterar o formato definido pela imagem superior.
@@ -65,7 +65,7 @@ Entregue uma única armação, com bordas limpas e alta definição. Não mistur
 IMPORTANTE PARA REFINAMENTO: nesta primeira geração, mantenha na página e sem alterações as duas referências auxiliares, uma acima e outra abaixo. Gere ou substitua somente a armação central. Não apague, recorte, mova nem transforme as referências. Elas serão usadas em um possível segundo comando de refinamento e só serão removidas manualmente depois que o resultado estiver aprovado.
 
 Em caso de diferença entre as referências, siga esta prioridade:
-- geometria, formato e proporções: referência visual superior;
+- geometria, formato e proporções: referência visual limpa superior;
 - cor, material e detalhes: foto real inferior;
 - posição, centralização e largura final: imagem maior da prova online.`;
 }
@@ -89,7 +89,7 @@ export function buildCanvaBatchPrompt(product: CanvaReferenceProduct, colors: { 
 Identifique cada página pelo nome preparado, independentemente da ordem no design:
 ${colors.map((color, index) => `${index + 1}. ${color.filename} — cor “${color.name}”`).join('\n')}
 
-Em CADA página, selecione somente as três imagens daquela página. A imagem grande é a referência de posição, centralização e largura horizontal; não copie dela a forma ou a cor. A referência maior na parte superior define o formato e todas as proporções visuais; ignore seus textos, setas, números, cotas, fundo e cor. A foto real maior na parte inferior define a cor, o material, o brilho e os detalhes. Nunca use a foto de outra página como referência.
+Em CADA página, selecione somente as três imagens daquela página. A imagem grande é a referência de posição, centralização e largura horizontal; não copie dela a forma ou a cor. A referência visual limpa e grande na parte superior define o formato e todas as proporções. A foto real grande na parte inferior define a cor, o material, o brilho e os detalhes. Nunca use a foto de outra página como referência.
 
 Transforme a armação real numa vista frontal ortográfica, reta e simétrica. Mostre somente a frente, sem hastes. A frente deve ocupar toda a largura marcada pelo modelo grande, sem cortar nem deformar. Mantenha exatamente as proporções visuais da referência superior. Fundo e interior dos aros devem ter transparência real. Remova reflexos, lentes e sombras.
 

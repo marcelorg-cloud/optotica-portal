@@ -4,10 +4,11 @@ import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 type Color = { id: string; name: string; variant: number | null; filename: string | null;
-  hasOriginal: boolean; hasResult: boolean; pageNumber: number | null; hasPage: boolean; stale: boolean; stage: string | null };
+  hasOriginal: boolean; hasResult: boolean; pageNumber: number | null; hasPage: boolean; stale: boolean; stage: string | null;
+  prompt: string; refinementPrompt: string; originalUrl: string | null; formatUrl: string | null; currentUrl: string | null };
 type Batch = { productName: string; sku: string; connected: boolean; configured: boolean; configurationError: string | null;
   hasMeasurements: boolean; templateReady: boolean; pendingColorId: string | null; prompt: string; colors: Color[] };
-type Result = { status?: string; sessionId?: string; previewUrl?: string; editUrl?: string; message?: string };
+type Result = { status?: string; sessionId?: string; previewUrl?: string; editUrl?: string; authorizeUrl?: string; message?: string };
 type Preview = { sessionId: string; url: string; saved: boolean };
 
 const delay = (signal: AbortSignal) => new Promise<void>((resolve, reject) => {
@@ -38,8 +39,10 @@ export function CanvaBatchWorkspace({ productId }: { productId: string }) {
   }, [productId]);
   useEffect(() => {
     try { sessions.current = JSON.parse(sessionStorage.getItem(storageKey) || '{}'); } catch { sessions.current = {}; }
+    const canvaError = new URLSearchParams(window.location.search).get('canva_error');
     const controller = new AbortController();
     queueMicrotask(() => {
+      if (canvaError && !controller.signal.aborted) setMessage(canvaError);
       if (!controller.signal.aborted) void refresh(controller.signal)
         .catch(error => { if (!controller.signal.aborted) setMessage(error.message); });
     });
@@ -88,16 +91,31 @@ export function CanvaBatchWorkspace({ productId }: { productId: string }) {
         setProgress(previous => ({ ...previous, [color.id]: 'Página pronta' }));
       }
       await refresh(signal);
-      setMessage('Todas as páginas disponíveis foram preparadas no mesmo design. Abra o Canva e trabalhe cada página com suas referências de formato em cima e cor embaixo.');
+      setMessage('Todas as cores disponíveis foram preparadas no mesmo design. Abra o Canva em uma nova aba e trabalhe cada página com a referência de formato em cima e a cor embaixo.');
     });
   }
 
   function editAll() {
+    const popup = window.open('about:blank', '_blank');
+    if (popup) popup.opener = null;
     void run('Abrindo o design…', async signal => {
-      if (batch?.prompt && navigator.clipboard) await navigator.clipboard.writeText(batch.prompt).catch(() => {});
-      const result = await post('/api/admin/catalog/canva/batch', 'edit', undefined, undefined, signal);
-      if (!result.editUrl) throw new Error('Não foi possível abrir o design.');
-      window.location.assign(result.editUrl);
+      try {
+        const result = await post('/api/admin/catalog/canva/batch', 'edit', undefined, undefined, signal);
+        if (!result.editUrl) throw new Error('Não foi possível abrir o design.');
+        if (!popup) throw new Error('O navegador bloqueou a nova aba. Permita pop-ups para este portal e tente novamente.');
+        popup.location.replace(result.editUrl);
+      } catch (error) { popup?.close(); throw error; }
+    });
+  }
+
+  function resetAll() {
+    if (!window.confirm('Refazer todas as cores com as referências atuais?\n\nO design antigo continuará preservado no Canva, mas o portal criará um novo lote para este produto.')) return;
+    void run('Reiniciando o lote…', async signal => {
+      await post('/api/admin/catalog/canva/batch', 'reset', undefined, undefined, signal);
+      sessions.current = {}; sessionStorage.removeItem(storageKey);
+      setPreviews({}); setReviewed({}); setProgress({});
+      await refresh(signal);
+      setMessage('Lote reiniciado. Clique em Preparar todas as cores para criar o novo design com as referências atuais.');
     });
   }
 
@@ -170,32 +188,57 @@ export function CanvaBatchWorkspace({ productId }: { productId: string }) {
     {message && <p role="status">{message}</p>}
     {batch && <>
       {!batch.configured && <p role="alert">{batch.configurationError}</p>}
-      {!batch.connected && batch.configured && <p>Conecte sua conta Canva na <Link href={`${productUrl}/canva/${batch.colors[0]?.id || ''}`}>página de uma cor</Link> para começar.</p>}
+      {!batch.connected && batch.configured && <div><p>Conecte sua conta Canva para começar.</p>
+        <button type="button" className="button" disabled={!!busy || !batch.colors[0]} onClick={() => void run('Conectando ao Canva…', async signal => {
+          const result = await post('/api/admin/catalog/canva/batch', 'connect', batch.colors[0].id, undefined, signal);
+          if (!result.authorizeUrl) throw new Error('Não foi possível iniciar a conexão.');
+          window.location.assign(result.authorizeUrl);
+        })}>Conectar Canva</button></div>}
       {!batch.hasMeasurements && <p>Cadastre a referência de formato e proporções do modelo antes de preparar o lote.</p>}
       {!batch.templateReady && <p>Cadastre a imagem modelo transparente na página de uma cor antes de preparar o lote.</p>}
-      <p>O portal prepara as cores em sequência no mesmo design. Cada página recebe o modelo grande, a referência de formato ampliada em cima e a foto real da cor ampliada embaixo. No primeiro resultado, mantenha as duas referências para permitir refinamento; remova-as somente antes de importar. A geração por IA continua sendo iniciada no Pede pro Canva.</p>
-      <details open><summary>Comando para copiar — todas as cores</summary>
-        <textarea aria-label="Comando do lote para o Canva" readOnly value={batch.prompt} rows={18} style={{ width: '100%' }} />
-        <button type="button" className="button secondary small" disabled={!batch.prompt} onClick={async () => {
-          try { await navigator.clipboard.writeText(batch.prompt); setMessage('Comando copiado.'); }
-          catch { setMessage('Selecione o texto e copie o comando.'); }
-        }}>Copiar comando</button>
-      </details>
+      <p>Esta é a página única do produto. Cada cor abaixo reúne suas referências e seus dois comandos. No Canva, cada cor continua em uma página quadrada própria dentro do mesmo design, porque assim o portal consegue importar o PNG correto de cada cor.</p>
+      <p>A referência visual do formato fica grande na parte superior e deve ser uma imagem limpa, recortada e sem setas, números ou cotas. A foto real da cor fica grande na parte inferior. Mantenha as duas durante o refinamento e remova-as somente antes de importar.</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
         <button type="button" className="button" disabled={!!busy || !canPrepare} onClick={prepareAll}>Preparar todas as cores</button>
         <button type="button" className="button secondary" disabled={!!busy || !allReady} onClick={editAll}>Abrir design no Canva</button>
         <button type="button" className="button secondary" disabled={!!busy || !batch.colors.some(color => color.hasPage && !color.stale)} onClick={importAll}>Importar todas as páginas prontas</button>
+        <button type="button" className="button secondary" disabled={!!busy || !batch.colors.some(color => color.hasPage)} onClick={resetAll}>Refazer todas com novas referências</button>
       </div>
       {busy && <p role="status">{busy}</p>}
       <div style={{ display: 'grid', gap: 12 }}>
-        {batch.colors.map(color => <div key={color.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 12 }}>
+        {batch.colors.map(color => <div key={color.id} id={`cor-${color.id}`} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 16, display: 'grid', gap: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <strong>{color.variant ? `C${color.variant} — ` : ''}{color.name}</strong>
-            <Link href={`${productUrl}/canva/${color.id}`}>Abrir esta cor</Link>
+            <span>{color.filename || 'Informe o SKU, número da cor e Frente Total'}</span>
           </div>
-          <p style={{ margin: '6px 0' }}>{color.filename || 'Informe o SKU, número da cor e Frente Total'}
-            {' · '}{progress[color.id] || (color.stale ? 'Referências mudaram: refaça nesta cor' : color.hasPage ? `Página ${color.pageNumber || 'vinculada'}` : color.hasOriginal ? 'Aguardando preparação' : 'Cadastre a foto da cor')}
-          </p>
+          <p style={{ margin: 0 }}>{progress[color.id] || (color.stale ? 'Referências mudaram: use Refazer todas com novas referências' : color.hasPage ? `Página ${color.pageNumber || 'vinculada'} no Canva` : color.hasOriginal ? 'Aguardando preparação' : 'Cadastre a foto da cor')}</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 16 }}>
+            <div><strong>Referência visual limpa do formato</strong>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {color.formatUrl ? <img src={color.formatUrl} alt={`Formato do modelo — ${batch.productName}`} style={{ width: '100%', maxHeight: 360, objectFit: 'contain', background: '#fff', marginTop: 8 }} /> : <p>Cadastre a referência do formato.</p>}
+            </div>
+            <div><strong>Foto real desta cor</strong>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {color.originalUrl ? <img src={color.originalUrl} alt={`Foto real — ${color.name}`} style={{ width: '100%', maxHeight: 360, objectFit: 'contain', background: '#fff', marginTop: 8 }} /> : <p>Cadastre a foto desta cor.</p>}
+            </div>
+            {color.currentUrl && <div><strong>Foto de prova atual</strong>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={color.currentUrl} alt={`Foto de prova — ${color.name}`} style={{ width: '100%', maxHeight: 360, objectFit: 'contain', marginTop: 8 }} /></div>}
+          </div>
+          <details open><summary>1º comando — gerar esta cor</summary>
+            <textarea aria-label={`Comando para gerar ${color.name}`} readOnly value={color.prompt} rows={16} style={{ width: '100%' }} />
+            <button type="button" className="button secondary small" onClick={async () => {
+              try { await navigator.clipboard.writeText(color.prompt); setMessage(`Comando de ${color.name} copiado.`); }
+              catch { setMessage('Selecione o texto e copie o comando.'); }
+            }}>Copiar comando desta cor</button>
+          </details>
+          <details><summary>2º comando — refinar esta cor</summary>
+            <textarea aria-label={`Comando para refinar ${color.name}`} readOnly value={color.refinementPrompt} rows={11} style={{ width: '100%' }} />
+            <button type="button" className="button secondary small" onClick={async () => {
+              try { await navigator.clipboard.writeText(color.refinementPrompt); setMessage(`Comando de refinamento de ${color.name} copiado.`); }
+              catch { setMessage('Selecione o texto e copie o comando.'); }
+            }}>Copiar refinamento</button>
+          </details>
           {progress[color.id]?.startsWith('Falha:') && <button type="button" className="text-button" disabled={!!busy} onClick={() => {
             delete sessions.current[color.id];
             sessionStorage.setItem(storageKey, JSON.stringify(sessions.current));

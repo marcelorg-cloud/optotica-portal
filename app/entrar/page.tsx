@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ProfessionalLoginForm } from '@/components/professional-login-form';
+import { WhatsAppLoginForm } from '@/components/whatsapp-login-form';
 import Image from 'next/image';
 import QRCode from 'qrcode';
 
@@ -18,22 +19,25 @@ export default async function LoginPage() {
     <div className="page-shell narrow">
       <div className="login-grid">
         <section className="card login-card">
-          <p className="eyebrow">Área do paciente</p>
-          <h1>Já é paciente Optótica?</h1>
-          <p className="muted">Fale com a gente pelo seu WhatsApp cadastrado e receba seu link de acesso ao portal.</p>
-          {whatsappUrl && qr ? <div className="patient-entry-options">
-            <a className="button whatsapp" href={whatsappUrl} target="_blank" rel="noopener noreferrer">Acessar pelo WhatsApp</a>
-            <figure><Image unoptimized src={qr} width={200} height={200} alt="QR Code para abrir o WhatsApp oficial da Optótica" /><figcaption>Está no computador? Aponte a câmera do celular.</figcaption></figure>
-          </div> : <p className="setup-note">O acesso pelo WhatsApp está temporariamente indisponível. Utilize seu convite ou fale com o profissional responsável.</p>}
-          <p className="fine-print">Envie a mensagem pelo mesmo número usado no cadastro. Seu link de acesso é pessoal e temporário.</p>
-          <details className="patient-first-access"><summary>É seu primeiro acesso?</summary><p className="muted">Abra o convite enviado pelo seu profissional e confirme seu número no WhatsApp. O convite é válido por 24 horas. Se ainda não recebeu ou ele expirou, solicite um novo ao profissional.</p></details>
+          <p className="eyebrow">Paciente ou profissional</p>
+          <h1>Entre com seu WhatsApp</h1>
+          <p className="muted">Informe o número já cadastrado. Você receberá um código e continuará nesta mesma tela.</p>
+          <WhatsAppLoginForm />
+          <p className="fine-print">O código é pessoal, funciona uma única vez e expira em poucos minutos.</p>
         </section>
 
         <section className="card login-card">
-          <p className="eyebrow">Área profissional</p>
-          <h2>Receba seu acesso por e-mail</h2>
-          <p className="muted">Informe seu e-mail. Cadastros em análise também podem entrar para acompanhar o status.</p>
-          <ProfessionalLoginForm />
+          <p className="eyebrow">Primeiro acesso e alternativas</p>
+          <h2>Ainda não vinculou seu WhatsApp?</h2>
+          <p className="muted">O primeiro acesso do paciente continua sendo liberado pelo convite do profissional.</p>
+          {whatsappUrl && qr ? <details className="patient-first-access"><summary>Abrir o WhatsApp da Optótica</summary><div className="patient-entry-options">
+            <a className="button whatsapp" href={whatsappUrl} target="_blank" rel="noopener noreferrer">Falar pelo WhatsApp</a>
+            <figure><Image unoptimized src={qr} width={180} height={180} alt="QR Code para abrir o WhatsApp oficial da Optótica" /><figcaption>No computador, aponte a câmera do celular.</figcaption></figure>
+          </div></details> : null}
+          <details><summary>Entrar por e-mail</summary>
+            <p className="muted">Alternativa para profissionais, inclusive cadastros ainda em análise.</p>
+            <ProfessionalLoginForm />
+          </details>
           <p className="fine-print">Primeiro acesso? <Link className="text-link" href="/cadastrar">Cadastre seu e-mail</Link>.</p>
           <p className="fine-print">É master? <Link className="text-link" href="/entrar/master">Entrar com senha</Link>.</p>
         </section>

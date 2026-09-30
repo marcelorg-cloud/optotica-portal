@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { requireMaster } from '@/lib/catalog/require-master';
-import { access, api, connection, dbError, getColor, sameAccount } from '@/lib/canva/api';
+import { access, api, beginOAuth, connection, dbError, getColor, sameAccount } from '@/lib/canva/api';
 import { ensureColorPage } from '@/lib/canva/pages';
-import { buildCanvaBatchPrompt, canvaColorLabel } from '@/lib/canva/prompt';
+import { buildCanvaBatchPrompt, buildCanvaEditPrompt, buildCanvaRefinementPrompt, canvaColorLabel } from '@/lib/canva/prompt';
+import { canvaImageUrl } from '@/lib/canva/navigation';
 import { getTemplate, sameTemplateSnapshot } from '@/lib/canva/template';
 import { CanvaError, canvaUrl, configurationStatus, sameOrigin, uuid } from '@/lib/canva/security';
 import { photoFilename } from '@/lib/canva/layout';
@@ -14,6 +16,9 @@ export const dynamic = 'force-dynamic';
 function failure(error: unknown) {
   return NextResponse.json({ message: error instanceof CanvaError ? error.message : 'Não foi possível concluir o lote do Canva.' },
     { status: error instanceof CanvaError ? error.status : 500, headers: { 'Cache-Control': 'no-store' } });
+}
+function imageVersion(path: string) {
+  return createHash('sha256').update(path).digest('base64url').slice(0, 12);
 }
 
 export async function GET(request: Request) {
@@ -42,10 +47,19 @@ export async function GET(request: Request) {
       const stale = !!link && (link.source_path !== color.original_image_path ||
         Number(link.reference_revision) !== Number(product.canva_reference_revision) ||
         !sameTemplateSnapshot(link.template_updated_at, template?.updated_at));
-      return { id: color.id, name: canvaColorLabel(color), variant: color.color_variant_number,
+      const name = canvaColorLabel(color);
+      return { id: color.id, name, variant: color.color_variant_number,
         filename, hasOriginal: !!color.original_image_path?.startsWith(productId + '/'),
         hasResult: !!color.processed_image_path, pageNumber: link?.page_number || null,
-        hasPage: !!link?.page_id, stale, stage: link?.page_stage || null };
+        hasPage: !!link?.page_id, stale, stage: link?.page_stage || null,
+        prompt: buildCanvaEditPrompt(product, name),
+        refinementPrompt: buildCanvaRefinementPrompt(product, name),
+        originalUrl: color.original_image_path
+          ? canvaImageUrl(productId, color.id, 'original', undefined, imageVersion(color.original_image_path)) : null,
+        formatUrl: product.position_image_path
+          ? canvaImageUrl(productId, color.id, 'measurements', undefined, imageVersion(product.position_image_path)) : null,
+        currentUrl: color.processed_image_path
+          ? canvaImageUrl(productId, color.id, 'current', undefined, imageVersion(color.processed_image_path)) : null };
     });
     return NextResponse.json({ productName: product.model_name, sku: product.sku_optotica,
       connected, configured: config.configured, configurationError: config.error,
@@ -71,6 +85,11 @@ export async function POST(request: Request) {
       const result = await ensureColorPage(auth.admin, auth.userId, body.productId, body.colorId);
       return NextResponse.json({ status: result.ready ? 'ready' : 'processing' });
     }
+    if (body.action === 'connect') {
+      if (!uuid(body.colorId)) throw new CanvaError('Escolha uma cor válida para conectar o Canva.');
+      await getColor(auth.admin, body.productId, body.colorId);
+      return NextResponse.json({ authorizeUrl: await beginOAuth(auth.admin, auth.userId, body.productId, body.colorId) });
+    }
     if (body.action === 'edit') {
       const { data: product, error } = await auth.admin.from('canva_product_designs').select('*')
         .eq('product_id', body.productId).maybeSingle();
@@ -80,6 +99,15 @@ export async function POST(request: Request) {
       sameAccount(product, current);
       const { design } = await api<{ design: { urls: { edit_url: string } } }>(token, '/designs/' + encodeURIComponent(product.design_id));
       return NextResponse.json({ editUrl: canvaUrl(design.urls.edit_url) });
+    }
+    if (body.action === 'reset') {
+      const { data, error } = await auth.admin.rpc('reset_canva_product_design', {
+        p_product_id: body.productId, p_user_id: auth.userId
+      });
+      if (error?.message?.includes('CANVA_PENDING')) throw new CanvaError('Conclua a preparação em andamento antes de refazer todas as cores.', 409);
+      dbError(error);
+      if (!data) throw new CanvaError('Não foi possível reiniciar o lote do produto.', 409);
+      return NextResponse.json({ status: 'reset' });
     }
     throw new CanvaError('Ação inválida.');
   } catch (error) { return failure(error); }

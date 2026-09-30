@@ -73,11 +73,12 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
     await refresh(signal);
   }, [poll, refresh]);
 
-  const openFreshEditor = useCallback(async (sessionId: string, signal: AbortSignal) => {
+  const openFreshEditor = useCallback(async (sessionId: string, signal: AbortSignal, popup?: Window | null) => {
     const result = await poll('redo', sessionId, signal);
     if (!result.editUrl || !result.sessionId) throw new Error('Não foi possível abrir o novo rascunho.');
     window.history.replaceState(window.history.state, '', withCanvaSession(window.location.href, result.sessionId));
-    window.location.assign(result.editUrl);
+    if (popup) popup.location.replace(result.editUrl);
+    else window.location.assign(result.editUrl);
   }, [poll]);
 
   useEffect(() => {
@@ -130,22 +131,32 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
     catch { return false; }
   }
   function openEditor() {
+    const popup = window.open('about:blank', '_blank');
+    if (popup) popup.opener = null;
     setPreview(null); setSaved(false); setReviewed(false);
     void run(info?.hasResumableDesign ? 'Concluindo o vínculo desta cor…' : 'Preparando o design desta cor…', async signal => {
-      await copyPromptToClipboard();
-      const result = await poll('open', undefined, signal);
-      if (!result.editUrl || !result.sessionId) throw new Error('Não foi possível abrir o editor.');
-      window.history.replaceState(window.history.state, '', withCanvaSession(window.location.href, result.sessionId));
-      window.location.assign(result.editUrl);
+      try {
+        await copyPromptToClipboard();
+        const result = await poll('open', undefined, signal);
+        if (!result.editUrl || !result.sessionId) throw new Error('Não foi possível abrir o editor.');
+        if (!popup) throw new Error('O navegador bloqueou a nova aba. Permita pop-ups para este portal e tente novamente.');
+        window.history.replaceState(window.history.state, '', withCanvaSession(window.location.href, result.sessionId));
+        popup.location.replace(result.editUrl);
+      } catch (error) { popup?.close(); throw error; }
     });
   }
   function redoEditor() {
+    const popup = window.open('about:blank', '_blank');
+    if (popup) popup.opener = null;
     setPreview(null); setSaved(false); setReviewed(false);
     const sessionId = crypto.randomUUID();
     window.history.replaceState(window.history.state, '', withCanvaRedo(window.location.href, sessionId));
     void run('Recriando a página com as referências…', async signal => {
-      await copyPromptToClipboard();
-      await openFreshEditor(sessionId, signal);
+      try {
+        await copyPromptToClipboard();
+        if (!popup) throw new Error('O navegador bloqueou a nova aba. Permita pop-ups para este portal e tente novamente.');
+        await openFreshEditor(sessionId, signal, popup);
+      } catch (error) { popup?.close(); throw error; }
     });
   }
   function importManually() {
@@ -167,13 +178,13 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
       {message && <p role="alert" style={{ color: '#a32020' }}>{message}</p>}
       {busy && <p role="status" aria-live="polite">{busy}</p>}
       {info && <>
-        <p>Um design por produto, com uma página quadrada para cada cor. O portal exporta o PNG final em 540 × 540 px.</p>
+        <p>Um design por produto, com uma página quadrada para cada cor. O editor do Canva abre em uma nova aba e o portal permanece aberto para copiar os comandos.</p>
         <p>Nome do design no Canva: <strong>{info.designTitle}</strong></p>
         {info.filename && <p>Nome do PNG desta cor: <strong>{info.filename}</strong></p>}
         {info.pageTitle && info.pageTitle !== info.filename && <p>O SKU ou a medida mudou desde a criação desta página. A exportação do portal usará o novo nome do PNG mostrado acima.</p>}
         <details open>
           <summary>Imagem modelo da prova online</summary>
-          <p>Esta imagem será usada somente como guia de posição, centro e largura. A referência de formato ficará maior na parte superior e a foto real da cor ficará maior na parte inferior.</p>
+          <p>Esta imagem será usada somente como guia de posição, centro e largura. A referência limpa do formato ficará grande na parte superior e a foto real da cor ficará grande na parte inferior.</p>
           {info.templateUrl && <img src={info.templateUrl} alt="Imagem modelo cadastrada" style={{ ...previewStyle, maxWidth: 240 }} />}
           {!info.templateReady && <p role="status">{info.templateUrl ? 'A imagem cadastrada está com fundo branco ou sem transparência. Envie a versão com fundo e lentes transparentes.' : 'Cadastre o PNG modelo transparente de 540 × 540 px.'}</p>}
           <label>Substituir imagem modelo (PNG, 540 × 540 px)
@@ -205,7 +216,7 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
         {!(Number(info.frameWidthMm) > 0) && <p>Preencha e salve a <strong>Frente Total (mm)</strong> no <Link href={productUrl}>cadastro do produto</Link> antes de continuar.</p>}
         {Number(info.frameWidthMm) > 0 && <p>Frente total cadastrada: <strong>{info.frameWidthMm} mm</strong>.</p>}
         {!info.originalUrl && <p>Cadastre a foto original desta cor no produto.</p>}
-        {!info.measurementUrl && <p>Cadastre a <strong>Referência de formato e proporções</strong> no <Link href={productUrl}>produto</Link> antes de criar ou refazer a página no Canva.</p>}
+        {!info.measurementUrl && <p>Cadastre a <strong>referência visual limpa do formato</strong> no <Link href={productUrl}>produto</Link> antes de criar ou refazer a página no Canva.</p>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 24 }}>
           <div>
             <h2>Foto original da cor</h2>
@@ -213,10 +224,10 @@ export function CanvaTryonWorkspace({ productId, colorId }: { productId: string;
             {info.originalUrl && <img src={info.originalUrl} alt={'Foto original — ' + info.colorName} style={{ ...previewStyle, background: '#fff' }} />}
           </div>
           <div>
-            <h2>Referência de formato e proporções</h2>
+            <h2>Referência visual limpa do formato</h2>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {info.measurementUrl ? <img src={info.measurementUrl} alt={'Formato e proporções — ' + info.productName} style={{ ...previewStyle, background: '#fff' }} /> : <p>Ainda sem referência de formato.</p>}
-            {info.measurementUrl && <p>O Canva usará somente o desenho visual desta imagem. Textos, números, setas e cotas serão ignorados.</p>}
+            {info.measurementUrl && <p>Esta imagem deve mostrar somente o formato do óculos, recortado com boa qualidade e sem textos, setas, números ou cotas.</p>}
           </div>
           <div>
             <h2>{preview ? 'Prévia para salvar' : 'Foto de prova atual'}</h2>
