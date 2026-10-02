@@ -102,10 +102,15 @@ export function ComandaStep({ orderId, clientName, dnp, lensDescription, laborat
       </div>
 
       <div className="actions">
-        <button className="button secondary" type="submit" disabled={state === 'loading'}>Salvar rascunho</button>
-        <button className="button primary" type="button" disabled={state === 'loading'} onClick={() => save(true)}>
-          {localConfirmed ? 'Comanda confirmada ✓' : 'Confirmar comanda final'}
-        </button>
+        {!localConfirmed && <button className="button secondary" type="submit" disabled={state === 'loading'}>Salvar rascunho</button>}
+        {!localConfirmed && <button className="button primary" type="button" disabled={state === 'loading'} onClick={() => save(true)}>
+          Confirmar comanda final
+        </button>}
+        {localConfirmed && (
+          <a className="button primary" href={`/profissional/comanda-laboratorio/${orderId}`} target="_blank" rel="noopener noreferrer">
+            Abrir comanda do laboratório ↗
+          </a>
+        )}
       </div>
       </fieldset>
       {message && state === 'error' && <p className="form-message error">{message}</p>}
