@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
 import { orderCode } from '@/lib/order-code';
+import { PrintLaboratoryOrderButton } from '@/components/order/print-laboratory-order-button';
 
 export const metadata: Metadata = { title: 'Comanda do laboratório' };
 export const dynamic = 'force-dynamic';
@@ -37,8 +38,7 @@ export default async function LaboratoryOrderPage({ params }: { params: Promise<
     <style>{`@media print { .no-print { display:none!important } body { background:#fff } main { margin:0!important; max-width:none!important; padding:0!important } } @page { size:A4; margin:14mm; }`}</style>
     <div className="no-print" style={{ display:'flex', justifyContent:'space-between', gap:12, marginBottom:20 }}>
       <strong>Comanda do laboratório</strong>
-      <button onClick={undefined} style={{ display:'none' }} />
-      <a href="javascript:window.print()" style={{ padding:'10px 16px', border:'1px solid #111', borderRadius:8, textDecoration:'none', color:'#111' }}>Imprimir / Salvar PDF</a>
+      <PrintLaboratoryOrderButton />
     </div>
     <section style={{ border:'1px solid #bbb', borderRadius:12, padding:24 }}>
       <header style={{ display:'flex', justifyContent:'space-between', gap:20, borderBottom:'2px solid #111', paddingBottom:16, marginBottom:20 }}>
