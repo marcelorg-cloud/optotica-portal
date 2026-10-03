@@ -70,7 +70,7 @@ export default async function LaboratoryOrderPage({ params }: { params: Promise<
   if (!order) redirect('/profissional/pacientes');
 
   const [{ data: client }, { data: prescription }, { data: frame }, { data: fulfillment }, { data: quote }, { data: profile }] = await Promise.all([
-    admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe').eq('id', order.client_id).maybeSingle(),
+    admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe, dnp_photo_path').eq('id', order.client_id).maybeSingle(),
     admin.from('prescriptions').select('prescription_data, clinical_notes').eq('order_id', orderId).maybeSingle(),
     admin.from('order_frames').select('frame_name, sku, color, catalog_product_id, catalog_products(lens_width_mm, lens_height_mm, bridge_mm, lens_diagonal_mm, temple_length_mm, frame_total_width_mm, standard_height_mm)').eq('order_id', orderId).maybeSingle(),
     admin.from('order_fulfillment').select('*').eq('order_id', orderId).maybeSingle(),
@@ -150,7 +150,7 @@ export default async function LaboratoryOrderPage({ params }: { params: Promise<
       .info-card p { margin:2px 0; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
       .measure-card { display:grid; grid-template-columns:repeat(5, 1fr); gap:7px; border:1px solid #bdbdbd; border-radius:8px; padding:8px 9px; background:#fafafa; }
       .measure-item { min-width:0; }
-      .notes-box { min-height:42px; max-height:58px; overflow:hidden; border:1px solid #cfcfcf; border-radius:8px; padding:7px 9px; white-space:pre-wrap; }
+      .notes-box { min-height:42px; max-height:58px; overflow:hidden; border:1px solid #cfcfcf; border-radius:8px; padding:7px 9px; white-space:pre-wrap; }\n      .eye-reference { margin-top:10px; }\n      .eye-reference h2 { margin-bottom:5px; }\n      .eye-reference-frame { border:1px solid #cfcfcf; border-radius:8px; overflow:hidden; background:#f5f5f5; height:46mm; display:flex; align-items:center; justify-content:center; }\n      .eye-reference-frame img { width:100%; height:100%; object-fit:cover; display:block; }
       .lab-order-footer { margin-top:12px; padding-top:7px; border-top:1px solid #ccc; font-size:9px; color:#555; display:flex; justify-content:space-between; gap:12px; }
       @media (max-width:900px) {
         .lab-order-preview { padding:12px; overflow-x:auto; }
@@ -249,6 +249,19 @@ export default async function LaboratoryOrderPage({ params }: { params: Promise<
       {prescription?.clinical_notes && <section className="lab-order-section">
         <h2>Observações da prescrição</h2>
         <div className="notes-box">{prescription.clinical_notes}</div>
+      </section>}
+
+      {client?.dnp_photo_path && <section className="lab-order-section eye-reference">
+        <h2>Referência visual de centragem</h2>
+        <div className="eye-reference-frame">
+          <Image
+            src={`/api/professional/orders/${orderId}/laboratory-eye-image`}
+            width={1500}
+            height={500}
+            alt="Recorte da região dos olhos com medidas de centragem"
+            unoptimized
+          />
+        </div>
       </section>}
 
       <footer className="lab-order-footer">
