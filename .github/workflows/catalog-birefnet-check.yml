@@ -1,0 +1,36 @@
+name: Catalog BiRefNet check
+
+on:
+  push:
+    branches:
+      - feat/catalog-birefnet-mask
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: test
+      SUPABASE_SECRET_KEY: test
+      OPTOTICA_ORGANIZATION_ID: 00000000-0000-0000-0000-000000000001
+      OPTOTICA_PROFESSIONAL_ID: 00000000-0000-0000-0000-000000000002
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Clean install
+        run: npm ci
+
+      - name: BiRefNet catalog tests
+        run: node --test tests/*.test.mjs
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Production build
+        run: npm run build
