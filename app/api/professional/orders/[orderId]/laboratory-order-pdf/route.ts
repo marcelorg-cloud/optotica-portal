@@ -10,7 +10,14 @@ function value(v: unknown) {
 }
 
 function safePdfText(v: unknown) {
-  return value(v).replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
+  return value(v)
+    .replace(/[–—]/g, '-')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/•/g, '-')
+    .replace(/[^\x20-\x7E\u00A0-\u00FF]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export async function GET(_request: Request, { params }: { params: Promise<{ orderId: string }> }) {
