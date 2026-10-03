@@ -1811,7 +1811,7 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
         <>
         <div className="card" style={{ padding: 16, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <button className="button primary" type="button" disabled={busy || !colors.some((color) => hasUnprocessedColorPhotos(color, product.galleryPhotos))} onClick={handleProcessAllColors}>Processar todas as cores com IA</button>
-          <span className="helper">Processa cada cor individualmente com sua foto de referência e ignora as que não têm fotos novas.</span>
+          <span className="helper">Processa cada foto marcada individualmente: a IA remove somente o fundo e os pixels da armação vêm da foto original. Ignora origens já processadas.</span>
           {batchProgress && <strong role="status">{batchProgress}</strong>}
         </div>
         <div className="catalog-color-grid">
@@ -1825,11 +1825,9 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
             // o popup e clicar "Validar" ou "Remover".
             const validatedImages = [...color.displayImages].sort((a, b) => a.position - b.position);
             const taggedPhotos = product.galleryPhotos.filter((p) => p.colorImageIds.includes(color.id));
-            // "Foto da cor" virou OBRIGATÓRIA pra processar (15/09/2026, 4ª
-            // rodada — ver estado-consolidado.md seção 0.70): é ela que a IA
-            // usa como referência visual pra identificar a cor certa em cada
-            // foto candidata. Sem ela, não tem o que processar, mesmo com
-            // fotos marcadas em "Todas as fotos do anúncio".
+            // A "Foto da cor" continua obrigatória e também entra como uma
+            // origem a processar. A IA não usa mais essa foto como referência
+            // visual: as marcações manuais definem quais fotos pertencem à cor.
             const ownPhotoAlreadyProcessed = color.displayImages.some((d) => d.fromOwnColorPhoto);
             const hasProcessCandidates = hasUnprocessedColorPhotos(color, product.galleryPhotos);
             return (
@@ -1919,18 +1917,14 @@ export function CatalogProductDetail({ productId }: { productId: string }) {
                   <div className="catalog-color-section">
                     <span className="section-label">Processamento</span>
                     {!color.originalImageUrl && (
-                      <span className="helper">Falta a foto de referência desta cor. Envie a foto ao cadastrar a cor ou atualize as fotos pela importação do produto.</span>
+                      <span className="helper">Falta a foto desta cor. Envie a foto ao cadastrar a cor ou atualize as fotos pela importação do produto.</span>
                     )}
                     {color.originalImageUrl && !taggedPhotos.length && ownPhotoAlreadyProcessed && (
                       <span className="helper">Nenhuma foto nova pra processar — marque mais fotos para esta cor em &quot;Todas as fotos do anúncio&quot;.</span>
                     )}
-                    {/* Marcação manual "2 posições" REMOVIDA (15/09/2026 —
-                        3ª rodada, ver estado-consolidado.md seção 0.69): a
-                        IA agora detecta sozinha se uma foto mostra mais de
-                        um óculos e separa em mais de uma foto de resultado
-                        — nenhuma marcação do master é necessária antes de
-                        clicar "Processar com IA" (ver detectFrameCount em
-                        lib/catalog/gallery-photo-crop.ts). */}
+                    {/* O fluxo atual gera uma foto de exibição por origem.
+                        Não marque colagens, fotos com duas posições ou fotos
+                        em que a armação não seja o objeto principal. */}
                     {taggedPhotos.length > 0 && (
                       <span className="helper">{taggedPhotos.length} foto(s) marcada(s) para esta cor em &quot;Todas as fotos do anúncio&quot; serão processadas.</span>
                     )}
