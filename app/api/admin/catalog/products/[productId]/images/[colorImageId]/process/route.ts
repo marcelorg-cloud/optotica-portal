@@ -143,17 +143,32 @@ export async function POST(
       break;
     }
 
-    // Cada foto é totalmente isolada: erro no download, BiRefNet,
-    // validação da máscara, Sharp ou upload não interrompe as demais.
+    const sourcePhotoId = candidate.galleryImageId ?? colorImageId;
+
+    let processed: Awaited<ReturnType<typeof processCatalogDisplayPhoto>>;
     try {
-      const processed = await processCatalogDisplayPhoto(candidate.signedUrl);
+      processed = await processCatalogDisplayPhoto(candidate.signedUrl);
+    } catch (error) {
+      failedCount += 1;
+      console.error('catalog_display_photo_process_failed', {
+        productId,
+        colorImageId,
+        sourcePhotoId,
+        kind: candidate.kind,
+        galleryImageId: candidate.galleryImageId,
+        stage: 'process',
+        message: error instanceof Error ? error.message : String(error)
+      });
+      continue;
+    }
 
-      const position = nextPosition;
-      const path = `${productId}/display/${colorImageId}-${crypto.randomUUID()}.jpg`;
+    const position = nextPosition;
+    const uploadPath = `${productId}/display/${colorImageId}-${crypto.randomUUID()}.jpg`;
 
+    try {
       const { error: uploadError } = await auth.admin.storage
         .from(BUCKET)
-        .upload(path, processed.buffer, {
+        .upload(uploadPath, processed.buffer, {
           contentType: 'image/jpeg',
           upsert: false
         });
@@ -161,48 +176,52 @@ export async function POST(
       if (uploadError) {
         throw new Error(`Falha ao salvar a foto processada: ${uploadError.message}`);
       }
-
-      uploadedPaths.push(path);
-      nextPosition += 1;
-
-      rowsToInsert.push({
-        color_image_id: colorImageId,
-        position,
-        source: candidate.kind === 'foto_da_cor'
-          ? 'foto_da_cor_recortada'
-          : 'galeria_recortada',
-        image_path: path,
-        source_gallery_image_id: candidate.galleryImageId,
-        from_own_color_photo: candidate.kind === 'foto_da_cor'
-      });
-
-      timings.push({
-        kind: candidate.kind,
-        galleryImageId: candidate.galleryImageId,
-        aiDurationMs: processed.aiDurationMs,
-        totalDurationMs: processed.totalDurationMs,
-        visibleBoxRatio: processed.visibleBoxRatio
-      });
-
-      console.info('catalog_display_photo_processed', {
-        productId,
-        colorImageId,
-        kind: candidate.kind,
-        galleryImageId: candidate.galleryImageId,
-        aiDurationMs: processed.aiDurationMs,
-        totalDurationMs: processed.totalDurationMs,
-        visibleBoxRatio: Number(processed.visibleBoxRatio.toFixed(3))
-      });
     } catch (error) {
       failedCount += 1;
       console.error('catalog_display_photo_process_failed', {
         productId,
         colorImageId,
+        sourcePhotoId,
         kind: candidate.kind,
         galleryImageId: candidate.galleryImageId,
+        stage: 'upload',
         message: error instanceof Error ? error.message : String(error)
       });
+      continue;
     }
+
+    uploadedPaths.push(uploadPath);
+    nextPosition += 1;
+
+    rowsToInsert.push({
+      color_image_id: colorImageId,
+      position,
+      source: candidate.kind === 'foto_da_cor'
+        ? 'foto_da_cor_recortada'
+        : 'galeria_recortada',
+      image_path: uploadPath,
+      source_gallery_image_id: candidate.galleryImageId,
+      from_own_color_photo: candidate.kind === 'foto_da_cor'
+    });
+
+    timings.push({
+      kind: candidate.kind,
+      galleryImageId: candidate.galleryImageId,
+      aiDurationMs: processed.aiDurationMs,
+      totalDurationMs: processed.totalDurationMs,
+      visibleBoxRatio: processed.visibleBoxRatio
+    });
+
+    console.info('catalog_display_photo_processed', {
+      productId,
+      colorImageId,
+      sourcePhotoId,
+      kind: candidate.kind,
+      galleryImageId: candidate.galleryImageId,
+      aiDurationMs: processed.aiDurationMs,
+      totalDurationMs: processed.totalDurationMs,
+      visibleBoxRatio: Number(processed.visibleBoxRatio.toFixed(3))
+    });
   }
 
   let createdIds: string[] = [];
