@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
 import { orderCode } from '@/lib/order-code';
+import { buildLaboratoryEyeImage } from '@/lib/laboratory-eye-image';
 
 export const runtime = 'nodejs';
 
@@ -118,7 +119,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ord
   if (!order) return new Response('Atendimento não encontrado.', { status: 404 });
 
   const [{ data: client }, { data: prescription }, { data: frame }, { data: fulfillment }, { data: quote }, { data: profile }] = await Promise.all([
-    admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe').eq('id', order.client_id).maybeSingle(),
+    admin.from('clients').select('full_name, whatsapp_e164, dnp_od, dnp_oe, dnp_photo_path').eq('id', order.client_id).maybeSingle(),
     admin.from('prescriptions').select('prescription_data, clinical_notes').eq('order_id', orderId).maybeSingle(),
     admin.from('order_frames').select('frame_name, sku, color, catalog_product_id, catalog_products(lens_width_mm, lens_height_mm, bridge_mm, lens_diagonal_mm, temple_length_mm, frame_total_width_mm, standard_height_mm)').eq('order_id', orderId).maybeSingle(),
     admin.from('order_fulfillment').select('*').eq('order_id', orderId).maybeSingle(),
@@ -301,7 +302,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ord
   });
   y -= notesHeight + 16;
 
-  if (prescription?.clinical_notes && y > 105) {
+  if (prescription?.clinical_notes && y > 205) {
     page.drawText('OBSERVACOES DA PRESCRICAO', { x: left, y, size: 9, font: bold, color: ink });
     y -= 9;
     const clinicalHeight = 42;
@@ -309,6 +310,24 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ord
     wrap(safePdfText(prescription.clinical_notes), regular, 8.3, width - 18, 3).forEach((ln, i) => {
       page.drawText(ln, { x: left + 9, y: y - 14 - i * 10, size: 8.3, font: regular, color: ink });
     });
+  }
+
+  if (client?.dnp_photo_path) {
+    const eyeImageBytes = await buildLaboratoryEyeImage(admin, {
+      dnpPhotoPath: client.dnp_photo_path,
+      dnpOd: client.dnp_od,
+      dnpOe: client.dnp_oe,
+      heightOd: fulfillment.measure_height_od,
+      heightOe: fulfillment.measure_height_oe
+    }).catch(() => null);
+    if (eyeImageBytes) {
+      const eyeImage = await pdf.embedPng(eyeImageBytes);
+      const imageWidth = 390;
+      const imageHeight = 130;
+      const imageX = (595.28 - imageWidth) / 2;
+      page.drawText('REFERENCIA VISUAL DE CENTRAGEM', { x: left, y: 190, size: 8.5, font: bold, color: ink });
+      page.drawImage(eyeImage, { x: imageX, y: 57, width: imageWidth, height: imageHeight });
+    }
   }
 
   page.drawLine({ start: { x: left, y: 49 }, end: { x: right, y: 49 }, thickness: 0.6, color: border });
