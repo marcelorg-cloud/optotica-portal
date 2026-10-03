@@ -27,7 +27,7 @@ jobs:
         run: npm ci
 
       - name: BiRefNet catalog tests
-        run: node --test tests/catalog-background-removal.test.mjs tests/catalog-process-route.test.mjs tests/display-photo-standard.test.mjs
+        run: node --test tests/*.test.mjs
 
       - name: Typecheck
         run: npm run typecheck
