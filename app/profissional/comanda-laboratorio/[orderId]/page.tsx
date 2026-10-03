@@ -109,7 +109,7 @@ export default async function LaboratoryOrderPage({ params }: { params: Promise<
   const rx = (prescription?.prescription_data || {}) as { od?: Record<string, unknown>; oe?: Record<string, unknown> };
   const code = orderCode(client?.full_name || 'Paciente', order.order_number);
   const measurements = ((frame as { catalog_products?: FrameMeasurements | null } | null)?.catalog_products || {}) as FrameMeasurements;
-  const issuedAt = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(fulfillment.comanda_confirmed_at));
+  const issuedAt = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(new Date(fulfillment.comanda_confirmed_at));
   const labLocation = laboratory?.city
     ? `${laboratory.city}${laboratory.state ? `/${laboratory.state}` : ''}`
     : '—';
@@ -141,13 +141,13 @@ export default async function LaboratoryOrderPage({ params }: { params: Promise<
       .lab-order-section h2 { font-size:12px; text-transform:uppercase; letter-spacing:.04em; margin:0 0 6px; }
       .identity-grid { display:grid; grid-template-columns:1.15fr 1fr; gap:6px 18px; padding:9px 10px; border:1px solid #cfcfcf; border-radius:8px; }
       .identity-item span, .measure-item span { display:block; font-size:9px; text-transform:uppercase; letter-spacing:.04em; color:#666; margin-bottom:2px; }
-      .identity-item strong, .measure-item strong { font-size:11px; }
+      .identity-item strong, .measure-item strong { font-size:11px; }\n      .identity-item strong { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
       .rx-table { width:100%; border-collapse:collapse; text-align:center; font-size:10.5px; }
       .rx-table th { background:#f3f3f3; }
       .rx-table th, .rx-table td { border:1px solid #cfcfcf; padding:5px; }
       .two-col { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
       .info-card { border:1px solid #cfcfcf; border-radius:8px; padding:8px 10px; }
-      .info-card p { margin:2px 0; }
+      .info-card p { margin:2px 0; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
       .measure-card { display:grid; grid-template-columns:repeat(5, 1fr); gap:7px; border:1px solid #bdbdbd; border-radius:8px; padding:8px 9px; background:#fafafa; }
       .measure-item { min-width:0; }
       .notes-box { min-height:42px; max-height:58px; overflow:hidden; border:1px solid #cfcfcf; border-radius:8px; padding:7px 9px; white-space:pre-wrap; }
