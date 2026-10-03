@@ -195,7 +195,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ord
   page.drawText('DADOS PRINCIPAIS', { x: left, y, size: 9, font: bold, color: ink });
   y -= 9;
   const identityHeight = 91;
-  page.drawRectangle({ x: left, y: y - identityHeight, width, height: identityHeight, borderWidth: 0.8, borderColor: border, borderRadius: 5 });
+  page.drawRectangle({ x: left, y: y - identityHeight, width, height: identityHeight, borderWidth: 0.8, borderColor: border });
   const colGap = 18;
   const colWidth = (width - 20 - colGap) / 2;
   const x1 = left + 10;
@@ -244,8 +244,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ord
   page.drawText('ARMACAO', { x: left + cardWidth + cardGap, y, size: 9, font: bold, color: ink });
   y -= 10;
   const cardHeight = 66;
-  page.drawRectangle({ x: left, y: y - cardHeight, width: cardWidth, height: cardHeight, borderWidth: 0.8, borderColor: border, borderRadius: 5 });
-  page.drawRectangle({ x: left + cardWidth + cardGap, y: y - cardHeight, width: cardWidth, height: cardHeight, borderWidth: 0.8, borderColor: border, borderRadius: 5 });
+  page.drawRectangle({ x: left, y: y - cardHeight, width: cardWidth, height: cardHeight, borderWidth: 0.8, borderColor: border });
+  page.drawRectangle({ x: left + cardWidth + cardGap, y: y - cardHeight, width: cardWidth, height: cardHeight, borderWidth: 0.8, borderColor: border });
   const lensX = left + 9;
   const frameX = left + cardWidth + cardGap + 9;
   page.drawText('Lente:', { x: lensX, y: y - 15, size: 8, font: bold, color: muted });
@@ -278,7 +278,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ord
     ['Haste', measurements.temple_length_mm]
   ];
   const measureHeight = 70;
-  page.drawRectangle({ x: left, y: y - measureHeight, width, height: measureHeight, borderWidth: 0.8, borderColor: border, borderRadius: 5, color: rgb(0.985, 0.985, 0.985) });
+  page.drawRectangle({ x: left, y: y - measureHeight, width, height: measureHeight, borderWidth: 0.8, borderColor: border, color: rgb(0.985, 0.985, 0.985) });
   const mCols = 5;
   const mCellW = width / mCols;
   measures.forEach(([label, measurement], i) => {
@@ -295,7 +295,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ord
   page.drawText('OBSERVACOES LABORATORIAIS FINAIS', { x: left, y, size: 9, font: bold, color: ink });
   y -= 9;
   const notesHeight = 54;
-  page.drawRectangle({ x: left, y: y - notesHeight, width, height: notesHeight, borderWidth: 0.8, borderColor: border, borderRadius: 5 });
+  page.drawRectangle({ x: left, y: y - notesHeight, width, height: notesHeight, borderWidth: 0.8, borderColor: border });
   wrap(safePdfText(fulfillment.final_lab_notes), regular, 8.5, width - 18, 4).forEach((ln, i) => {
     page.drawText(ln, { x: left + 9, y: y - 15 - i * 10, size: 8.5, font: regular, color: ink });
   });
@@ -305,7 +305,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ord
     page.drawText('OBSERVACOES DA PRESCRICAO', { x: left, y, size: 9, font: bold, color: ink });
     y -= 9;
     const clinicalHeight = 42;
-    page.drawRectangle({ x: left, y: y - clinicalHeight, width, height: clinicalHeight, borderWidth: 0.8, borderColor: border, borderRadius: 5 });
+    page.drawRectangle({ x: left, y: y - clinicalHeight, width, height: clinicalHeight, borderWidth: 0.8, borderColor: border });
     wrap(safePdfText(prescription.clinical_notes), regular, 8.3, width - 18, 3).forEach((ln, i) => {
       page.drawText(ln, { x: left + 9, y: y - 14 - i * 10, size: 8.3, font: regular, color: ink });
     });
