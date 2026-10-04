@@ -1,0 +1,28 @@
+name: Regente v0.2 production verification
+
+on:
+  push:
+    branches:
+      - feat/regente-v0-2-chat-sessions
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify production protection
+        run: |
+          set -e
+          ROOT_STATUS=$(curl -sS -o /tmp/root -D /tmp/root-h -w "%{http_code}" https://optotica-regente.vercel.app/)
+          API_STATUS=$(curl -sS -o /tmp/api -D /tmp/api-h -w "%{http_code}" -X POST https://optotica-regente.vercel.app/api/regente -H "Content-Type: application/json" --data '{"message":"probe"}')
+          SESSIONS_STATUS=$(curl -sS -o /tmp/sessions -D /tmp/sessions-h -w "%{http_code}" https://optotica-regente.vercel.app/api/sessions)
+          echo "ROOT_STATUS=$ROOT_STATUS"
+          grep -i '^location:' /tmp/root-h || true
+          echo "API_STATUS=$API_STATUS"
+          cat /tmp/api
+          echo
+          echo "SESSIONS_STATUS=$SESSIONS_STATUS"
+          cat /tmp/sessions
+          echo
+          if [ "$ROOT_STATUS" != "307" ] && [ "$ROOT_STATUS" != "302" ]; then exit 1; fi
+          if [ "$API_STATUS" != "401" ]; then exit 1; fi
+          if [ "$SESSIONS_STATUS" != "401" ]; then exit 1; fi
