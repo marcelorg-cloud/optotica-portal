@@ -1,23 +1,19 @@
 import { createServerClient } from "@supabase/ssr";
-import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
+const DEFAULT_SUPABASE_URL = "https://xepkdqcbjrictowriccb.supabase.co";
+const DEFAULT_SUPABASE_PUBLISHABLE_KEY =
+  "sb_publishable_F-DN3Z4GZbX5j2IeXtq5cw_rJHP6mfw";
+
 function publicSupabaseUrl() {
-  const value = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!value) throw new Error("NEXT_PUBLIC_SUPABASE_URL não configurado.");
-  return value;
+  return process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL;
 }
 
 function publicSupabaseKey() {
-  const value = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  if (!value) throw new Error("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY não configurado.");
-  return value;
-}
-
-function secretSupabaseKey() {
-  const value = process.env.SUPABASE_SECRET_KEY;
-  if (!value) throw new Error("SUPABASE_SECRET_KEY não configurado.");
-  return value;
+  return (
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    DEFAULT_SUPABASE_PUBLISHABLE_KEY
+  );
 }
 
 export async function createServerSupabaseClient() {
@@ -37,11 +33,5 @@ export async function createServerSupabaseClient() {
         }
       },
     },
-  });
-}
-
-export function createAdminSupabaseClient() {
-  return createClient(publicSupabaseUrl(), secretSupabaseKey(), {
-    auth: { autoRefreshToken: false, persistSession: false },
   });
 }
