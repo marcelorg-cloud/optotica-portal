@@ -1,10 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import {
-  createAdminSupabaseClient,
-  createServerSupabaseClient,
-} from "../../../lib/supabase";
+import { createServerSupabaseClient } from "../../../lib/supabase";
 
 export async function masterSignInAction(formData: FormData) {
   const email = String(formData.get("email") || "")
@@ -26,8 +23,9 @@ export async function masterSignInAction(formData: FormData) {
     redirect("/entrar/master?erro=credenciais-invalidas");
   }
 
-  const admin = createAdminSupabaseClient();
-  const { data: master } = await admin
+  // A própria sessão autenticada consulta somente sua linha em system_admins
+  // pela política RLS system_admins_self_read.
+  const { data: master } = await supabase
     .from("system_admins")
     .select("user_id")
     .eq("user_id", data.user.id)
