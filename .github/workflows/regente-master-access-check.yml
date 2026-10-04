@@ -1,0 +1,31 @@
+name: Regente master access check
+
+on:
+  push:
+    branches:
+      - fix/regente-master-access
+
+jobs:
+  typecheck-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: regente
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: test-publishable
+      SUPABASE_SECRET_KEY: test-secret
+      OPENAI_API_KEY: test-openai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: regente/package.json
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Production build
+        run: npm run build
