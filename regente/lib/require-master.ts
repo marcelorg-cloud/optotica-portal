@@ -1,4 +1,4 @@
-import { createAdminSupabaseClient, createServerSupabaseClient } from "./supabase";
+import { createServerSupabaseClient } from "./supabase";
 
 export async function requireMaster() {
   const supabase = await createServerSupabaseClient();
@@ -14,8 +14,10 @@ export async function requireMaster() {
     };
   }
 
-  const admin = createAdminSupabaseClient();
-  const { data: master, error } = await admin
+  // system_admins tem RLS system_admins_self_read:
+  // authenticated pode ler somente sua própria linha (user_id = auth.uid()).
+  // Assim, a validação Master não precisa de service role/secret key.
+  const { data: master, error } = await supabase
     .from("system_admins")
     .select("user_id")
     .eq("user_id", user.id)
