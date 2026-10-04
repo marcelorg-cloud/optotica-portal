@@ -49,3 +49,50 @@ footer { margin-top: 28px; color: var(--muted); font-size: 12px; text-align: cen
   .status { display: inline-block; margin-top: 16px; }
   h1 { font-size: 42px; }
 }
+
+input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 13px;
+  font: inherit;
+  background: #fbfcfb;
+  color: var(--ink);
+}
+
+.login-shell {
+  max-width: 520px;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 24px;
+}
+
+.login-panel {
+  width: 100%;
+}
+
+.login-panel h1 {
+  margin-bottom: 20px;
+}
+
+.login-form {
+  margin-top: 24px;
+}
+
+.login-error {
+  margin: 14px 0 0;
+  color: #8d2c26;
+  font-weight: 700;
+}
+
+.button-link {
+  display: inline-block;
+  margin-top: 10px;
+  border-radius: 12px;
+  background: var(--accent);
+  color: white;
+  font-weight: 700;
+  padding: 14px 18px;
+  text-decoration: none;
+}
