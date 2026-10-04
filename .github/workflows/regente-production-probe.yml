@@ -1,0 +1,40 @@
+name: Regente production access probe
+
+on:
+  push:
+    branches:
+      - fix/regente-master-access
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe production access
+        run: |
+          set -e
+          ROOT_STATUS=$(curl -sS -o /tmp/root-body -D /tmp/root-headers -w "%{http_code}" https://optotica-regente.vercel.app/)
+          echo "ROOT_STATUS=$ROOT_STATUS"
+          cat /tmp/root-headers
+          echo "---"
+          LOGIN_STATUS=$(curl -sS -o /tmp/login-body -D /tmp/login-headers -w "%{http_code}" https://optotica-regente.vercel.app/entrar/master)
+          echo "LOGIN_STATUS=$LOGIN_STATUS"
+          echo "---"
+          API_STATUS=$(curl -sS -o /tmp/api-body -D /tmp/api-headers -w "%{http_code}" \
+            -X POST https://optotica-regente.vercel.app/api/regente \
+            -H "Content-Type: application/json" \
+            --data '{"objective":"probe"}')
+          echo "API_STATUS=$API_STATUS"
+          cat /tmp/api-body
+          echo
+          if [ "$ROOT_STATUS" != "307" ] && [ "$ROOT_STATUS" != "302" ]; then
+            echo "Unexpected root status"
+            exit 1
+          fi
+          if [ "$LOGIN_STATUS" != "200" ]; then
+            echo "Unexpected login status"
+            exit 1
+          fi
+          if [ "$API_STATUS" != "401" ]; then
+            echo "Unexpected API status"
+            exit 1
+          fi
