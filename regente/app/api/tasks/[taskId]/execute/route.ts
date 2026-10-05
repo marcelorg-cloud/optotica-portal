@@ -43,7 +43,7 @@ export async function POST(
     );
   }
 
-  const userId = userId;
+  const userId = auth.userId;
   const { taskId } = await params;
   const supabase = await createServerSupabaseClient();
 
