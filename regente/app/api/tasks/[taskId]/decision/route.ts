@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireMaster } from "../../../../../lib/require-master";
 import { createServerSupabaseClient } from "../../../../../lib/supabase";
 
-type Decision = "execute" | "reject" | "revise";
+type Decision = "execute" | "partial" | "reject" | "revise";
 
 export async function POST(
   request: Request,
@@ -20,8 +20,11 @@ export async function POST(
   const body = await request.json().catch(() => ({}));
   const decision = body.decision as Decision;
   const note = typeof body.note === "string" ? body.note.trim() : "";
+  const approvedSteps = Array.isArray(body.approvedSteps)
+    ? body.approvedSteps.filter((step: unknown) => Number.isInteger(step) && Number(step) > 0).map(Number)
+    : [];
 
-  if (!["execute", "reject", "revise"].includes(decision)) {
+  if (!["execute", "partial", "reject", "revise"].includes(decision)) {
     return NextResponse.json(
       { error: "invalid_decision", message: "Decisão inválida." },
       { status: 400 },
@@ -64,6 +67,15 @@ export async function POST(
   } else if (decision === "revise") {
     nextStatus = "needs_revision";
     message = "Pipeline devolvido para revisão. Nenhuma ação externa foi executada.";
+  } else if (decision === "partial") {
+    if (!approvedSteps.length) {
+      return NextResponse.json(
+        { error: "steps_required", message: "Selecione ao menos uma etapa para execução parcial." },
+        { status: 400 },
+      );
+    }
+    nextStatus = "approved";
+    message = `Execução parcial aprovada para as etapas ${approvedSteps.join(", ")}. Etapas sem adapter continuam bloqueadas.`;
   } else if (missingAdapters.length) {
     nextStatus = "approved";
     message =
@@ -81,6 +93,7 @@ export async function POST(
     note: note || null,
     decided_at: new Date().toISOString(),
     missing_adapters: [...new Set(missingAdapters)],
+    approved_steps: decision === "partial" ? approvedSteps : null,
   };
 
   const { error: updateError } = await supabase
@@ -107,7 +120,9 @@ export async function POST(
     event_type:
       decision === "execute"
         ? "human_approved"
-        : decision === "reject"
+        : decision === "partial"
+          ? "human_partial_approval"
+          : decision === "reject"
           ? "human_rejected"
           : "human_requested_revision",
     payload: humanDecision,
@@ -118,7 +133,8 @@ export async function POST(
     status: nextStatus,
     decision,
     missingAdapters: [...new Set(missingAdapters)],
-    executionAvailable: decision === "execute" && missingAdapters.length === 0,
+    approvedSteps: decision === "partial" ? approvedSteps : null,
+    executionAvailable: (decision === "execute" || decision === "partial") && missingAdapters.length === 0,
     message,
   });
 }
