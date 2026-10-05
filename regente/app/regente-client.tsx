@@ -260,7 +260,7 @@ export function RegenteClient() {
         <div>
           <span className="eyebrow">REDE OPTÓTICA + ENSAVIM</span>
           <h1>Regente</h1>
-          <p>v0.4 · pipelines multicamadas · execução supervisionada</p>
+          <p>v0.4 · pipelines multicamadas · execução supervisionada · recovery A5</p>
         </div>
         <div className="status">● Human-gated execution</div>
       </header>
@@ -448,7 +448,7 @@ export function RegenteClient() {
       </div>
 
       <footer>
-        v0.4 — pipeline auditável + gate humano. Ferramentas sem adapter são explicitamente bloqueadas até integração real.
+        v0.4 — pipeline auditável + gate humano + A5 Recovery Engineer. Falhas são recuperadas antes de escalar ao humano.
       </footer>
     </main>
   );
