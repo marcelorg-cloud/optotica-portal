@@ -57,15 +57,17 @@ export async function POST(
     return NextResponse.json({ error: "task_not_found", message: "Tarefa não encontrada." }, { status: 404 });
   }
 
-  if (task.status !== "approved") {
+  const taskData = task;
+
+  if (taskData.status !== "approved") {
     return NextResponse.json(
       { error: "approval_required", message: "A tarefa precisa estar aprovada antes da execução." },
       { status: 409 },
     );
   }
 
-  const pipeline = (Array.isArray(task.pipeline) ? task.pipeline : []) as PipelineStep[];
-  const decision = task.human_decision as { decision?: string; approved_steps?: number[] | null } | null;
+  const pipeline = (Array.isArray(taskData.pipeline) ? taskData.pipeline : []) as PipelineStep[];
+  const decision = taskData.human_decision as { decision?: string; approved_steps?: number[] | null } | null;
   const approvedSteps =
     decision?.decision === "partial" && Array.isArray(decision.approved_steps)
       ? new Set(decision.approved_steps)
@@ -119,7 +121,7 @@ export async function POST(
           node_id: primary,
           adapter: "openai_agents",
           status: "running",
-          input: { step, objective: task.objective },
+          input: { step, objective: taskData.objective },
         })
         .select("id")
         .single();
@@ -129,7 +131,7 @@ export async function POST(
         const output = await executeOpenAIWorker({
           node: primary,
           step,
-          objective: task.objective,
+          objective: taskData.objective,
           priorArtifacts: artifacts,
         });
         await supabase
@@ -162,7 +164,7 @@ export async function POST(
           node_id: primary,
           adapter: "anthropic_messages",
           status: "running",
-          input: { step, objective: task.objective },
+          input: { step, objective: taskData.objective },
         })
         .select("id")
         .single();
@@ -171,7 +173,7 @@ export async function POST(
       try {
         const output = await executeClaudeWorker({
           step,
-          objective: task.objective,
+          objective: taskData.objective,
           priorArtifacts: artifacts,
         });
 
@@ -181,7 +183,7 @@ export async function POST(
             .update({ status: "blocked", output, updated_at: new Date().toISOString() })
             .eq("id", runRow.id)
             .eq("user_id", auth.userId);
-          return { step: step.step, nodes, reason: output.reason };
+          return { step: step.step, nodes, reason: output.reason || "Claude indisponível." };
         }
 
         await supabase
@@ -206,13 +208,13 @@ export async function POST(
 
     if (primary === "F6") {
       const configuredVariants = Number(
-        (task.picker as { variantsRequested?: number } | null)?.variantsRequested || 1,
+        (taskData.picker as { variantsRequested?: number } | null)?.variantsRequested || 1,
       );
       const variants = Math.max(1, Math.min(3, variantOverride || configuredVariants));
       const spec = await buildCanvaSpec({
         step,
-        objective: task.objective,
-        title: task.title,
+        objective: taskData.objective,
+        title: taskData.title,
         priorArtifacts: artifacts,
         variants,
       });
@@ -318,8 +320,8 @@ export async function POST(
         let first: RecoveryDecisionOutput | null = null;
         try {
           first = await analyzeRecovery({
-            objective: task.objective,
-            taskTitle: task.title,
+            objective: taskData.objective,
+            taskTitle: taskData.title,
             step: originalStep,
             node: primary,
             error: initialError,
@@ -361,8 +363,8 @@ export async function POST(
           if (sameError) {
             try {
               const review = await reviewRecoveryWithClaude({
-                objective: task.objective,
-                taskTitle: task.title,
+                objective: taskData.objective,
+                taskTitle: taskData.title,
                 step: firstRetryStep,
                 node: primary,
                 error: retryError,
@@ -393,8 +395,8 @@ export async function POST(
           let second: RecoveryDecisionOutput | null = null;
           try {
             second = await analyzeRecovery({
-              objective: task.objective,
-              taskTitle: task.title,
+              objective: taskData.objective,
+              taskTitle: taskData.title,
               step: firstRetryStep,
               node: primary,
               error: retryError,
@@ -479,7 +481,7 @@ export async function POST(
     ].filter(Boolean).join("\n\n");
 
     await supabase.from("regent_messages").insert({
-      session_id: task.session_id,
+      session_id: taskData.session_id,
       user_id: auth.userId,
       role: "assistant",
       content: completionMessage,
