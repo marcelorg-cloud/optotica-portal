@@ -269,3 +269,31 @@ input {
   .chat-composer button { width: 100%; }
   .message-stream { padding: 16px 12px; }
 }
+
+
+/* Regente v0.4 — pipeline multicamadas e gate humano */
+.plan-meta-row { display:flex; flex-wrap:wrap; gap:7px; align-items:center; }
+.pipeline-tag { display:inline-flex; align-items:center; min-height:26px; padding:4px 8px; border-radius:999px; background:#eef2ef; color:var(--muted); font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; }
+.pipeline-list { display:grid; gap:9px; margin-top:16px; }
+.pipeline-step { border:1px solid var(--line); border-radius:13px; padding:12px 13px; background:#fff; }
+.pipeline-step-head { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+.pipeline-step-head strong { text-transform:capitalize; font-size:13px; }
+.pipeline-step p { margin:8px 0; font-size:13px; color:var(--ink); }
+.execution-state { border-radius:999px; padding:4px 7px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:.04em; }
+.execution-state.ready { background:#e3f4ed; color:#176c5b; }
+.execution-state.planned { background:#eef1f0; color:#5d6863; }
+.execution-state.requires_adapter { background:#fff0d8; color:#875d0a; }
+.picker-card { margin-top:14px; padding:13px 14px; border:1px solid #d7dfdb; border-radius:13px; background:#f5f8f6; }
+.picker-card strong { display:block; margin-bottom:4px; }
+.approval-gate { margin-top:16px; padding:15px; border:1px solid #e2cf9b; border-radius:14px; background:#fff9e9; }
+.approval-gate > strong { display:block; margin-bottom:4px; }
+.approval-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.approval-actions button { padding:10px 12px; font-size:12px; }
+.approval-actions .secondary-action { background:white; color:var(--ink); border:1px solid var(--line); }
+.approval-actions .danger-action { background:#fff; color:#8d2c26; border:1px solid #e6c6c3; }
+.pill.proceed { background:#e3f4ed; color:#176c5b; }
+@media (max-width:560px) {
+  .pipeline-step-head { align-items:flex-start; }
+  .approval-actions { display:grid; grid-template-columns:1fr; }
+  .approval-actions button { width:100%; }
+}

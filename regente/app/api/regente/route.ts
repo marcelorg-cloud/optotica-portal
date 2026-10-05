@@ -18,20 +18,14 @@ export async function POST(request: Request) {
 
   if (!auth.ok) {
     return NextResponse.json(
-      {
-        error: auth.status === 401 ? "unauthorized" : "forbidden",
-        message: auth.message,
-      },
+      { error: auth.status === 401 ? "unauthorized" : "forbidden", message: auth.message },
       { status: auth.status },
     );
   }
 
   if (!process.env.OPENAI_API_KEY) {
     return NextResponse.json(
-      {
-        error: "setup_required",
-        message: "OPENAI_API_KEY ainda não foi configurada no ambiente do Regente.",
-      },
+      { error: "setup_required", message: "OPENAI_API_KEY ainda não foi configurada no ambiente do Regente." },
       { status: 503 },
     );
   }
@@ -39,8 +33,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const message = typeof body.message === "string" ? body.message.trim() : "";
-    const requestedSessionId =
-      typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+    const requestedSessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
     const budgetTier = ["minimal", "controlled", "flexible"].includes(body.budgetTier)
       ? body.budgetTier
       : "minimal";
@@ -70,11 +63,7 @@ export async function POST(request: Request) {
     } else {
       const { data: session, error: sessionError } = await supabase
         .from("regent_sessions")
-        .insert({
-          user_id: auth.userId,
-          title: makeTitle(message),
-          budget_tier: budgetTier,
-        })
+        .insert({ user_id: auth.userId, title: makeTitle(message), budget_tier: budgetTier })
         .select("id")
         .single();
 
@@ -108,16 +97,13 @@ export async function POST(request: Request) {
 
     const history = ((previousMessages || []).reverse() as RegentConversationMessage[]);
 
-    const { error: userMessageError } = await supabase
+    const { data: savedUserMessage, error: userMessageError } = await supabase
       .from("regent_messages")
-      .insert({
-        session_id: sessionId,
-        user_id: auth.userId,
-        role: "user",
-        content: message,
-      });
+      .insert({ session_id: sessionId, user_id: auth.userId, role: "user", content: message })
+      .select("id")
+      .single();
 
-    if (userMessageError) {
+    if (userMessageError || !savedUserMessage) {
       console.error("regente_user_message_save_failed", userMessageError);
       return NextResponse.json(
         { error: "message_save_failed", message: "Não foi possível salvar sua mensagem." },
@@ -125,16 +111,72 @@ export async function POST(request: Request) {
       );
     }
 
-    const output = await askRegent({
-      message,
-      history,
-      budgetTier,
+    let output;
+    try {
+      output = await askRegent({ message, history, budgetTier });
+    } catch (error) {
+      await supabase
+        .from("regent_messages")
+        .delete()
+        .eq("id", savedUserMessage.id)
+        .eq("user_id", auth.userId);
+      throw error;
+    }
+
+    if (!output) {
+      await supabase
+        .from("regent_messages")
+        .delete()
+        .eq("id", savedUserMessage.id)
+        .eq("user_id", auth.userId);
+      throw new Error("Regente retornou output vazio.");
+    }
+
+    const taskStatus = output.approvalRequired ? "awaiting_approval" : "approved";
+    const { data: task, error: taskError } = await supabase
+      .from("regent_tasks")
+      .insert({
+        user_id: auth.userId,
+        session_id: sessionId,
+        title: output.taskTitle,
+        objective: output.objective,
+        status: taskStatus,
+        depth: output.depth,
+        risk: output.risk,
+        budget_tier: budgetTier,
+        pipeline: output.pipeline,
+        picker: output.picker,
+      })
+      .select("id, status")
+      .single();
+
+    if (taskError || !task) {
+      console.error("regente_task_save_failed", taskError);
+      return NextResponse.json(
+        { error: "task_save_failed", message: "O plano foi gerado, mas não pôde ser registrado." },
+        { status: 500 },
+      );
+    }
+
+    await supabase.from("regent_task_events").insert({
+      task_id: task.id,
+      user_id: auth.userId,
+      event_type: "pipeline_planned",
+      payload: {
+        depth: output.depth,
+        risk: output.risk,
+        selectedNodes: output.selectedNodes,
+        pipeline: output.pipeline,
+        picker: output.picker,
+      },
     });
 
     const assistantMessage =
-      output?.message?.trim() ||
-      output?.summary?.trim() ||
+      output.message?.trim() ||
+      output.summary?.trim() ||
       "O Regente concluiu a análise, mas não retornou uma mensagem textual.";
+
+    const persistedPayload = { ...output, taskId: task.id, taskStatus: task.status };
 
     const { error: assistantMessageError } = await supabase
       .from("regent_messages")
@@ -143,7 +185,7 @@ export async function POST(request: Request) {
         user_id: auth.userId,
         role: "assistant",
         content: assistantMessage,
-        payload: output,
+        payload: persistedPayload,
       });
 
     if (assistantMessageError) {
@@ -156,19 +198,19 @@ export async function POST(request: Request) {
 
     await supabase
       .from("regent_sessions")
-      .update({
-        updated_at: new Date().toISOString(),
-        budget_tier: budgetTier,
-      })
+      .update({ updated_at: new Date().toISOString(), budget_tier: budgetTier })
       .eq("id", sessionId)
       .eq("user_id", auth.userId);
 
     return NextResponse.json({
-      mode: "advisory",
+      mode: "supervised_pipeline",
+      version: "0.4",
       sessionId,
       isNewSession,
+      taskId: task.id,
+      taskStatus: task.status,
       message: assistantMessage,
-      output,
+      output: persistedPayload,
     });
   } catch (error) {
     console.error("Regente error", error);
