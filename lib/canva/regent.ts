@@ -31,9 +31,9 @@ function clip(value: string | undefined, max: number) {
   return Array.from(value || "").slice(0, max).join("");
 }
 
-function textFrame(name: string, text: string, x: number, y: number, width: number, height: number, style: string) {
+function textFrame(name: string, text: string, x: number, y: number, width: number, height: number, paragraphStyle: string) {
   if (!text.trim()) return "";
-  return `<draw:frame draw:name="${xml(name)}" draw:style-name="${style}" svg:x="${x}in" svg:y="${y}in" svg:width="${width}in" svg:height="${height}in"><draw:text-box><text:p>${xml(text)}</text:p></draw:text-box></draw:frame>`;
+  return `<draw:frame draw:name="${xml(name)}" draw:style-name="textbox" svg:x="${x}in" svg:y="${y}in" svg:width="${width}in" svg:height="${height}in"><draw:text-box><text:p text:style-name="${paragraphStyle}">${xml(text)}</text:p></draw:text-box></draw:frame>`;
 }
 
 function pageBackground(style: string, width: number, height: number) {
@@ -89,12 +89,13 @@ export async function regentDesignDocument(spec: RegentCanvaSpec, variant: numbe
       <style:style style:name="bgLight" style:family="graphic"><style:graphic-properties draw:fill="solid" draw:fill-color="#F7F7F2" draw:stroke="none"/></style:style>
       <style:style style:name="bgSoft" style:family="graphic"><style:graphic-properties draw:fill="solid" draw:fill-color="#EAF0EC" draw:stroke="none"/></style:style>
       <style:style style:name="bgDark" style:family="graphic"><style:graphic-properties draw:fill="solid" draw:fill-color="#16211D" draw:stroke="none"/></style:style>
-      <style:style style:name="textDark" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="none"/><style:paragraph-properties fo:text-align="left"/><style:text-properties fo:font-size="28pt" fo:font-weight="bold" fo:color="#18201D"/></style:style>
-      <style:style style:name="textLight" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="none"/><style:paragraph-properties fo:text-align="left"/><style:text-properties fo:font-size="28pt" fo:font-weight="bold" fo:color="#FFFFFF"/></style:style>
-      <style:style style:name="mutedDark" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="none"/><style:text-properties fo:font-size="12pt" fo:color="#59645F"/></style:style>
-      <style:style style:name="mutedLight" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="none"/><style:text-properties fo:font-size="12pt" fo:color="#D8E1DD"/></style:style>
-      <style:style style:name="ctaDark" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="none"/><style:text-properties fo:font-size="16pt" fo:font-weight="bold" fo:color="#176C5B"/></style:style>
-      <style:style style:name="ctaLight" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="none"/><style:text-properties fo:font-size="16pt" fo:font-weight="bold" fo:color="#D7EF58"/></style:style>
+      <style:style style:name="textbox" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="none"/></style:style>
+      <style:style style:name="textDark" style:family="paragraph"><style:paragraph-properties fo:text-align="left"/><style:text-properties fo:font-size="28pt" fo:font-weight="bold" fo:color="#18201D"/></style:style>
+      <style:style style:name="textLight" style:family="paragraph"><style:paragraph-properties fo:text-align="left"/><style:text-properties fo:font-size="28pt" fo:font-weight="bold" fo:color="#FFFFFF"/></style:style>
+      <style:style style:name="mutedDark" style:family="paragraph"><style:text-properties fo:font-size="12pt" fo:color="#59645F"/></style:style>
+      <style:style style:name="mutedLight" style:family="paragraph"><style:text-properties fo:font-size="12pt" fo:color="#D8E1DD"/></style:style>
+      <style:style style:name="ctaDark" style:family="paragraph"><style:text-properties fo:font-size="16pt" fo:font-weight="bold" fo:color="#176C5B"/></style:style>
+      <style:style style:name="ctaLight" style:family="paragraph"><style:text-properties fo:font-size="16pt" fo:font-weight="bold" fo:color="#D7EF58"/></style:style>
     </office:automatic-styles><office:body><office:presentation>${pageXml}</office:presentation></office:body></office:document-content>`,
   );
 
