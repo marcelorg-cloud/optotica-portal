@@ -142,6 +142,16 @@ export function RegenteClient() {
         },
       ]);
 
+      if ((decision === "execute" || decision === "partial") && payload.status === "approved") {
+        const execution = await fetch(`/api/tasks/${taskId}/execute`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        const executionPayload = await execution.json();
+        if (!execution.ok) throw new Error(executionPayload.message || "Falha ao executar o pipeline.");
+        if (sessionId) await openSession(sessionId);
+      }
+
       if (decision === "revise") {
         setMessage("Revise o último pipeline. ");
       }
@@ -211,6 +221,19 @@ export function RegenteClient() {
     }
   }
 
+  function renderMessageContent(content: string) {
+    const parts = content.split(/(https?:\/\/[^\s]+)/g);
+    return parts.map((part, index) =>
+      /^https?:\/\//.test(part) ? (
+        <a key={index} href={part} target="_blank" rel="noopener noreferrer" className="message-link">
+          {part}
+        </a>
+      ) : (
+        <span key={index}>{part}</span>
+      ),
+    );
+  }
+
   return (
     <main className="regent-app">
       <header className="regent-header">
@@ -275,7 +298,7 @@ export function RegenteClient() {
               <article key={item.id} className={`chat-message ${item.role}`}>
                 <div className="message-author">{item.role === "user" ? "Você" : "Regente"}</div>
                 <div className="message-bubble">
-                  <p>{item.content}</p>
+                  <p>{renderMessageContent(item.content)}</p>
 
                   {item.role === "assistant" && item.payload && (
                     <details className="plan-details" open={Boolean(item.payload.pipeline?.length)}>
