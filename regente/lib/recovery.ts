@@ -86,7 +86,6 @@ export async function analyzeRecovery(input: {
     modelSettings: {
       reasoning: { effort: "high" },
       text: { verbosity: "medium" },
-      timeoutMs: 70000,
     },
     instructions: [
       "Você é o engenheiro de recuperação do Regente Optótica.",
