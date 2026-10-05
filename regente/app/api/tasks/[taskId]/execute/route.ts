@@ -36,7 +36,7 @@ export async function POST(
 
   const { data: task, error: taskError } = await supabase
     .from("regent_tasks")
-    .select("id, title, objective, status, pipeline, picker, human_decision")
+    .select("id, session_id, title, objective, status, pipeline, picker, human_decision")
     .eq("id", taskId)
     .eq("user_id", auth.userId)
     .maybeSingle();
@@ -242,6 +242,29 @@ export async function POST(
       user_id: auth.userId,
       event_type: blocked.length ? "execution_partially_blocked" : "execution_succeeded",
       payload: { artifacts, blocked },
+    });
+
+    const canvaLinks = artifacts
+      .flatMap((artifact) => {
+        const value = artifact.output as { designs?: Array<{ editUrl?: string; title?: string }> } | null;
+        return Array.isArray(value?.designs) ? value!.designs! : [];
+      })
+      .filter((design) => design.editUrl)
+      .map((design, index) => `${design.title || `Canva ${index + 1}`}: ${design.editUrl}`);
+
+    const completionMessage = [
+      blocked.length
+        ? "Executei as etapas conectadas; algumas ficaram bloqueadas."
+        : "Pipeline executado com sucesso.",
+      canvaLinks.length ? `Designs Canva:\n${canvaLinks.join("\n")}` : "",
+      blocked.length ? `Bloqueios:\n${blocked.map((item) => `Etapa ${item.step}: ${item.reason}`).join("\n")}` : "",
+    ].filter(Boolean).join("\n\n");
+
+    await supabase.from("regent_messages").insert({
+      session_id: task.session_id,
+      user_id: auth.userId,
+      role: "assistant",
+      content: completionMessage,
     });
 
     return NextResponse.json({
