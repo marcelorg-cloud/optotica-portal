@@ -43,6 +43,7 @@ export async function POST(
     );
   }
 
+  const userId = userId;
   const { taskId } = await params;
   const supabase = await createServerSupabaseClient();
 
@@ -50,7 +51,7 @@ export async function POST(
     .from("regent_tasks")
     .select("id, session_id, title, objective, status, pipeline, picker, human_decision")
     .eq("id", taskId)
-    .eq("user_id", auth.userId)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (taskError || !task) {
@@ -85,11 +86,11 @@ export async function POST(
     .from("regent_tasks")
     .update({ status: "executing", updated_at: new Date().toISOString() })
     .eq("id", taskId)
-    .eq("user_id", auth.userId);
+    .eq("user_id", userId);
 
   await supabase.from("regent_task_events").insert({
     task_id: taskId,
-    user_id: auth.userId,
+    user_id: userId,
     event_type: "execution_started",
     payload: { steps: executable.map((step) => step.step) },
   });
@@ -101,7 +102,7 @@ export async function POST(
   async function event(eventType: string, payload: unknown) {
     await supabase.from("regent_task_events").insert({
       task_id: taskId,
-      user_id: auth.userId,
+      user_id: userId,
       event_type: eventType,
       payload,
     });
@@ -116,7 +117,7 @@ export async function POST(
         .from("regent_tool_runs")
         .insert({
           task_id: taskId,
-          user_id: auth.userId,
+          user_id: userId,
           step_number: step.step,
           node_id: primary,
           adapter: "openai_agents",
@@ -138,7 +139,7 @@ export async function POST(
           .from("regent_tool_runs")
           .update({ status: "succeeded", output, updated_at: new Date().toISOString() })
           .eq("id", runRow.id)
-          .eq("user_id", auth.userId);
+          .eq("user_id", userId);
         return { step: step.step, node: primary, output };
       } catch (error) {
         await supabase
@@ -149,7 +150,7 @@ export async function POST(
             updated_at: new Date().toISOString(),
           })
           .eq("id", runRow.id)
-          .eq("user_id", auth.userId);
+          .eq("user_id", userId);
         throw error;
       }
     }
@@ -159,7 +160,7 @@ export async function POST(
         .from("regent_tool_runs")
         .insert({
           task_id: taskId,
-          user_id: auth.userId,
+          user_id: userId,
           step_number: step.step,
           node_id: primary,
           adapter: "anthropic_messages",
@@ -182,7 +183,7 @@ export async function POST(
             .from("regent_tool_runs")
             .update({ status: "blocked", output, updated_at: new Date().toISOString() })
             .eq("id", runRow.id)
-            .eq("user_id", auth.userId);
+            .eq("user_id", userId);
           return { step: step.step, nodes, reason: output.reason || "Claude indisponível." };
         }
 
@@ -190,7 +191,7 @@ export async function POST(
           .from("regent_tool_runs")
           .update({ status: "succeeded", output, updated_at: new Date().toISOString() })
           .eq("id", runRow.id)
-          .eq("user_id", auth.userId);
+          .eq("user_id", userId);
         return { step: step.step, node: primary, output };
       } catch (error) {
         await supabase
@@ -201,7 +202,7 @@ export async function POST(
             updated_at: new Date().toISOString(),
           })
           .eq("id", runRow.id)
-          .eq("user_id", auth.userId);
+          .eq("user_id", userId);
         throw error;
       }
     }
@@ -220,7 +221,7 @@ export async function POST(
       });
       const output = await executeCanvaBridge({
         taskId,
-        userId: auth.userId,
+        userId: userId,
         step,
         spec,
         variants,
@@ -235,7 +236,7 @@ export async function POST(
 
     await supabase.from("regent_tool_runs").insert({
       task_id: taskId,
-      user_id: auth.userId,
+      user_id: userId,
       step_number: step.step,
       node_id: primary || "unknown",
       adapter: "unavailable",
@@ -290,7 +291,7 @@ export async function POST(
         .from("regent_tool_runs")
         .select("id, node_id, output")
         .eq("task_id", taskId)
-        .eq("user_id", auth.userId)
+        .eq("user_id", userId)
         .eq("step_number", originalStep.step)
         .eq("status", "succeeded")
         .order("created_at", { ascending: false })
@@ -449,7 +450,7 @@ export async function POST(
       .from("regent_tasks")
       .update({ status: finalStatus, updated_at: new Date().toISOString() })
       .eq("id", taskId)
-      .eq("user_id", auth.userId);
+      .eq("user_id", userId);
 
     await event(
       humanEscalation
@@ -482,7 +483,7 @@ export async function POST(
 
     await supabase.from("regent_messages").insert({
       session_id: taskData.session_id,
-      user_id: auth.userId,
+      user_id: userId,
       role: "assistant",
       content: completionMessage,
     });
@@ -501,7 +502,7 @@ export async function POST(
       .from("regent_tasks")
       .update({ status: "failed", updated_at: new Date().toISOString() })
       .eq("id", taskId)
-      .eq("user_id", auth.userId);
+      .eq("user_id", userId);
 
     await event("execution_failed", { message, artifacts, blocked });
 
