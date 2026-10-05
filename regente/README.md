@@ -1,33 +1,44 @@
-# Regente Optótica — v0.1
+# Regente Optótica — v0.4
 
-Assessor de orquestração da rede de agentes e ferramentas Optótica + ENSAVIM.
+Orquestrador supervisionado da rede de agentes e ferramentas Optótica + ENSAVIM.
 
-## Escopo desta versão
+## Capacidades atuais
 
-- OpenAI Agents SDK
-- Constituição de Sanidade v0.1
-- Registro dos nós atuais
-- Planejamento estruturado de orquestração
-- Interface web
-- Modo **advisory only**: não executa ferramentas externas
+- conversa persistente por sessão;
+- Constituição de Sanidade;
+- planejamento multicamadas;
+- pipelines auditáveis;
+- gate humano antes de ações externas;
+- execução real de A1/A2/A3 via OpenAI Agents SDK;
+- bridge real com Canva (F6);
+- adapter Claude/A4 quando `ANTHROPIC_API_KEY` estiver configurada;
+- A5 Recovery Engineer para falhas de programação, acesso, payload, timeout e adapters.
 
-## Princípio
+## Recovery automático
 
-O Regente pensa sobre a rede. Ele não deve fazer o trabalho que um agente especializado ou uma ferramenta mais barata consegue fazer.
+Quando uma etapa falha:
 
-## Variáveis
+1. a pipeline pausa a etapa;
+2. A5 analisa o erro com raciocínio alto e trechos reais do código;
+3. A5 tenta uma correção operacional segura;
+4. se o mesmo erro reaparecer, A4/Claude faz revisão independente quando disponível;
+5. A5 consolida uma segunda correção e tenta novamente;
+6. se a falha persistir, a pipeline é pausada e escalada ao humano com diagnóstico e eventual patch sugerido.
+
+O recovery nunca remove autenticação, RLS, aprovação humana ou controles de custo para contornar um erro.
+
+## Variáveis principais
 
 ```bash
 OPENAI_API_KEY=...
 REGENT_MODEL=gpt-5.6-sol
-REGENT_MODE=advisory
+REGENT_WORKER_MODEL=gpt-5.6-sol
+REGENT_RECOVERY_MODEL=gpt-5.6-sol
+ANTHROPIC_API_KEY=...
+REGENT_CLAUDE_MODEL=claude-sonnet-4-5
+REGENT_MODE=supervised_pipeline
 ```
 
-## Próximas fases
+## Princípio
 
-1. Persistência de decisões e métricas.
-2. Custos e orçamento por execução.
-3. Ferramentas de leitura (matriz, GitHub, Drive).
-4. Aprovação humana.
-5. Execução controlada.
-6. Novos nós: financeiro, jurídico, comercial, atendimento e suporte.
+O Regente decide quanto pensar, quais nós combinar, quando pedir validação e quando parar. Ele só afirma que uma ação externa foi concluída depois de receber confirmação real do adapter responsável.
