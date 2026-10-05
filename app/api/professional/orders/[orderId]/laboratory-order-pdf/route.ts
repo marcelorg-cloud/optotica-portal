@@ -164,6 +164,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ord
     : '-';
 
   const pdf = await PDFDocument.create();
+  pdf.setTitle(`Comanda de laboratório - ${safePdfText(code)}`);
+  pdf.setAuthor('Optótica');
+  pdf.setSubject('Comanda laboratorial em página única A4');
+  pdf.setCreator('Portal Optótica');
   const page = pdf.addPage([595.28, 841.89]);
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -335,14 +339,21 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ord
   const footer = 'Portal Optotica';
   page.drawText(footer, { x: right - regular.widthOfTextAtSize(footer, 7.5), y: 34, size: 7.5, font: regular, color: muted });
 
-  const bytes = await pdf.save();
+  if (pdf.getPageCount() !== 1) {
+    throw new Error(`A comanda deve ter exatamente uma página A4; geradas: ${pdf.getPageCount()}`);
+  }
+
+  const bytes = await pdf.save({ useObjectStreams: false });
   const filename = `comanda-${code.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/-+/g, '-').toLowerCase()}.pdf`;
-  return new Response(Buffer.from(bytes), {
+  const body = new Uint8Array(bytes);
+
+  return new Response(body, {
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="${filename}"`,
-      'Cache-Control': 'private, no-store'
+      'Content-Length': String(body.byteLength),
+      'Cache-Control': 'private, no-store, max-age=0'
     }
   });
 }

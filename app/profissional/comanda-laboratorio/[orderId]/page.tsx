@@ -158,10 +158,54 @@ export default async function LaboratoryOrderPage({ params }: { params: Promise<
       }
       @media print {
         @page { size:A4 portrait; margin:0; }
-        html, body { width:210mm; height:297mm; margin:0!important; padding:0!important; background:#fff!important; }
+        html, body {
+          width:210mm!important;
+          height:297mm!important;
+          margin:0!important;
+          padding:0!important;
+          background:#fff!important;
+          overflow:hidden!important;
+        }
+        body:has(.lab-order-preview) .site-header,
+        body:has(.lab-order-preview) .site-footer,
+        body:has(.lab-order-preview) .processing-announcer,
         .no-print { display:none!important; }
-        .lab-order-preview { min-height:0!important; padding:0!important; margin:0!important; background:#fff!important; }
-        .lab-order-sheet { width:210mm!important; height:297mm!important; margin:0!important; padding:10mm 11mm!important; border:0!important; box-shadow:none!important; overflow:hidden!important; page-break-after:avoid!important; break-after:avoid-page!important; }
+        body:has(.lab-order-preview) > main,
+        body:has(.lab-order-preview) main {
+          margin:0!important;
+          padding:0!important;
+          max-width:none!important;
+        }
+        .lab-order-preview {
+          display:block!important;
+          visibility:visible!important;
+          width:210mm!important;
+          height:297mm!important;
+          min-height:297mm!important;
+          margin:0!important;
+          padding:0!important;
+          background:#fff!important;
+          overflow:hidden!important;
+        }
+        .lab-order-preview * { visibility:visible!important; }
+        .lab-order-sheet {
+          display:block!important;
+          width:210mm!important;
+          height:297mm!important;
+          min-height:297mm!important;
+          max-height:297mm!important;
+          margin:0!important;
+          padding:10mm 11mm!important;
+          border:0!important;
+          box-shadow:none!important;
+          overflow:hidden!important;
+          break-inside:avoid-page!important;
+          page-break-inside:avoid!important;
+          page-break-before:avoid!important;
+          page-break-after:avoid!important;
+          break-before:avoid-page!important;
+          break-after:avoid-page!important;
+        }
       }
     `}</style>
 
