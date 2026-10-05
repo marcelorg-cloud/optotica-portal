@@ -9,14 +9,26 @@ import {
   isOpenAINode,
   type PipelineStep,
 } from "../../../../../lib/adapters";
+import {
+  analyzeRecovery,
+  applyRecoveryDecision,
+  errorFingerprint,
+  reviewRecoveryWithClaude,
+  type RecoveryDecisionOutput,
+} from "../../../../../lib/recovery";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 type Artifact = { step: number; node: string; output: unknown };
+type Blocked = { step: number; nodes: string[]; reason: string; recovery?: unknown };
 
 function unique<T>(values: T[]) {
   return [...new Set(values)];
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error || "Falha desconhecida.");
 }
 
 export async function POST(
@@ -31,6 +43,7 @@ export async function POST(
     );
   }
 
+  const userId = auth.userId;
   const { taskId } = await params;
   const supabase = await createServerSupabaseClient();
 
@@ -38,22 +51,24 @@ export async function POST(
     .from("regent_tasks")
     .select("id, session_id, title, objective, status, pipeline, picker, human_decision")
     .eq("id", taskId)
-    .eq("user_id", auth.userId)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (taskError || !task) {
     return NextResponse.json({ error: "task_not_found", message: "Tarefa não encontrada." }, { status: 404 });
   }
 
-  if (task.status !== "approved") {
+  const taskData = task;
+
+  if (taskData.status !== "approved") {
     return NextResponse.json(
       { error: "approval_required", message: "A tarefa precisa estar aprovada antes da execução." },
       { status: 409 },
     );
   }
 
-  const pipeline = (Array.isArray(task.pipeline) ? task.pipeline : []) as PipelineStep[];
-  const decision = task.human_decision as { decision?: string; approved_steps?: number[] | null } | null;
+  const pipeline = (Array.isArray(taskData.pipeline) ? taskData.pipeline : []) as PipelineStep[];
+  const decision = taskData.human_decision as { decision?: string; approved_steps?: number[] | null } | null;
   const approvedSteps =
     decision?.decision === "partial" && Array.isArray(decision.approved_steps)
       ? new Set(decision.approved_steps)
@@ -71,102 +86,95 @@ export async function POST(
     .from("regent_tasks")
     .update({ status: "executing", updated_at: new Date().toISOString() })
     .eq("id", taskId)
-    .eq("user_id", auth.userId);
+    .eq("user_id", userId);
 
   await supabase.from("regent_task_events").insert({
     task_id: taskId,
-    user_id: auth.userId,
+    user_id: userId,
     event_type: "execution_started",
     payload: { steps: executable.map((step) => step.step) },
   });
 
   const artifacts: Artifact[] = [];
-  const blocked: Array<{ step: number; nodes: string[]; reason: string }> = [];
+  const blocked: Blocked[] = [];
+  let humanEscalation = false;
 
-  try {
-    for (const step of executable) {
-      const existing = await supabase
+  async function event(eventType: string, payload: unknown) {
+    await supabase.from("regent_task_events").insert({
+      task_id: taskId,
+      user_id: userId,
+      event_type: eventType,
+      payload,
+    });
+  }
+
+  async function runStep(step: PipelineStep, variantOverride?: number): Promise<Artifact | Blocked> {
+    const nodes = unique(step.nodes || []);
+    const primary = nodes[0] || "";
+
+    if (isOpenAINode(primary)) {
+      const { data: runRow, error: runError } = await supabase
         .from("regent_tool_runs")
-        .select("id, node_id, output")
-        .eq("task_id", taskId)
-        .eq("user_id", auth.userId)
-        .eq("step_number", step.step)
-        .eq("status", "succeeded")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .insert({
+          task_id: taskId,
+          user_id: userId,
+          step_number: step.step,
+          node_id: primary,
+          adapter: "openai_agents",
+          status: "running",
+          input: { step, objective: taskData.objective },
+        })
+        .select("id")
+        .single();
+      if (runError || !runRow) throw new Error("Não foi possível registrar a execução OpenAI.");
 
-      if (existing.data) {
-        artifacts.push({ step: step.step, node: existing.data.node_id, output: existing.data.output });
-        continue;
-      }
-
-      const nodes = unique(step.nodes || []);
-      const primary = nodes[0] || "";
-
-      if (isOpenAINode(primary)) {
-        const { data: runRow, error: runError } = await supabase
+      try {
+        const output = await executeOpenAIWorker({
+          node: primary,
+          step,
+          objective: taskData.objective,
+          priorArtifacts: artifacts,
+        });
+        await supabase
           .from("regent_tool_runs")
-          .insert({
-            task_id: taskId,
-            user_id: auth.userId,
-            step_number: step.step,
-            node_id: primary,
-            adapter: "openai_agents",
-            status: "running",
-            input: { step, objective: task.objective },
-          })
-          .select("id")
-          .single();
-        if (runError || !runRow) throw new Error("Não foi possível registrar a execução OpenAI.");
-
-        try {
-          const output = await executeOpenAIWorker({
-            node: primary,
-            step,
-            objective: task.objective,
-            priorArtifacts: artifacts,
-          });
-          await supabase
-            .from("regent_tool_runs")
-            .update({ status: "succeeded", output, updated_at: new Date().toISOString() })
-            .eq("id", runRow.id)
-            .eq("user_id", auth.userId);
-          artifacts.push({ step: step.step, node: primary, output });
-        } catch (error) {
-          await supabase
-            .from("regent_tool_runs")
-            .update({
-              status: "failed",
-              output: { message: error instanceof Error ? error.message : "Falha OpenAI" },
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", runRow.id)
-            .eq("user_id", auth.userId);
-          throw error;
-        }
-        continue;
-      }
-
-      if (primary === "A4") {
-        const { data: runRow, error: runError } = await supabase
+          .update({ status: "succeeded", output, updated_at: new Date().toISOString() })
+          .eq("id", runRow.id)
+          .eq("user_id", userId);
+        return { step: step.step, node: primary, output };
+      } catch (error) {
+        await supabase
           .from("regent_tool_runs")
-          .insert({
-            task_id: taskId,
-            user_id: auth.userId,
-            step_number: step.step,
-            node_id: primary,
-            adapter: "anthropic_messages",
-            status: "running",
-            input: { step, objective: task.objective },
+          .update({
+            status: "failed",
+            output: { message: errorMessage(error) },
+            updated_at: new Date().toISOString(),
           })
-          .select("id")
-          .single();
-        if (runError || !runRow) throw new Error("Não foi possível registrar a execução Claude.");
+          .eq("id", runRow.id)
+          .eq("user_id", userId);
+        throw error;
+      }
+    }
 
+    if (primary === "A4") {
+      const { data: runRow, error: runError } = await supabase
+        .from("regent_tool_runs")
+        .insert({
+          task_id: taskId,
+          user_id: userId,
+          step_number: step.step,
+          node_id: primary,
+          adapter: "anthropic_messages",
+          status: "running",
+          input: { step, objective: taskData.objective },
+        })
+        .select("id")
+        .single();
+      if (runError || !runRow) throw new Error("Não foi possível registrar a execução Claude.");
+
+      try {
         const output = await executeClaudeWorker({
           step,
-          objective: task.objective,
+          objective: taskData.objective,
           priorArtifacts: artifacts,
         });
 
@@ -175,59 +183,266 @@ export async function POST(
             .from("regent_tool_runs")
             .update({ status: "blocked", output, updated_at: new Date().toISOString() })
             .eq("id", runRow.id)
-            .eq("user_id", auth.userId);
-          blocked.push({ step: step.step, nodes, reason: output.reason });
-          continue;
+            .eq("user_id", userId);
+          return { step: step.step, nodes, reason: output.reason || "Claude indisponível." };
         }
 
         await supabase
           .from("regent_tool_runs")
           .update({ status: "succeeded", output, updated_at: new Date().toISOString() })
           .eq("id", runRow.id)
-          .eq("user_id", auth.userId);
-        artifacts.push({ step: step.step, node: primary, output });
-        continue;
+          .eq("user_id", userId);
+        return { step: step.step, node: primary, output };
+      } catch (error) {
+        await supabase
+          .from("regent_tool_runs")
+          .update({
+            status: "failed",
+            output: { message: errorMessage(error) },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", runRow.id)
+          .eq("user_id", userId);
+        throw error;
       }
+    }
 
-      if (primary === "F6") {
-        const variants = Math.max(
-          1,
-          Math.min(3, Number((task.picker as { variantsRequested?: number } | null)?.variantsRequested || 1)),
-        );
-        const spec = await buildCanvaSpec({
-          step,
-          objective: task.objective,
-          title: task.title,
-          priorArtifacts: artifacts,
-          variants,
-        });
-        const output = await executeCanvaBridge({
-          taskId,
-          userId: auth.userId,
-          step,
-          spec,
-          variants,
-        });
-        artifacts.push({ step: step.step, node: primary, output });
-        continue;
-      }
-
-      const reason =
-        primary === "F12" || primary === "F13"
-          ? "Google Drive/Docs ainda precisa do OAuth próprio do Regente; a conexão do ChatGPT não é reutilizável pelo app."
-          : `Adapter do nó ${primary || "desconhecido"} ainda não conectado.`;
-
-      await supabase.from("regent_tool_runs").insert({
-        task_id: taskId,
-        user_id: auth.userId,
-        step_number: step.step,
-        node_id: primary || "unknown",
-        adapter: "unavailable",
-        status: "blocked",
-        input: { step },
-        output: { reason },
+    if (primary === "F6") {
+      const configuredVariants = Number(
+        (taskData.picker as { variantsRequested?: number } | null)?.variantsRequested || 1,
+      );
+      const variants = Math.max(1, Math.min(3, variantOverride || configuredVariants));
+      const spec = await buildCanvaSpec({
+        step,
+        objective: taskData.objective,
+        title: taskData.title,
+        priorArtifacts: artifacts,
+        variants,
       });
-      blocked.push({ step: step.step, nodes, reason });
+      const output = await executeCanvaBridge({
+        taskId,
+        userId: userId,
+        step,
+        spec,
+        variants,
+      });
+      return { step: step.step, node: primary, output };
+    }
+
+    const reason =
+      primary === "F12" || primary === "F13"
+        ? "Google Drive/Docs ainda precisa do OAuth próprio do Regente; a conexão do ChatGPT não é reutilizável pelo app."
+        : `Adapter do nó ${primary || "desconhecido"} ainda não conectado.`;
+
+    await supabase.from("regent_tool_runs").insert({
+      task_id: taskId,
+      user_id: userId,
+      step_number: step.step,
+      node_id: primary || "unknown",
+      adapter: "unavailable",
+      status: "blocked",
+      input: { step },
+      output: { reason },
+    });
+    return { step: step.step, nodes, reason };
+  }
+
+  async function escalateToHuman(
+    step: PipelineStep,
+    node: string,
+    error: unknown,
+    first: RecoveryDecisionOutput | null,
+    second: RecoveryDecisionOutput | null,
+    claudeReview: string | null,
+  ) {
+    humanEscalation = true;
+    const reason = [
+      `A recuperação automática não conseguiu concluir a etapa ${step.step} (${node}).`,
+      `Erro: ${errorMessage(error)}`,
+      second?.diagnosis || first?.diagnosis ? `Diagnóstico: ${second?.diagnosis || first?.diagnosis}` : "",
+      second?.patchProposal || first?.patchProposal
+        ? `Correção de código sugerida: ${second?.patchProposal || first?.patchProposal}`
+        : "",
+      claudeReview ? "O Claude participou da segunda análise." : "",
+      "A pipeline foi pausada para validação humana.",
+    ].filter(Boolean).join(" ");
+
+    blocked.push({
+      step: step.step,
+      nodes: [node],
+      reason,
+      recovery: { first, second, claudeReview },
+    });
+
+    await event("recovery_escalated_human", {
+      step: step.step,
+      node,
+      error: errorMessage(error),
+      first,
+      second,
+      claudeReview,
+    });
+  }
+
+  try {
+    pipelineLoop:
+    for (const originalStep of executable) {
+      const existing = await supabase
+        .from("regent_tool_runs")
+        .select("id, node_id, output")
+        .eq("task_id", taskId)
+        .eq("user_id", userId)
+        .eq("step_number", originalStep.step)
+        .eq("status", "succeeded")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existing.data) {
+        artifacts.push({ step: originalStep.step, node: existing.data.node_id, output: existing.data.output });
+        continue;
+      }
+
+      const primary = unique(originalStep.nodes || [])[0] || "unknown";
+
+      try {
+        const result = await runStep(originalStep);
+        if ("output" in result) artifacts.push(result);
+        else blocked.push(result);
+        continue;
+      } catch (initialError) {
+        await event("recovery_started", {
+          step: originalStep.step,
+          node: primary,
+          error: errorMessage(initialError),
+          fingerprint: errorFingerprint(initialError),
+        });
+
+        let first: RecoveryDecisionOutput | null = null;
+        try {
+          first = await analyzeRecovery({
+            objective: taskData.objective,
+            taskTitle: taskData.title,
+            step: originalStep,
+            node: primary,
+            error: initialError,
+            artifacts,
+            recurrence: 1,
+          });
+          await event("recovery_a5_analysis", {
+            step: originalStep.step,
+            node: primary,
+            recurrence: 1,
+            decision: first,
+          });
+        } catch (recoveryError) {
+          await escalateToHuman(originalStep, primary, recoveryError, null, null, null);
+          break pipelineLoop;
+        }
+
+        if (first.codeChangeRequired || !first.canRetry || first.retryStrategy === "none") {
+          await escalateToHuman(originalStep, primary, initialError, first, null, null);
+          break pipelineLoop;
+        }
+
+        const firstRetryStep = applyRecoveryDecision(originalStep, first);
+        try {
+          const recovered = await runStep(firstRetryStep, first.reduceVariantsTo || undefined);
+          if ("output" in recovered) artifacts.push(recovered);
+          else blocked.push(recovered);
+          await event("recovery_succeeded", {
+            step: originalStep.step,
+            node: primary,
+            level: "A5",
+            decision: first,
+          });
+          continue;
+        } catch (retryError) {
+          const sameError = errorFingerprint(retryError) === errorFingerprint(initialError);
+          let claudeReview: string | null = null;
+
+          if (sameError) {
+            try {
+              const review = await reviewRecoveryWithClaude({
+                objective: taskData.objective,
+                taskTitle: taskData.title,
+                step: firstRetryStep,
+                node: primary,
+                error: retryError,
+                firstDecision: first,
+              });
+              claudeReview = review.review;
+              await event("recovery_a4_review", {
+                step: originalStep.step,
+                node: primary,
+                available: review.available,
+                review: review.review,
+              });
+              if (!review.available) {
+                await escalateToHuman(originalStep, primary, retryError, first, null, review.review);
+                break pipelineLoop;
+              }
+            } catch (claudeError) {
+              await event("recovery_a4_failed", {
+                step: originalStep.step,
+                node: primary,
+                error: errorMessage(claudeError),
+              });
+              await escalateToHuman(originalStep, primary, retryError, first, null, null);
+              break pipelineLoop;
+            }
+          }
+
+          let second: RecoveryDecisionOutput | null = null;
+          try {
+            second = await analyzeRecovery({
+              objective: taskData.objective,
+              taskTitle: taskData.title,
+              step: firstRetryStep,
+              node: primary,
+              error: retryError,
+              artifacts,
+              previousRecovery: first,
+              claudeReview,
+              recurrence: 2,
+            });
+            await event("recovery_a5_analysis", {
+              step: originalStep.step,
+              node: primary,
+              recurrence: 2,
+              sameError,
+              decision: second,
+            });
+          } catch (secondRecoveryError) {
+            await escalateToHuman(originalStep, primary, secondRecoveryError, first, null, claudeReview);
+            break pipelineLoop;
+          }
+
+          if (second.codeChangeRequired || !second.canRetry || second.retryStrategy === "none") {
+            await escalateToHuman(originalStep, primary, retryError, first, second, claudeReview);
+            break pipelineLoop;
+          }
+
+          const secondRetryStep = applyRecoveryDecision(firstRetryStep, second);
+          try {
+            const recovered = await runStep(secondRetryStep, second.reduceVariantsTo || first.reduceVariantsTo || undefined);
+            if ("output" in recovered) artifacts.push(recovered);
+            else blocked.push(recovered);
+            await event("recovery_succeeded", {
+              step: originalStep.step,
+              node: primary,
+              level: sameError ? "A5+A4+A5" : "A5+A5",
+              first,
+              second,
+              claudeReview,
+            });
+            continue;
+          } catch (finalError) {
+            await escalateToHuman(originalStep, primary, finalError, first, second, claudeReview);
+            break pipelineLoop;
+          }
+        }
+      }
     }
 
     const finalStatus = blocked.length ? "blocked" : "succeeded";
@@ -235,14 +450,16 @@ export async function POST(
       .from("regent_tasks")
       .update({ status: finalStatus, updated_at: new Date().toISOString() })
       .eq("id", taskId)
-      .eq("user_id", auth.userId);
+      .eq("user_id", userId);
 
-    await supabase.from("regent_task_events").insert({
-      task_id: taskId,
-      user_id: auth.userId,
-      event_type: blocked.length ? "execution_partially_blocked" : "execution_succeeded",
-      payload: { artifacts, blocked },
-    });
+    await event(
+      humanEscalation
+        ? "execution_paused_for_human"
+        : blocked.length
+          ? "execution_partially_blocked"
+          : "execution_succeeded",
+      { artifacts, blocked },
+    );
 
     const canvaLinks = artifacts
       .flatMap((artifact) => {
@@ -253,16 +470,20 @@ export async function POST(
       .map((design, index) => `${design.title || `Canva ${index + 1}`}: ${design.editUrl}`);
 
     const completionMessage = [
-      blocked.length
-        ? "Executei as etapas conectadas; algumas ficaram bloqueadas."
-        : "Pipeline executado com sucesso.",
+      humanEscalation
+        ? "A execução foi pausada depois que o mecanismo de recuperação esgotou as tentativas seguras. É necessária validação humana."
+        : blocked.length
+          ? "Executei as etapas conectadas; algumas ficaram bloqueadas."
+          : "Pipeline executado com sucesso.",
       canvaLinks.length ? `Designs Canva:\n${canvaLinks.join("\n")}` : "",
-      blocked.length ? `Bloqueios:\n${blocked.map((item) => `Etapa ${item.step}: ${item.reason}`).join("\n")}` : "",
+      blocked.length
+        ? `Bloqueios / recovery:\n${blocked.map((item) => `Etapa ${item.step}: ${item.reason}`).join("\n")}`
+        : "",
     ].filter(Boolean).join("\n\n");
 
     await supabase.from("regent_messages").insert({
-      session_id: task.session_id,
-      user_id: auth.userId,
+      session_id: taskData.session_id,
+      user_id: userId,
       role: "assistant",
       content: completionMessage,
     });
@@ -272,25 +493,22 @@ export async function POST(
       status: finalStatus,
       artifacts,
       blocked,
-      message: blocked.length
-        ? "As etapas conectadas foram executadas; algumas ficaram bloqueadas por falta de adapter/configuração."
-        : "Pipeline executado com sucesso.",
+      recoveryEscalated: humanEscalation,
+      message: completionMessage,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Falha durante a execução.";
+    const message = errorMessage(error);
     await supabase
       .from("regent_tasks")
       .update({ status: "failed", updated_at: new Date().toISOString() })
       .eq("id", taskId)
-      .eq("user_id", auth.userId);
+      .eq("user_id", userId);
 
-    await supabase.from("regent_task_events").insert({
-      task_id: taskId,
-      user_id: auth.userId,
-      event_type: "execution_failed",
-      payload: { message, artifacts, blocked },
-    });
+    await event("execution_failed", { message, artifacts, blocked });
 
-    return NextResponse.json({ error: "execution_failed", message, artifacts, blocked }, { status: 500 });
+    return NextResponse.json(
+      { error: "execution_failed", message, artifacts, blocked },
+      { status: 500 },
+    );
   }
 }

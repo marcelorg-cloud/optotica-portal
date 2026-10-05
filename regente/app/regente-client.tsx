@@ -54,6 +54,26 @@ type Session = {
   updated_at: string;
 };
 
+
+async function readApiResponse(response: Response) {
+  const text = await response.text();
+  const contentType = response.headers.get("content-type") || "";
+  if (!text) return {};
+  if (contentType.includes("application/json")) {
+    try { return JSON.parse(text); }
+    catch {
+      return { message: `Resposta JSON inválida (HTTP ${response.status}).`, raw: text.slice(0, 500) };
+    }
+  }
+  try { return JSON.parse(text); }
+  catch {
+    return {
+      message: `O servidor respondeu em formato inesperado (HTTP ${response.status}): ${text.slice(0, 300)}`,
+      raw: text.slice(0, 500),
+    };
+  }
+}
+
 export function RegenteClient() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -73,7 +93,7 @@ export function RegenteClient() {
     setLoadingHistory(true);
     try {
       const response = await fetch("/api/sessions", { cache: "no-store" });
-      const payload = await response.json();
+      const payload = await readApiResponse(response);
       const list = (payload.sessions || []) as Session[];
       setSessions(list);
       if (selectLatest && !sessionId && list.length) await openSession(list[0].id);
@@ -89,7 +109,7 @@ export function RegenteClient() {
     setError("");
     try {
       const response = await fetch(`/api/sessions/${id}/messages`, { cache: "no-store" });
-      const payload = await response.json();
+      const payload = await readApiResponse(response);
       if (!response.ok) throw new Error(payload.message || "Falha ao abrir conversa.");
       setSessionId(id);
       setBudgetTier(payload.session.budget_tier || "minimal");
@@ -122,7 +142,7 @@ export function RegenteClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decision, approvedSteps }),
       });
-      const payload = await response.json();
+      const payload = await readApiResponse(response);
       if (!response.ok) throw new Error(payload.message || "Falha ao registrar decisão.");
 
       setMessages((current) => current.map((item) => {
@@ -147,7 +167,7 @@ export function RegenteClient() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
         });
-        const executionPayload = await execution.json();
+        const executionPayload = await readApiResponse(execution);
         if (!execution.ok) throw new Error(executionPayload.message || "Falha ao executar o pipeline.");
         if (sessionId) await openSession(sessionId);
       }
@@ -198,7 +218,7 @@ export function RegenteClient() {
         body: JSON.stringify({ sessionId, message: text, budgetTier }),
       });
 
-      const payload = await response.json();
+      const payload = await readApiResponse(response);
       if (!response.ok) throw new Error(payload.message || "Falha ao consultar o Regente.");
 
       setSessionId(payload.sessionId);
@@ -240,7 +260,7 @@ export function RegenteClient() {
         <div>
           <span className="eyebrow">REDE OPTÓTICA + ENSAVIM</span>
           <h1>Regente</h1>
-          <p>v0.4 · pipelines multicamadas · execução supervisionada</p>
+          <p>v0.4 · pipelines multicamadas · execução supervisionada · recovery A5</p>
         </div>
         <div className="status">● Human-gated execution</div>
       </header>
@@ -428,7 +448,7 @@ export function RegenteClient() {
       </div>
 
       <footer>
-        v0.4 — pipeline auditável + gate humano. Ferramentas sem adapter são explicitamente bloqueadas até integração real.
+        v0.4 — pipeline auditável + gate humano + A5 Recovery Engineer. Falhas são recuperadas antes de escalar ao humano.
       </footer>
     </main>
   );
