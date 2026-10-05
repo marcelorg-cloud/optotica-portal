@@ -79,6 +79,7 @@ export async function executeOpenAIWorker(input: {
   ].join("\n");
 
   const result = await run(agent, prompt);
+  if (!result.finalOutput) throw new Error("O executor OpenAI retornou saída vazia.");
   return result.finalOutput;
 }
 
@@ -169,6 +170,7 @@ export async function buildCanvaSpec(input: {
   ].join("\n");
 
   const result = await run(agent, prompt);
+  if (!result.finalOutput) throw new Error("Não foi possível montar a especificação do Canva.");
   return result.finalOutput;
 }
 
