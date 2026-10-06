@@ -316,6 +316,37 @@ export async function POST(
         continue;
       }
 
+      const stepState = await supabase
+        .from("regent_task_steps")
+        .select("depends_on")
+        .eq("task_id", taskId)
+        .eq("user_id", userId)
+        .eq("step_number", originalStep.step)
+        .maybeSingle();
+      const dependencies = (stepState.data?.depends_on || []) as number[];
+      if (dependencies.length) {
+        const dependencyRows = await supabase
+          .from("regent_task_steps")
+          .select("step_number,status")
+          .eq("task_id", taskId)
+          .eq("user_id", userId)
+          .in("step_number", dependencies);
+        const unresolved = dependencies.filter((dep) =>
+          !dependencyRows.data?.some((row) => row.step_number === dep && row.status === "succeeded")
+        );
+        if (unresolved.length) {
+          const reason = `Dependências pendentes: etapas ${unresolved.join(", ")}.`;
+          blocked.push({ step: originalStep.step, nodes: originalStep.nodes, reason });
+          await markTaskStep({
+            supabase, taskId, userId, stepNumber: originalStep.step,
+            status: "blocked",
+            nextAction: `Concluir primeiro as etapas ${unresolved.join(", ")} e retomar daqui.`,
+          });
+          await syncTaskProgress({ supabase, taskId, userId });
+          break pipelineLoop;
+        }
+      }
+
       const primary = unique(originalStep.nodes || [])[0] || "unknown";
       await markTaskStep({
         supabase, taskId, userId, stepNumber: originalStep.step,
