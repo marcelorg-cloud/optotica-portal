@@ -11,6 +11,30 @@ type PipelineStep = {
   expectedOutput: string;
   executionState: "planned" | "ready" | "requires_adapter";
   requiresApproval: boolean;
+  dependsOn?: number[];
+  checkpoint?: boolean;
+};
+
+type RuntimeStep = {
+  step_number: number;
+  status: "planned" | "prepared" | "awaiting_approval" | "running" | "review" | "succeeded" | "blocked" | "failed" | "skipped";
+  depends_on: number[];
+  attempt_count: number;
+  last_error?: { message?: string } | null;
+  next_action?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+};
+
+type TaskRuntime = {
+  currentStep?: number | null;
+  progressPercent?: number;
+  nextAction?: string | null;
+  autonomyLevel?: number;
+  blockedReason?: string | null;
+  lastError?: unknown;
+  updatedAt?: string;
+  steps?: RuntimeStep[];
 };
 
 type PlanPayload = {
@@ -35,8 +59,11 @@ type PlanPayload = {
   estimatedComplexity: string;
   approvalRequired?: boolean;
   humanDecision: string | null;
+  nextAction?: string;
+  autonomyLevel?: number;
   taskId?: string;
   taskStatus?: string;
+  runtime?: TaskRuntime;
 };
 
 type ChatMessage = {
@@ -260,7 +287,7 @@ export function RegenteClient() {
         <div>
           <span className="eyebrow">REDE OPTÓTICA + ENSAVIM</span>
           <h1>Regente</h1>
-          <p>v0.4 · pipelines multicamadas · execução supervisionada · recovery A5</p>
+          <p>v0.5 · estado persistente · checkpoints · execução supervisionada · recovery A5</p>
         </div>
         <div className="status">● Human-gated execution</div>
       </header>
@@ -305,7 +332,7 @@ export function RegenteClient() {
           <div className="message-stream">
             {!messages.length && !loadingHistory && (
               <div className="chat-welcome">
-                <span className="eyebrow">REGENTE v0.4</span>
+                <span className="eyebrow">REGENTE v0.5</span>
                 <h2>Qual resultado precisamos produzir?</h2>
                 <p>
                   O Regente decide a profundidade, combina referência, criatividade, crítica, criação e picker,
@@ -322,7 +349,7 @@ export function RegenteClient() {
 
                   {item.role === "assistant" && item.payload && (
                     <details className="plan-details" open={Boolean(item.payload.pipeline?.length)}>
-                      <summary>Ver pipeline v0.4</summary>
+                      <summary>Ver pipeline v0.5</summary>
 
                       <div className="plan-summary">
                         <div className="plan-meta-row">
@@ -335,6 +362,34 @@ export function RegenteClient() {
                         <small>{item.payload.summary}</small>
                       </div>
 
+                      {(item.payload.runtime || item.payload.nextAction) && (
+                        <div className="picker-card">
+                          <div className="pipeline-step-head">
+                            <strong>Acompanhamento</strong>
+                            <span className="pipeline-tag">
+                              {item.payload.runtime?.progressPercent ?? 0}% concluído
+                            </span>
+                          </div>
+                          <progress
+                            value={item.payload.runtime?.progressPercent ?? 0}
+                            max={100}
+                            style={{ width: "100%" }}
+                          />
+                          <small>
+                            <b>Etapa atual:</b> {item.payload.runtime?.currentStep ?? "aguardando execução"}
+                          </small>
+                          <small>
+                            <b>Próxima ação:</b> {item.payload.runtime?.nextAction || item.payload.nextAction || "Aguardando definição."}
+                          </small>
+                          <small>
+                            <b>Autonomia:</b> nível {item.payload.runtime?.autonomyLevel ?? item.payload.autonomyLevel ?? 1}
+                          </small>
+                          {item.payload.runtime?.blockedReason && (
+                            <small><b>Bloqueio:</b> {item.payload.runtime.blockedReason}</small>
+                          )}
+                        </div>
+                      )}
+
                       {!!item.payload.selectedNodes?.length && (
                         <div className="nodes">
                           {item.payload.selectedNodes.map((node) => <span key={node}>{node}</span>)}
@@ -343,18 +398,25 @@ export function RegenteClient() {
 
                       {!!item.payload.pipeline?.length && (
                         <div className="pipeline-list">
-                          {item.payload.pipeline.map((step) => (
+                          {item.payload.pipeline.map((step) => {
+                            const runtimeStep = item.payload?.runtime?.steps?.find((value) => value.step_number === step.step);
+                            return (
                             <div className="pipeline-step" key={step.step}>
                               <div className="pipeline-step-head">
                                 <strong>{step.step}. {step.role}</strong>
-                                <span className={`execution-state ${step.executionState}`}>{step.executionState}</span>
+                                <span className={`execution-state ${runtimeStep?.status || step.executionState}`}>
+                                  {runtimeStep?.status || step.executionState}
+                                </span>
                               </div>
                               <p>{step.action}</p>
                               <small><b>Nós:</b> {step.nodes.join(", ")}</small>
                               <small><b>Entrada:</b> {step.input}</small>
                               <small><b>Saída esperada:</b> {step.expectedOutput}</small>
+                              {!!step.dependsOn?.length && <small><b>Depende de:</b> {step.dependsOn.join(", ")}</small>}
+                              {runtimeStep?.attempt_count ? <small><b>Tentativas:</b> {runtimeStep.attempt_count}</small> : null}
+                              {runtimeStep?.last_error?.message ? <small><b>Último erro:</b> {runtimeStep.last_error.message}</small> : null}
                             </div>
-                          ))}
+                          )})}
                         </div>
                       )}
 
@@ -448,7 +510,7 @@ export function RegenteClient() {
       </div>
 
       <footer>
-        v0.4 — pipeline auditável + gate humano + A5 Recovery Engineer. Falhas são recuperadas antes de escalar ao humano.
+        v0.5 — estado persistente por etapa + dependências + próxima ação + auditoria + A5 Recovery Engineer.
       </footer>
     </main>
   );

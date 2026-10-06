@@ -12,6 +12,8 @@ export type PipelineStep = {
   expectedOutput: string;
   executionState: "planned" | "ready" | "requires_adapter";
   requiresApproval: boolean;
+  dependsOn?: number[];
+  checkpoint?: boolean;
 };
 
 type PriorArtifact = {

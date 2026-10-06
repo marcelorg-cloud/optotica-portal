@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { askRegent, type RegentConversationMessage } from "../../../lib/regente";
 import { requireMaster } from "../../../lib/require-master";
 import { createServerSupabaseClient } from "../../../lib/supabase";
+import { initializeTaskSteps, syncTaskProgress } from "../../../lib/task-state";
 
 export const runtime = "nodejs";
 
@@ -146,6 +147,8 @@ export async function POST(request: Request) {
         budget_tier: budgetTier,
         pipeline: output.pipeline,
         picker: output.picker,
+        next_action: output.nextAction,
+        autonomy_level: output.autonomyLevel,
       })
       .select("id, status")
       .single();
@@ -157,6 +160,15 @@ export async function POST(request: Request) {
         { status: 500 },
       );
     }
+
+    await initializeTaskSteps({
+      supabase,
+      taskId: task.id,
+      userId: auth.userId,
+      pipeline: output.pipeline,
+      approvalRequired: output.approvalRequired,
+    });
+    await syncTaskProgress({ supabase, taskId: task.id, userId: auth.userId, fallbackNextAction: output.nextAction });
 
     await supabase.from("regent_task_events").insert({
       task_id: task.id,
@@ -204,7 +216,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       mode: "supervised_pipeline",
-      version: "0.4",
+      version: "0.5",
       sessionId,
       isNewSession,
       taskId: task.id,
