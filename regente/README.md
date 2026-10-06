@@ -1,4 +1,4 @@
-# Regente Optótica — v0.4
+# Regente Optótica — v0.5
 
 Orquestrador supervisionado da rede de agentes e ferramentas Optótica + ENSAVIM.
 
@@ -7,12 +7,21 @@ Orquestrador supervisionado da rede de agentes e ferramentas Optótica + ENSAVIM
 - conversa persistente por sessão;
 - Constituição de Sanidade;
 - planejamento multicamadas;
-- pipelines auditáveis;
+- pipelines auditáveis com estado persistente por etapa;
+- dependências explícitas entre etapas e tarefas;
+- progresso, etapa atual e próxima ação operacional;
+- checkpoints retomáveis sem repetir etapas concluídas;
+- níveis de autonomia 0–4, mantendo o padrão supervisionado;
+- histórico de tentativas, erros e resultados por etapa;
 - gate humano antes de ações externas;
 - execução real de A1/A2/A3 via OpenAI Agents SDK;
 - bridge real com Canva (F6);
 - adapter Claude/A4 quando `ANTHROPIC_API_KEY` estiver configurada;
 - A5 Recovery Engineer para falhas de programação, acesso, payload, timeout e adapters.
+
+## Estado operacional
+
+Cada tarefa mantém `current_step`, `progress_percent`, `next_action`, bloqueio e último erro. Cada etapa é persistida separadamente com status, dependências, tentativas, artefato e timestamps. A execução reaproveita tool-runs já confirmados e bloqueia etapas cujas dependências ainda não foram satisfeitas.
 
 ## Recovery automático
 
