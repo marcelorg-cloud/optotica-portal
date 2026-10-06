@@ -20,9 +20,21 @@ import { markTaskStep, syncTaskProgress } from "../../../../../lib/task-state";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+const configuredRecoveryAttempts = Number(process.env.REGENT_RECOVERY_MAX_ATTEMPTS || 3);
+const RECOVERY_MAX_ATTEMPTS = Number.isFinite(configuredRecoveryAttempts)
+  ? Math.max(1, Math.min(3, Math.trunc(configuredRecoveryAttempts)))
+  : 3;
 
 type Artifact = { step: number; node: string; output: unknown };
 type Blocked = { step: number; nodes: string[]; reason: string; recovery?: unknown };
+type RecoveryAttempt = {
+  attempt: number;
+  errorBefore: string;
+  decision?: RecoveryDecisionOutput | null;
+  claudeReview?: string | null;
+  outcome: "analysis_failed" | "analysis_only" | "retry_failed" | "retry_blocked" | "succeeded";
+  errorAfter?: string;
+};
 
 function unique<T>(values: T[]) {
   return [...new Set(values)];
@@ -252,42 +264,39 @@ export async function POST(
     step: PipelineStep,
     node: string,
     error: unknown,
-    first: RecoveryDecisionOutput | null,
-    second: RecoveryDecisionOutput | null,
-    claudeReview: string | null,
+    attempts: RecoveryAttempt[],
   ) {
     humanEscalation = true;
+    const lastDecision = [...attempts].reverse().find((item) => item.decision)?.decision || null;
+    const claudeParticipated = attempts.some((item) => Boolean(item.claudeReview));
     await markTaskStep({
       supabase, taskId, userId, stepNumber: step.step,
       status: "failed", error,
-      nextAction: "Validação humana necessária: revisar diagnóstico e patch sugerido antes de retomar.",
+      nextAction: "As 3 tentativas progressivas de autocorreção foram esgotadas. Validação humana necessária.",
     });
     await syncTaskProgress({ supabase, taskId, userId });
     const reason = [
-      `A recuperação automática não conseguiu concluir a etapa ${step.step} (${node}).`,
-      `Erro: ${errorMessage(error)}`,
-      second?.diagnosis || first?.diagnosis ? `Diagnóstico: ${second?.diagnosis || first?.diagnosis}` : "",
-      second?.patchProposal || first?.patchProposal
-        ? `Correção de código sugerida: ${second?.patchProposal || first?.patchProposal}`
-        : "",
-      claudeReview ? "O Claude participou da segunda análise." : "",
-      "A pipeline foi pausada para validação humana.",
+      `A recuperação automática esgotou ${RECOVERY_MAX_ATTEMPTS} tentativas na etapa ${step.step} (${node}).`,
+      `Último erro: ${errorMessage(error)}`,
+      lastDecision?.diagnosis ? `Diagnóstico final: ${lastDecision.diagnosis}` : "",
+      lastDecision?.patchProposal ? `Correção de código sugerida: ${lastDecision.patchProposal}` : "",
+      claudeParticipated ? "ChatGPT e Claude participaram da análise cruzada antes do escalonamento." : "",
+      "A pipeline foi pausada somente após o protocolo de autorrecuperação ser esgotado.",
     ].filter(Boolean).join(" ");
 
     blocked.push({
       step: step.step,
       nodes: [node],
       reason,
-      recovery: { first, second, claudeReview },
+      recovery: { maxAttempts: RECOVERY_MAX_ATTEMPTS, attempts },
     });
 
     await event("recovery_escalated_human", {
       step: step.step,
       node,
       error: errorMessage(error),
-      first,
-      second,
-      claudeReview,
+      maxAttempts: RECOVERY_MAX_ATTEMPTS,
+      attempts,
     });
   }
 
@@ -316,6 +325,7 @@ export async function POST(
         continue;
       }
 
+      let preExecutionError: Error | null = null;
       const stepState = await supabase
         .from("regent_task_steps")
         .select("depends_on")
@@ -336,14 +346,19 @@ export async function POST(
         );
         if (unresolved.length) {
           const reason = `Dependências pendentes: etapas ${unresolved.join(", ")}.`;
-          blocked.push({ step: originalStep.step, nodes: originalStep.nodes, reason });
+          preExecutionError = new Error(reason);
+          await event("recovery_dependency_blocked", {
+            step: originalStep.step,
+            unresolved,
+            reason,
+          });
           await markTaskStep({
             supabase, taskId, userId, stepNumber: originalStep.step,
-            status: "blocked",
-            nextAction: `Concluir primeiro as etapas ${unresolved.join(", ")} e retomar daqui.`,
+            status: "review",
+            error: preExecutionError,
+            nextAction: "O protocolo de autorrecuperação vai tentar resolver o impedimento antes de solicitar intervenção humana.",
           });
           await syncTaskProgress({ supabase, taskId, userId });
-          break pipelineLoop;
         }
       }
 
@@ -355,192 +370,198 @@ export async function POST(
       });
       await syncTaskProgress({ supabase, taskId, userId });
 
-      try {
-        const result = await runStep(originalStep);
-        if ("output" in result) {
-          artifacts.push(result);
-          await markTaskStep({
-            supabase, taskId, userId, stepNumber: originalStep.step,
-            status: "succeeded", artifact: result.output,
-            nextAction: "Etapa concluída; seguir para a próxima dependência liberada.",
-          });
-        } else {
-          blocked.push(result);
-          await markTaskStep({
-            supabase, taskId, userId, stepNumber: originalStep.step,
-            status: "blocked", artifact: result,
-            nextAction: result.reason,
-          });
-        }
-        await syncTaskProgress({ supabase, taskId, userId });
-        continue;
-      } catch (initialError) {
-        await markTaskStep({
-          supabase, taskId, userId, stepNumber: originalStep.step,
-          status: "review", error: initialError,
-          nextAction: "A5 está analisando a falha e preparando a menor correção segura.",
-        });
-        await syncTaskProgress({ supabase, taskId, userId });
-        await event("recovery_started", {
-          step: originalStep.step,
-          node: primary,
-          error: errorMessage(initialError),
-          fingerprint: errorFingerprint(initialError),
-        });
+      let currentError: unknown = preExecutionError;
+      let workingStep = originalStep;
 
-        let first: RecoveryDecisionOutput | null = null;
+      if (!currentError) {
         try {
-          first = await analyzeRecovery({
+          const result = await runStep(workingStep);
+          if ("output" in result) {
+            artifacts.push(result);
+            await markTaskStep({
+              supabase, taskId, userId, stepNumber: originalStep.step,
+              status: "succeeded", artifact: result.output,
+              nextAction: "Etapa concluída; seguir para a próxima dependência liberada.",
+            });
+            await syncTaskProgress({ supabase, taskId, userId });
+            continue;
+          }
+          currentError = new Error(result.reason);
+          await event("recovery_block_detected", {
+            step: originalStep.step,
+            node: primary,
+            reason: result.reason,
+          });
+        } catch (error) {
+          currentError = error;
+        }
+      }
+
+      await markTaskStep({
+        supabase, taskId, userId, stepNumber: originalStep.step,
+        status: "review", error: currentError,
+        nextAction: `Autocorreção iniciada: até ${RECOVERY_MAX_ATTEMPTS} tentativas progressivas antes de escalar ao humano.`,
+      });
+      await syncTaskProgress({ supabase, taskId, userId });
+      await event("recovery_started", {
+        step: originalStep.step,
+        node: primary,
+        error: errorMessage(currentError),
+        fingerprint: errorFingerprint(currentError),
+        maxAttempts: RECOVERY_MAX_ATTEMPTS,
+      });
+
+      const attempts: RecoveryAttempt[] = [];
+      let previousDecision: RecoveryDecisionOutput | null = null;
+      let recovered = false;
+
+      for (let attempt = 1; attempt <= RECOVERY_MAX_ATTEMPTS; attempt += 1) {
+        const errorBefore = errorMessage(currentError);
+        let claudeReview: string | null = null;
+
+        if (attempt >= 2 && previousDecision) {
+          try {
+            const review = await reviewRecoveryWithClaude({
+              objective: taskData.objective,
+              taskTitle: taskData.title,
+              step: workingStep,
+              node: primary,
+              error: currentError,
+              firstDecision: previousDecision,
+            });
+            claudeReview = review.review;
+            await event("recovery_a4_review", {
+              step: originalStep.step,
+              node: primary,
+              attempt,
+              available: review.available,
+              review: review.review,
+            });
+          } catch (claudeError) {
+            claudeReview = `Claude indisponível nesta tentativa: ${errorMessage(claudeError)}`;
+            await event("recovery_a4_failed", {
+              step: originalStep.step,
+              node: primary,
+              attempt,
+              error: errorMessage(claudeError),
+            });
+          }
+        }
+
+        let decision: RecoveryDecisionOutput | null = null;
+        try {
+          decision = await analyzeRecovery({
             objective: taskData.objective,
             taskTitle: taskData.title,
-            step: originalStep,
+            step: workingStep,
             node: primary,
-            error: initialError,
+            error: currentError,
             artifacts,
-            recurrence: 1,
+            previousRecovery: previousDecision,
+            claudeReview,
+            recurrence: attempt,
           });
           await event("recovery_a5_analysis", {
             step: originalStep.step,
             node: primary,
-            recurrence: 1,
-            decision: first,
+            recurrence: attempt,
+            decision,
+            claudeReview,
           });
-        } catch (recoveryError) {
-          await escalateToHuman(originalStep, primary, recoveryError, null, null, null);
-          break pipelineLoop;
-        }
-
-        if (first.codeChangeRequired || !first.canRetry || first.retryStrategy === "none") {
-          await escalateToHuman(originalStep, primary, initialError, first, null, null);
-          break pipelineLoop;
-        }
-
-        const firstRetryStep = applyRecoveryDecision(originalStep, first);
-        try {
-          const recovered = await runStep(firstRetryStep, first.reduceVariantsTo || undefined);
-          if ("output" in recovered) {
-            artifacts.push(recovered);
-            await markTaskStep({
-              supabase, taskId, userId, stepNumber: originalStep.step,
-              status: "succeeded", artifact: recovered.output,
-              nextAction: "Recovery concluído; seguir para a próxima etapa.",
-            });
-          } else {
-            blocked.push(recovered);
-            await markTaskStep({
-              supabase, taskId, userId, stepNumber: originalStep.step,
-              status: "blocked", artifact: recovered,
-              nextAction: recovered.reason,
-            });
-          }
-          await syncTaskProgress({ supabase, taskId, userId });
-          await event("recovery_succeeded", {
-            step: originalStep.step,
-            node: primary,
-            level: "A5",
-            decision: first,
+        } catch (analysisError) {
+          currentError = analysisError;
+          attempts.push({
+            attempt,
+            errorBefore,
+            claudeReview,
+            outcome: "analysis_failed",
+            errorAfter: errorMessage(analysisError),
           });
           continue;
-        } catch (retryError) {
-          const sameError = errorFingerprint(retryError) === errorFingerprint(initialError);
-          let claudeReview: string | null = null;
+        }
 
-          if (sameError) {
-            try {
-              const review = await reviewRecoveryWithClaude({
-                objective: taskData.objective,
-                taskTitle: taskData.title,
-                step: firstRetryStep,
-                node: primary,
-                error: retryError,
-                firstDecision: first,
-              });
-              claudeReview = review.review;
-              await event("recovery_a4_review", {
-                step: originalStep.step,
-                node: primary,
-                available: review.available,
-                review: review.review,
-              });
-              if (!review.available) {
-                await escalateToHuman(originalStep, primary, retryError, first, null, review.review);
-                break pipelineLoop;
-              }
-            } catch (claudeError) {
-              await event("recovery_a4_failed", {
-                step: originalStep.step,
-                node: primary,
-                error: errorMessage(claudeError),
-              });
-              await escalateToHuman(originalStep, primary, retryError, first, null, null);
-              break pipelineLoop;
-            }
-          }
+        previousDecision = decision;
 
-          let second: RecoveryDecisionOutput | null = null;
-          try {
-            second = await analyzeRecovery({
-              objective: taskData.objective,
-              taskTitle: taskData.title,
-              step: firstRetryStep,
-              node: primary,
-              error: retryError,
-              artifacts,
-              previousRecovery: first,
+        if (decision.codeChangeRequired || !decision.canRetry || decision.retryStrategy === "none") {
+          attempts.push({
+            attempt,
+            errorBefore,
+            decision,
+            claudeReview,
+            outcome: "analysis_only",
+            errorAfter: errorMessage(currentError),
+          });
+          continue;
+        }
+
+        workingStep = applyRecoveryDecision(workingStep, decision);
+        try {
+          const retryResult = await runStep(workingStep, decision.reduceVariantsTo || undefined);
+          if ("output" in retryResult) {
+            artifacts.push(retryResult);
+            attempts.push({
+              attempt,
+              errorBefore,
+              decision,
               claudeReview,
-              recurrence: 2,
+              outcome: "succeeded",
             });
-            await event("recovery_a5_analysis", {
-              step: originalStep.step,
-              node: primary,
-              recurrence: 2,
-              sameError,
-              decision: second,
+            await markTaskStep({
+              supabase, taskId, userId, stepNumber: originalStep.step,
+              status: "succeeded", artifact: retryResult.output,
+              nextAction: `Autocorreção concluída na tentativa ${attempt}; seguir para a próxima etapa.`,
             });
-          } catch (secondRecoveryError) {
-            await escalateToHuman(originalStep, primary, secondRecoveryError, first, null, claudeReview);
-            break pipelineLoop;
-          }
-
-          if (second.codeChangeRequired || !second.canRetry || second.retryStrategy === "none") {
-            await escalateToHuman(originalStep, primary, retryError, first, second, claudeReview);
-            break pipelineLoop;
-          }
-
-          const secondRetryStep = applyRecoveryDecision(firstRetryStep, second);
-          try {
-            const recovered = await runStep(secondRetryStep, second.reduceVariantsTo || first.reduceVariantsTo || undefined);
-            if ("output" in recovered) {
-              artifacts.push(recovered);
-              await markTaskStep({
-                supabase, taskId, userId, stepNumber: originalStep.step,
-                status: "succeeded", artifact: recovered.output,
-                nextAction: "Recovery de segundo nível concluído; seguir para a próxima etapa.",
-              });
-            } else {
-              blocked.push(recovered);
-              await markTaskStep({
-                supabase, taskId, userId, stepNumber: originalStep.step,
-                status: "blocked", artifact: recovered,
-                nextAction: recovered.reason,
-              });
-            }
             await syncTaskProgress({ supabase, taskId, userId });
             await event("recovery_succeeded", {
               step: originalStep.step,
               node: primary,
-              level: sameError ? "A5+A4+A5" : "A5+A5",
-              first,
-              second,
+              attempt,
+              decision,
               claudeReview,
             });
-            continue;
-          } catch (finalError) {
-            await escalateToHuman(originalStep, primary, finalError, first, second, claudeReview);
-            break pipelineLoop;
+            recovered = true;
+            break;
           }
+
+          currentError = new Error(retryResult.reason);
+          attempts.push({
+            attempt,
+            errorBefore,
+            decision,
+            claudeReview,
+            outcome: "retry_blocked",
+            errorAfter: retryResult.reason,
+          });
+          await event("recovery_retry_blocked", {
+            step: originalStep.step,
+            node: primary,
+            attempt,
+            reason: retryResult.reason,
+          });
+        } catch (retryError) {
+          currentError = retryError;
+          attempts.push({
+            attempt,
+            errorBefore,
+            decision,
+            claudeReview,
+            outcome: "retry_failed",
+            errorAfter: errorMessage(retryError),
+          });
+          await event("recovery_retry_failed", {
+            step: originalStep.step,
+            node: primary,
+            attempt,
+            error: errorMessage(retryError),
+            fingerprint: errorFingerprint(retryError),
+          });
         }
       }
+
+      if (recovered) continue;
+
+      await escalateToHuman(originalStep, primary, currentError, attempts);
+      break pipelineLoop;
     }
 
     const finalStatus = blocked.length ? "blocked" : "succeeded";
