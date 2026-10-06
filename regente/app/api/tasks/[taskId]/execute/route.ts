@@ -16,6 +16,7 @@ import {
   reviewRecoveryWithClaude,
   type RecoveryDecisionOutput,
 } from "../../../../../lib/recovery";
+import { markTaskStep, syncTaskProgress } from "../../../../../lib/task-state";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -256,6 +257,12 @@ export async function POST(
     claudeReview: string | null,
   ) {
     humanEscalation = true;
+    await markTaskStep({
+      supabase, taskId, userId, stepNumber: step.step,
+      status: "failed", error,
+      nextAction: "Validação humana necessária: revisar diagnóstico e patch sugerido antes de retomar.",
+    });
+    await syncTaskProgress({ supabase, taskId, userId });
     const reason = [
       `A recuperação automática não conseguiu concluir a etapa ${step.step} (${node}).`,
       `Erro: ${errorMessage(error)}`,
@@ -300,17 +307,49 @@ export async function POST(
 
       if (existing.data) {
         artifacts.push({ step: originalStep.step, node: existing.data.node_id, output: existing.data.output });
+        await markTaskStep({
+          supabase, taskId, userId, stepNumber: originalStep.step,
+          status: "succeeded", artifact: existing.data.output,
+          nextAction: "Resultado confirmado e reaproveitado; seguir para a próxima etapa.",
+        });
+        await syncTaskProgress({ supabase, taskId, userId });
         continue;
       }
 
       const primary = unique(originalStep.nodes || [])[0] || "unknown";
+      await markTaskStep({
+        supabase, taskId, userId, stepNumber: originalStep.step,
+        status: "running", incrementAttempt: true,
+        nextAction: `Executando etapa ${originalStep.step} em ${primary}.`,
+      });
+      await syncTaskProgress({ supabase, taskId, userId });
 
       try {
         const result = await runStep(originalStep);
-        if ("output" in result) artifacts.push(result);
-        else blocked.push(result);
+        if ("output" in result) {
+          artifacts.push(result);
+          await markTaskStep({
+            supabase, taskId, userId, stepNumber: originalStep.step,
+            status: "succeeded", artifact: result.output,
+            nextAction: "Etapa concluída; seguir para a próxima dependência liberada.",
+          });
+        } else {
+          blocked.push(result);
+          await markTaskStep({
+            supabase, taskId, userId, stepNumber: originalStep.step,
+            status: "blocked", artifact: result,
+            nextAction: result.reason,
+          });
+        }
+        await syncTaskProgress({ supabase, taskId, userId });
         continue;
       } catch (initialError) {
+        await markTaskStep({
+          supabase, taskId, userId, stepNumber: originalStep.step,
+          status: "review", error: initialError,
+          nextAction: "A5 está analisando a falha e preparando a menor correção segura.",
+        });
+        await syncTaskProgress({ supabase, taskId, userId });
         await event("recovery_started", {
           step: originalStep.step,
           node: primary,
@@ -348,8 +387,22 @@ export async function POST(
         const firstRetryStep = applyRecoveryDecision(originalStep, first);
         try {
           const recovered = await runStep(firstRetryStep, first.reduceVariantsTo || undefined);
-          if ("output" in recovered) artifacts.push(recovered);
-          else blocked.push(recovered);
+          if ("output" in recovered) {
+            artifacts.push(recovered);
+            await markTaskStep({
+              supabase, taskId, userId, stepNumber: originalStep.step,
+              status: "succeeded", artifact: recovered.output,
+              nextAction: "Recovery concluído; seguir para a próxima etapa.",
+            });
+          } else {
+            blocked.push(recovered);
+            await markTaskStep({
+              supabase, taskId, userId, stepNumber: originalStep.step,
+              status: "blocked", artifact: recovered,
+              nextAction: recovered.reason,
+            });
+          }
+          await syncTaskProgress({ supabase, taskId, userId });
           await event("recovery_succeeded", {
             step: originalStep.step,
             node: primary,
@@ -426,8 +479,22 @@ export async function POST(
           const secondRetryStep = applyRecoveryDecision(firstRetryStep, second);
           try {
             const recovered = await runStep(secondRetryStep, second.reduceVariantsTo || first.reduceVariantsTo || undefined);
-            if ("output" in recovered) artifacts.push(recovered);
-            else blocked.push(recovered);
+            if ("output" in recovered) {
+              artifacts.push(recovered);
+              await markTaskStep({
+                supabase, taskId, userId, stepNumber: originalStep.step,
+                status: "succeeded", artifact: recovered.output,
+                nextAction: "Recovery de segundo nível concluído; seguir para a próxima etapa.",
+              });
+            } else {
+              blocked.push(recovered);
+              await markTaskStep({
+                supabase, taskId, userId, stepNumber: originalStep.step,
+                status: "blocked", artifact: recovered,
+                nextAction: recovered.reason,
+              });
+            }
+            await syncTaskProgress({ supabase, taskId, userId });
             await event("recovery_succeeded", {
               step: originalStep.step,
               node: primary,
@@ -446,6 +513,10 @@ export async function POST(
     }
 
     const finalStatus = blocked.length ? "blocked" : "succeeded";
+    await syncTaskProgress({
+      supabase, taskId, userId,
+      fallbackNextAction: finalStatus === "succeeded" ? "Tarefa concluída." : "Resolver o bloqueio registrado e retomar do checkpoint.",
+    });
     await supabase
       .from("regent_tasks")
       .update({ status: finalStatus, updated_at: new Date().toISOString() })
