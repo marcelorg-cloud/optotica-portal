@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireMaster } from "../../../../../lib/require-master";
 import { createServerSupabaseClient } from "../../../../../lib/supabase";
+import { syncTaskProgress } from "../../../../../lib/task-state";
 
 type Decision = "execute" | "partial" | "reject" | "revise";
 
@@ -113,6 +114,51 @@ export async function POST(
       { status: 500 },
     );
   }
+
+  if (decision === "execute" || decision === "partial") {
+    const approvedSet = decision === "partial" ? new Set(approvedSteps) : null;
+    for (const step of pipeline as Array<{ step?: number; executionState?: string }>) {
+      const stepNumber = Number(step.step || 0);
+      if (!stepNumber) continue;
+      const approved = !approvedSet || approvedSet.has(stepNumber);
+      await supabase
+        .from("regent_task_steps")
+        .update({
+          status: approved
+            ? step.executionState === "planned" ? "planned" : "prepared"
+            : "skipped",
+          next_action: approved ? null : "Etapa fora da aprovação parcial.",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("task_id", taskId)
+        .eq("user_id", auth.userId)
+        .eq("step_number", stepNumber);
+    }
+  } else if (decision === "reject") {
+    await supabase
+      .from("regent_task_steps")
+      .update({ status: "skipped", next_action: "Pipeline rejeitado pelo operador.", updated_at: new Date().toISOString() })
+      .eq("task_id", taskId)
+      .eq("user_id", auth.userId);
+  } else if (decision === "revise") {
+    await supabase
+      .from("regent_task_steps")
+      .update({ status: "awaiting_approval", next_action: "Aguardar revisão do pipeline.", updated_at: new Date().toISOString() })
+      .eq("task_id", taskId)
+      .eq("user_id", auth.userId);
+  }
+
+  await syncTaskProgress({
+    supabase,
+    taskId,
+    userId: auth.userId,
+    fallbackNextAction:
+      decision === "execute" || decision === "partial"
+        ? "Executar a primeira etapa liberada."
+        : decision === "revise"
+          ? "Revisar o pipeline."
+          : "Nenhuma execução pendente.",
+  });
 
   await supabase.from("regent_task_events").insert({
     task_id: taskId,
