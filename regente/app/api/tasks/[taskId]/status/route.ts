@@ -27,7 +27,7 @@ export async function GET(
         .maybeSingle(),
       supabase
         .from("regent_task_steps")
-        .select("step_number,role,node_ids,action,expected_output,status,depends_on,attempt_count,last_error,next_action,started_at,completed_at,updated_at")
+        .select("step_number,role,node_ids,action,expected_output,status,depends_on,checkpoint,attempt_count,last_error,next_action,started_at,completed_at,updated_at")
         .eq("task_id", taskId)
         .eq("user_id", auth.userId)
         .order("step_number", { ascending: true }),
