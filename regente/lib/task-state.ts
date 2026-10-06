@@ -38,7 +38,7 @@ export async function initializeTaskSteps(input: {
       : step.executionState === "planned"
         ? "planned"
         : "prepared",
-    depends_on: index > 0 ? [input.pipeline[index - 1].step] : [],
+    depends_on: step.dependsOn?.length ? step.dependsOn : index > 0 ? [input.pipeline[index - 1].step] : [],
     next_action: index === 0 ? step.action : null,
   }));
 
