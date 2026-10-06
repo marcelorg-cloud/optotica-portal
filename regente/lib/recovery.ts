@@ -95,7 +95,10 @@ export async function analyzeRecovery(input: {
       "Se o problema exigir mudança de código, não finja que aplicou: marque codeChangeRequired=true e proponha patch objetivo.",
       "Nunca contorne autenticação, RLS, autorização humana, limites de custo ou segurança.",
       "Não repita uma estratégia que já falhou sem uma razão concreta.",
-      "Quando houver revisão do Claude, use-a criticamente; não a aceite automaticamente.",
+      "O protocolo permite até 3 tentativas progressivas. Em cada recorrência, avance o diagnóstico com base no que falhou antes.",
+      "Na tentativa 1, priorize correção operacional direta. Nas tentativas 2 e 3, use a revisão independente do Claude quando disponível e refine criticamente a estratégia.",
+      "Se uma mudança de código parecer necessária, proponha o patch com precisão; nas tentativas seguintes procure também uma alternativa operacional segura antes de concluir que intervenção humana é indispensável.",
+      "Quando houver revisão do Claude, trate-a como contraponto: compare hipóteses, resolva divergências e produza uma decisão consolidada.",
     ].join("\n"),
     outputType: RecoveryDecision,
   });
@@ -160,7 +163,8 @@ export async function reviewRecoveryWithClaude(input: {
         role: "user",
         content: [
           "Você é o revisor independente A4 do mecanismo de recuperação do Regente.",
-          "Analise o erro, a primeira hipótese do Recovery Engineer e o código real abaixo.",
+          "Analise o erro, a hipótese mais recente do Recovery Engineer e o código real abaixo.",
+          "Sua resposta será devolvida ao ChatGPT/A5 para uma nova rodada; destaque discordâncias, hipóteses alternativas e testes objetivos para criar uma análise cruzada real entre os dois modelos.",
           "Procure principalmente diagnóstico errado, repetição inútil, problemas de acesso, timeout, payload e bug de programação.",
           "Não proponha atalhos que removam autenticação, RLS ou aprovação humana.",
           "",
