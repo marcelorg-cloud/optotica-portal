@@ -1,6 +1,7 @@
 import { createAuthSupabaseClient } from "../lib/supabase";
 import {
   getWorkflowSecretForInternalRequest,
+  sealWorkflowSession,
   unsealWorkflowSession,
 } from "../lib/workflow-auth";
 
@@ -19,7 +20,38 @@ function safeOrigin(value: string) {
   return url.origin;
 }
 
-async function executeTaskRequest(input: TaskExecutionWorkflowInput) {
+async function prepareWorkflowSession(sealedSession: string) {
+  "use step";
+
+  const storedSession = unsealWorkflowSession(sealedSession);
+  const authClient = createAuthSupabaseClient();
+  const { data, error } = await authClient.auth.setSession({
+    access_token: storedSession.accessToken,
+    refresh_token: storedSession.refreshToken,
+  });
+
+  if (
+    error ||
+    !data.session?.access_token ||
+    !data.session.refresh_token
+  ) {
+    throw new Error(
+      error?.message || "Não foi possível renovar a sessão Master para o Workflow.",
+    );
+  }
+
+  console.log("regente_workflow_session_prepared");
+
+  return sealWorkflowSession({
+    accessToken: data.session.access_token,
+    refreshToken: data.session.refresh_token,
+  });
+}
+
+async function executeTaskRequest(
+  input: TaskExecutionWorkflowInput,
+  preparedSession: string,
+) {
   "use step";
 
   console.log("regente_workflow_step_started", {
@@ -27,26 +59,13 @@ async function executeTaskRequest(input: TaskExecutionWorkflowInput) {
     userId: input.userId,
   });
 
-  const storedSession = unsealWorkflowSession(input.sealedSession);
-  const authClient = createAuthSupabaseClient();
-  const { data, error } = await authClient.auth.setSession({
-    access_token: storedSession.accessToken,
-    refresh_token: storedSession.refreshToken,
-  });
-
-  const accessToken = data.session?.access_token;
-  if (error || !accessToken) {
-    throw new Error(
-      error?.message || "Não foi possível renovar a sessão Master para o Workflow.",
-    );
-  }
-
+  const session = unsealWorkflowSession(preparedSession);
   const response = await fetch(
     `${safeOrigin(input.origin)}/api/tasks/${encodeURIComponent(input.taskId)}/execute`,
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${session.accessToken}`,
         "X-Regent-Workflow": getWorkflowSecretForInternalRequest(),
         "Content-Type": "application/json",
       },
@@ -64,19 +83,11 @@ async function executeTaskRequest(input: TaskExecutionWorkflowInput) {
     }
   }
 
-  if (response.status >= 500 || response.status === 429) {
-    const message =
-      typeof payload.message === "string"
-        ? payload.message
-        : `Execução interna respondeu HTTP ${response.status}.`;
-    throw new Error(message);
-  }
-
   if (!response.ok) {
     const message =
       typeof payload.message === "string"
         ? payload.message
-        : `Execução interna foi recusada com HTTP ${response.status}.`;
+        : `Execução interna respondeu HTTP ${response.status}.`;
     throw new Error(message);
   }
 
@@ -100,7 +111,8 @@ export async function taskExecutionWorkflow(input: TaskExecutionWorkflowInput) {
     userId: input.userId,
   });
 
-  const result = await executeTaskRequest(input);
+  const preparedSession = await prepareWorkflowSession(input.sealedSession);
+  const result = await executeTaskRequest(input, preparedSession);
 
   console.log("regente_workflow_finished", {
     taskId: input.taskId,
