@@ -80,13 +80,13 @@ export async function POST(
   } else if (missingAdapters.length) {
     nextStatus = "approved";
     message =
-      "Pipeline aprovado. A execução externa permanece bloqueada apenas nas etapas sem adapter conectado: " +
+      "Todas as etapas do plano atual foram autorizadas em uma única ação. Etapas sem adapter continuam bloqueadas: " +
       [...new Set(missingAdapters)].join(", ") +
       ".";
   } else {
     nextStatus = "approved";
     message =
-      "Pipeline aprovado. As etapas estão liberadas para o motor de execução supervisionada.";
+      "Todas as etapas já previstas neste plano foram autorizadas de uma vez. Novas ações fora do plano exigirão outra autorização.";
   }
 
   const humanDecision = {
@@ -95,6 +95,10 @@ export async function POST(
     decided_at: new Date().toISOString(),
     missing_adapters: [...new Set(missingAdapters)],
     approved_steps: decision === "partial" ? approvedSteps : null,
+    approval_scope: decision === "execute" ? "all_current_pipeline_steps" : decision === "partial" ? "selected_steps" : null,
+    approved_pipeline_steps: decision === "execute"
+      ? pipeline.map((step: { step?: number }) => step.step).filter(Boolean)
+      : approvedSteps,
   };
 
   const { error: updateError } = await supabase

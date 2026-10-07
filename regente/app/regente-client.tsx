@@ -37,6 +37,8 @@ type TaskRuntime = {
   blockedReason?: string | null;
   lastError?: unknown;
   updatedAt?: string;
+  isStale?: boolean;
+  lastActivityAt?: string | null;
   steps?: RuntimeStep[];
 };
 
@@ -67,6 +69,18 @@ type PlanPayload = {
   taskId?: string;
   taskStatus?: string;
   runtime?: TaskRuntime;
+};
+
+type OutputItem = {
+  id: string;
+  step: number;
+  node: string;
+  kind: string;
+  source: string;
+  status: string;
+  createdAt?: string | null;
+  content: string;
+  links: string[];
 };
 
 type ChatMessage = {
@@ -129,11 +143,58 @@ export function RegenteClient() {
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [decisionLoading, setDecisionLoading] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const streamRef = useRef<HTMLDivElement | null>(null);
+  const shouldFollowBottomRef = useRef(true);
+  const [outputsTaskId, setOutputsTaskId] = useState<string | null>(null);
+  const [outputsTitle, setOutputsTitle] = useState("");
+  const [outputsItems, setOutputsItems] = useState<OutputItem[]>([]);
+  const [outputsLoading, setOutputsLoading] = useState(false);
+  const [outputsError, setOutputsError] = useState("");
   const pollingTasksRef = useRef<Set<string>>(new Set());
 
   useEffect(() => { void loadSessions(); }, []);
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
+  useEffect(() => {
+    const stream = streamRef.current;
+    if (stream && shouldFollowBottomRef.current) {
+      stream.scrollTo({ top: stream.scrollHeight, behavior: "auto" });
+    }
+  }, [messages.length, loading, sessionId]);
+
+  function trackScroll() {
+    const stream = streamRef.current;
+    if (!stream) return;
+    shouldFollowBottomRef.current =
+      stream.scrollHeight - stream.scrollTop - stream.clientHeight < 100;
+  }
+
+  function goToMessageEdge(edge: "top" | "bottom") {
+    const stream = streamRef.current;
+    if (!stream) return;
+    shouldFollowBottomRef.current = edge === "bottom";
+    stream.scrollTo({ top: edge === "top" ? 0 : stream.scrollHeight, behavior: "smooth" });
+  }
+
+  async function showOutputs(taskId: string, title: string) {
+    if (outputsTaskId === taskId) {
+      setOutputsTaskId(null);
+      return;
+    }
+    setOutputsTaskId(taskId);
+    setOutputsTitle(title);
+    setOutputsItems([]);
+    setOutputsError("");
+    setOutputsLoading(true);
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/outputs`, { cache: "no-store" });
+      const data = await readApiResponse(response);
+      if (!response.ok) throw new Error(data.message || "Falha ao carregar outputs.");
+      setOutputsItems((data.items || []) as OutputItem[]);
+    } catch (err) {
+      setOutputsError(err instanceof Error ? err.message : "Falha ao carregar outputs.");
+    } finally {
+      setOutputsLoading(false);
+    }
+  }
 
   async function loadSessions(selectLatest = true) {
     setLoadingHistory(true);
@@ -158,6 +219,7 @@ export function RegenteClient() {
       const payload = await readApiResponse(response);
       if (!response.ok) throw new Error(payload.message || "Falha ao abrir conversa.");
       const loadedMessages = (payload.messages || []) as ChatMessage[];
+      if (sessionId !== id) shouldFollowBottomRef.current = true;
       setSessionId(id);
       setBudgetTier(payload.session.budget_tier || "minimal");
       setMessages(loadedMessages);
@@ -181,6 +243,7 @@ export function RegenteClient() {
     setMessage("");
     setBudgetTier("minimal");
     setError("");
+    setOutputsTaskId(null);
   }
 
   async function refreshTaskStatus(taskId: string) {
@@ -204,13 +267,15 @@ export function RegenteClient() {
               blockedReason: payload.task.blocked_reason,
               lastError: payload.task.last_error,
               updatedAt: payload.task.updated_at,
+              isStale: Boolean(payload.task.is_stale),
+              lastActivityAt: payload.task.last_activity_at,
               steps: payload.steps || [],
             },
           },
         };
       }));
 
-      return payload.task.status as string;
+      return payload.task.is_stale ? "stale" : payload.task.status as string;
     } catch {
       return null;
     }
@@ -223,6 +288,7 @@ export function RegenteClient() {
     try {
       for (let attempt = 0; attempt < 480; attempt += 1) {
         const status = await refreshTaskStatus(taskId);
+        if (status === "stale") return;
         if (status && TERMINAL_TASK_STATUSES.has(status)) {
           const targetSession = sessionToReload || sessionId;
           if (targetSession) await openSession(targetSession);
@@ -406,7 +472,11 @@ export function RegenteClient() {
     monitoredRuntimeStep?.role ||
     monitoredPipelineStep?.role ||
     (monitoredPayload?.taskStatus === "succeeded" ? "concluído" : "aguardando");
-  const monitoredProgress = monitoredPayload?.runtime?.progressPercent ?? 0;
+  const monitoredProgress = monitoredPayload?.taskStatus === "succeeded"
+    ? 100
+    : Math.max(0, Math.min(100, monitoredPayload?.runtime?.progressPercent ?? 0));
+  const monitoredStale = monitoredPayload?.taskStatus === "executing" &&
+    Boolean(monitoredPayload.runtime?.isStale);
 
   return (
     <main className="regent-app">
@@ -446,6 +516,11 @@ export function RegenteClient() {
               <strong>{sessionId ? "Conversa atual" : "Nova conversa"}</strong>
               <small>O Regente mantém contexto e transforma decisões em tarefas auditáveis.</small>
             </div>
+            <div className="chat-toolbar-actions">
+              <div className="chat-nav-buttons" aria-label="Navegar na conversa">
+                <button type="button" onClick={() => goToMessageEdge("top")} title="Ir ao início" aria-label="Ir ao início da conversa">↑ Topo</button>
+                <button type="button" onClick={() => goToMessageEdge("bottom")} title="Ir ao fim" aria-label="Ir ao fim da conversa">↓ Fim</button>
+              </div>
             <label className="budget-control">
               Orçamento
               <select value={budgetTier} onChange={(event) => setBudgetTier(event.target.value as Session["budget_tier"])}>
@@ -454,12 +529,13 @@ export function RegenteClient() {
                 <option value="flexible">Flexível</option>
               </select>
             </label>
+            </div>
           </div>
 
-          <div className="message-stream">
+          <div className="message-stream" ref={streamRef} onScroll={trackScroll}>
             {!messages.length && !loadingHistory && (
               <div className="chat-welcome">
-                <span className="eyebrow">REGENTE v0.6.1</span>
+                <span className="eyebrow">REGENTE v0.6.2</span>
                 <h2>Qual resultado precisamos produzir?</h2>
                 <p>
                   O Regente decide a profundidade, combina referência, criatividade, crítica, criação e picker,
@@ -494,11 +570,11 @@ export function RegenteClient() {
                           <div className="pipeline-step-head">
                             <strong>Acompanhamento</strong>
                             <span className="pipeline-tag">
-                              {item.payload.runtime?.progressPercent ?? 0}% concluído
+                              {item.payload.taskStatus === "succeeded" ? 100 : item.payload.runtime?.progressPercent ?? 0}% concluído
                             </span>
                           </div>
                           <progress
-                            value={item.payload.runtime?.progressPercent ?? 0}
+                            value={item.payload.taskStatus === "succeeded" ? 100 : item.payload.runtime?.progressPercent ?? 0}
                             max={100}
                             style={{ width: "100%" }}
                           />
@@ -511,6 +587,9 @@ export function RegenteClient() {
                           <small>
                             <b>Autonomia:</b> nível {item.payload.runtime?.autonomyLevel ?? item.payload.autonomyLevel ?? 1}
                           </small>
+                          {item.payload.runtime?.isStale && (
+                            <small className="task-stale-warning"><b>Atenção:</b> execução sem atualização há mais de 15 minutos. O percentual não indica conclusão.</small>
+                          )}
                           {item.payload.runtime?.blockedReason && (
                             <small><b>Bloqueio:</b> {item.payload.runtime.blockedReason}</small>
                           )}
@@ -547,6 +626,12 @@ export function RegenteClient() {
                         </div>
                       )}
 
+                      {item.payload.taskId && (
+                        <button type="button" className="task-outputs-button" onClick={() => void showOutputs(item.payload!.taskId!, item.payload!.taskTitle || item.payload!.summary)}>
+                          Ver todos os outputs ↗
+                        </button>
+                      )}
+
                       {item.payload.picker?.enabled && (
                         <div className="picker-card">
                           <strong>Picker supervisionado</strong>
@@ -562,14 +647,14 @@ export function RegenteClient() {
                         item.payload.taskStatus === "awaiting_approval" && (
                           <div className="approval-gate">
                             <strong>Validação humana</strong>
-                            <small>Revise o pipeline antes de liberar qualquer ação externa.</small>
+                            <small>Uma autorização libera todas as etapas deste plano, inclusive as dependentes. Novas ações fora do plano continuam exigindo aprovação.</small>
                             <div className="approval-actions">
                               <button
                                 type="button"
                                 disabled={Boolean(decisionLoading)}
                                 onClick={() => void decide(item.payload!.taskId!, "execute")}
                               >
-                                Aprovar execução
+                                Autorizar todas as etapas
                               </button>
                               <button
                                 type="button"
@@ -610,7 +695,7 @@ export function RegenteClient() {
                 <div className="message-bubble typing">Montando o pipeline e aplicando a Constituição…</div>
               </article>
             )}
-            <div ref={bottomRef} />
+ 
           </div>
 
           {error && <p className="chat-error">{error}</p>}
@@ -649,6 +734,9 @@ export function RegenteClient() {
             <progress value={monitoredProgress} max={100} />
             <b>{monitoredProgress}%</b>
           </div>
+          {monitoredStale && (
+            <small className="task-stale-warning">Sem atividade recente: possivelmente interrompida, não concluída.</small>
+          )}
           <div className="task-live-grid">
             <span><b>Etapa</b>{monitoredStepNumber ?? "—"}</span>
             <span><b>Laço</b>{monitoredLoop}</span>
@@ -657,11 +745,66 @@ export function RegenteClient() {
           <small className="task-live-next">
             <b>Agora:</b> {monitoredPayload.runtime?.nextAction || monitoredPayload.nextAction || "Aguardando próxima ação."}
           </small>
+          <button type="button" className="task-monitor-outputs" onClick={() => void showOutputs(monitoredPayload.taskId!, monitoredPayload.taskTitle || monitoredPayload.summary)}>
+            Outputs ↗
+          </button>
         </aside>
       )}
 
+      {outputsTaskId && (
+        <div className="outputs-backdrop" onClick={() => setOutputsTaskId(null)}>
+          <aside
+            className="outputs-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Outputs da tarefa"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="outputs-drawer-head">
+              <div>
+                <span className="task-live-kicker">ARTEFATOS DA TAREFA</span>
+                <strong>{outputsTitle}</strong>
+              </div>
+              <button type="button" onClick={() => setOutputsTaskId(null)} aria-label="Fechar outputs">✕</button>
+            </div>
+            {outputsLoading && <p>Carregando textos, imagens e arquivos da tarefa…</p>}
+            {outputsError && <p className="task-stale-warning">{outputsError}</p>}
+            {!outputsLoading && !outputsError && !outputsItems.length && (
+              <p>Nenhum output registrado até agora.</p>
+            )}
+            <div className="outputs-list">
+              {outputsItems.map((output) => (
+                <article className="outputs-item" key={output.id}>
+                  <div className="pipeline-step-head">
+                    <strong>Etapa {output.step} · {output.node}</strong>
+                    <span className="pipeline-tag">{output.source}</span>
+                  </div>
+                  <small>{output.kind} · {output.status}</small>
+                  {!!output.links.length && (
+                    <div className="outputs-links">
+                      {output.links.map((link) => (
+                        <a key={link} href={link} target="_blank" rel="noopener noreferrer">
+                          {/\.(png|jpe?g|webp|gif|svg)(\?|#|$)/i.test(link) ? "Imagem" : /\.pdf(\?|#|$)/i.test(link) ? "PDF" : "Abrir arquivo/link"} ↗
+                          {/\.(png|jpe?g|webp|gif)(\?|#|$)/i.test(link) && (
+                            <img src={link} alt="Prévia do output" loading="lazy" />
+                          )}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  <details>
+                    <summary>Visualizar texto/JSON</summary>
+                    <pre>{output.content}</pre>
+                  </details>
+                </article>
+              ))}
+            </div>
+          </aside>
+        </div>
+      )}
+
       <footer>
-        v0.6.1 — estado vivo + monitor da tarefa + execução durável + checkpoints + A5 Recovery Engineer.
+        v0.6.2 — estado vivo + monitor da tarefa + execução durável + checkpoints + A5 Recovery Engineer.
       </footer>
     </main>
   );
