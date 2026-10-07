@@ -37,6 +37,8 @@ type TaskRuntime = {
   blockedReason?: string | null;
   lastError?: unknown;
   updatedAt?: string;
+  isStale?: boolean;
+  lastActivityAt?: string | null;
   steps?: RuntimeStep[];
 };
 
@@ -67,6 +69,18 @@ type PlanPayload = {
   taskId?: string;
   taskStatus?: string;
   runtime?: TaskRuntime;
+};
+
+type OutputItem = {
+  id: string;
+  step: number;
+  node: string;
+  kind: string;
+  source: string;
+  status: string;
+  createdAt?: string | null;
+  content: string;
+  links: string[];
 };
 
 type ChatMessage = {
@@ -129,11 +143,58 @@ export function RegenteClient() {
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [decisionLoading, setDecisionLoading] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const streamRef = useRef<HTMLDivElement | null>(null);
+  const shouldFollowBottomRef = useRef(true);
+  const [outputsTaskId, setOutputsTaskId] = useState<string | null>(null);
+  const [outputsTitle, setOutputsTitle] = useState("");
+  const [outputsItems, setOutputsItems] = useState<OutputItem[]>([]);
+  const [outputsLoading, setOutputsLoading] = useState(false);
+  const [outputsError, setOutputsError] = useState("");
   const pollingTasksRef = useRef<Set<string>>(new Set());
 
   useEffect(() => { void loadSessions(); }, []);
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
+  useEffect(() => {
+    const stream = streamRef.current;
+    if (stream && shouldFollowBottomRef.current) {
+      stream.scrollTo({ top: stream.scrollHeight, behavior: "instant" });
+    }
+  }, [messages.length, loading, sessionId]);
+
+  function trackScroll() {
+    const stream = streamRef.current;
+    if (!stream) return;
+    shouldFollowBottomRef.current =
+      stream.scrollHeight - stream.scrollTop - stream.clientHeight < 100;
+  }
+
+  function goToMessageEdge(edge: "top" | "bottom") {
+    const stream = streamRef.current;
+    if (!stream) return;
+    shouldFollowBottomRef.current = edge === "bottom";
+    stream.scrollTo({ top: edge === "top" ? 0 : stream.scrollHeight, behavior: "smooth" });
+  }
+
+  async function showOutputs(taskId: string, title: string) {
+    if (outputsTaskId === taskId) {
+      setOutputsTaskId(null);
+      return;
+    }
+    setOutputsTaskId(taskId);
+    setOutputsTitle(title);
+    setOutputsItems([]);
+    setOutputsError("");
+    setOutputsLoading(true);
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/outputs`, { cache: "no-store" });
+      const data = await readApiResponse(response);
+      if (!response.ok) throw new Error(data.message || "Falha ao carregar outputs.");
+      setOutputsItems((data.items || []) as OutputItem[]);
+    } catch (err) {
+      setOutputsError(err instanceof Error ? err.message : "Falha ao carregar outputs.");
+    } finally {
+      setOutputsLoading(false);
+    }
+  }
 
   async function loadSessions(selectLatest = true) {
     setLoadingHistory(true);
@@ -158,6 +219,7 @@ export function RegenteClient() {
       const payload = await readApiResponse(response);
       if (!response.ok) throw new Error(payload.message || "Falha ao abrir conversa.");
       const loadedMessages = (payload.messages || []) as ChatMessage[];
+      if (sessionId !== id) shouldFollowBottomRef.current = true;
       setSessionId(id);
       setBudgetTier(payload.session.budget_tier || "minimal");
       setMessages(loadedMessages);
@@ -181,6 +243,7 @@ export function RegenteClient() {
     setMessage("");
     setBudgetTier("minimal");
     setError("");
+    setOutputsTaskId(null);
   }
 
   async function refreshTaskStatus(taskId: string) {
@@ -204,13 +267,15 @@ export function RegenteClient() {
               blockedReason: payload.task.blocked_reason,
               lastError: payload.task.last_error,
               updatedAt: payload.task.updated_at,
+              isStale: Boolean(payload.task.is_stale),
+              lastActivityAt: payload.task.last_activity_at,
               steps: payload.steps || [],
             },
           },
         };
       }));
 
-      return payload.task.status as string;
+      return payload.task.is_stale ? "stale" : payload.task.status as string;
     } catch {
       return null;
     }
@@ -223,6 +288,7 @@ export function RegenteClient() {
     try {
       for (let attempt = 0; attempt < 480; attempt += 1) {
         const status = await refreshTaskStatus(taskId);
+        if (status === "stale") return;
         if (status && TERMINAL_TASK_STATUSES.has(status)) {
           const targetSession = sessionToReload || sessionId;
           if (targetSession) await openSession(targetSession);
@@ -406,7 +472,11 @@ export function RegenteClient() {
     monitoredRuntimeStep?.role ||
     monitoredPipelineStep?.role ||
     (monitoredPayload?.taskStatus === "succeeded" ? "concluído" : "aguardando");
-  const monitoredProgress = monitoredPayload?.runtime?.progressPercent ?? 0;
+  const monitoredProgress = monitoredPayload?.taskStatus === "succeeded"
+    ? 100
+    : Math.max(0, Math.min(100, monitoredPayload?.runtime?.progressPercent ?? 0));
+  const monitoredStale = monitoredPayload?.taskStatus === "executing" &&
+    Boolean(monitoredPayload.runtime?.isStale);
 
   return (
     <main className="regent-app">
