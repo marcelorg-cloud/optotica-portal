@@ -751,6 +751,58 @@ export function RegenteClient() {
         </aside>
       )}
 
+      {outputsTaskId && (
+        <div className="outputs-backdrop" onClick={() => setOutputsTaskId(null)}>
+          <aside
+            className="outputs-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Outputs da tarefa"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="outputs-drawer-head">
+              <div>
+                <span className="task-live-kicker">ARTEFATOS DA TAREFA</span>
+                <strong>{outputsTitle}</strong>
+              </div>
+              <button type="button" onClick={() => setOutputsTaskId(null)} aria-label="Fechar outputs">✕</button>
+            </div>
+            {outputsLoading && <p>Carregando textos, imagens e arquivos da tarefa…</p>}
+            {outputsError && <p className="task-stale-warning">{outputsError}</p>}
+            {!outputsLoading && !outputsError && !outputsItems.length && (
+              <p>Nenhum output registrado até agora.</p>
+            )}
+            <div className="outputs-list">
+              {outputsItems.map((output) => (
+                <article className="outputs-item" key={output.id}>
+                  <div className="pipeline-step-head">
+                    <strong>Etapa {output.step} · {output.node}</strong>
+                    <span className="pipeline-tag">{output.source}</span>
+                  </div>
+                  <small>{output.kind} · {output.status}</small>
+                  {!!output.links.length && (
+                    <div className="outputs-links">
+                      {output.links.map((link) => (
+                        <a key={link} href={link} target="_blank" rel="noopener noreferrer">
+                          {/\.(png|jpe?g|webp|gif|svg)(\?|#|$)/i.test(link) ? "Imagem" : /\.pdf(\?|#|$)/i.test(link) ? "PDF" : "Abrir arquivo/link"} ↗
+                          {/\.(png|jpe?g|webp|gif)(\?|#|$)/i.test(link) && (
+                            <img src={link} alt="Prévia do output" loading="lazy" />
+                          )}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  <details>
+                    <summary>Visualizar texto/JSON</summary>
+                    <pre>{output.content}</pre>
+                  </details>
+                </article>
+              ))}
+            </div>
+          </aside>
+        </div>
+      )}
+
       <footer>
         v0.6.1 — estado vivo + monitor da tarefa + execução durável + checkpoints + A5 Recovery Engineer.
       </footer>
