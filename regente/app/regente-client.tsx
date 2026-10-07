@@ -156,7 +156,7 @@ export function RegenteClient() {
   useEffect(() => {
     const stream = streamRef.current;
     if (stream && shouldFollowBottomRef.current) {
-      stream.scrollTo({ top: stream.scrollHeight, behavior: "instant" });
+      stream.scrollTo({ top: stream.scrollHeight, behavior: "auto" });
     }
   }, [messages.length, loading, sessionId]);
 
@@ -535,7 +535,7 @@ export function RegenteClient() {
           <div className="message-stream" ref={streamRef} onScroll={trackScroll}>
             {!messages.length && !loadingHistory && (
               <div className="chat-welcome">
-                <span className="eyebrow">REGENTE v0.6.1</span>
+                <span className="eyebrow">REGENTE v0.6.2</span>
                 <h2>Qual resultado precisamos produzir?</h2>
                 <p>
                   O Regente decide a profundidade, combina referência, criatividade, crítica, criação e picker,
@@ -804,7 +804,7 @@ export function RegenteClient() {
       )}
 
       <footer>
-        v0.6.1 — estado vivo + monitor da tarefa + execução durável + checkpoints + A5 Recovery Engineer.
+        v0.6.2 — estado vivo + monitor da tarefa + execução durável + checkpoints + A5 Recovery Engineer.
       </footer>
     </main>
   );
