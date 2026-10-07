@@ -17,6 +17,9 @@ type PipelineStep = {
 
 type RuntimeStep = {
   step_number: number;
+  role?: string;
+  node_ids?: string[];
+  action?: string;
   status: "planned" | "prepared" | "awaiting_approval" | "running" | "review" | "succeeded" | "blocked" | "failed" | "skipped";
   depends_on: number[];
   attempt_count: number;
@@ -81,6 +84,21 @@ type Session = {
   updated_at: string;
 };
 
+const TERMINAL_TASK_STATUSES = new Set(["succeeded", "blocked", "failed", "rejected", "needs_revision"]);
+
+function taskStatusLabel(status?: string) {
+  switch (status) {
+    case "awaiting_approval": return "Aguardando autorização";
+    case "approved": return "Preparada";
+    case "executing": return "Em andamento";
+    case "succeeded": return "Finalizada";
+    case "blocked": return "Parada / bloqueada";
+    case "failed": return "Parada / falhou";
+    case "needs_revision": return "Aguardando revisão";
+    case "rejected": return "Rejeitada";
+    default: return status || "Preparando";
+  }
+}
 
 async function readApiResponse(response: Response) {
   const text = await response.text();
@@ -112,6 +130,7 @@ export function RegenteClient() {
   const [decisionLoading, setDecisionLoading] = useState<string | null>(null);
   const [error, setError] = useState("");
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const pollingTasksRef = useRef<Set<string>>(new Set());
 
   useEffect(() => { void loadSessions(); }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
@@ -138,9 +157,17 @@ export function RegenteClient() {
       const response = await fetch(`/api/sessions/${id}/messages`, { cache: "no-store" });
       const payload = await readApiResponse(response);
       if (!response.ok) throw new Error(payload.message || "Falha ao abrir conversa.");
+      const loadedMessages = (payload.messages || []) as ChatMessage[];
       setSessionId(id);
       setBudgetTier(payload.session.budget_tier || "minimal");
-      setMessages(payload.messages || []);
+      setMessages(loadedMessages);
+
+      const activeTaskIds = [...new Set(
+        loadedMessages
+          .filter((item) => item.payload?.taskId && item.payload.taskStatus === "executing")
+          .map((item) => item.payload!.taskId as string),
+      )];
+      activeTaskIds.forEach((taskId) => void pollTaskUntilSettled(taskId, id));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível abrir a conversa.");
     } finally {
@@ -158,7 +185,7 @@ export function RegenteClient() {
 
   async function refreshTaskStatus(taskId: string) {
     try {
-      const response = await fetch(`/api/tasks/${taskId}/status`, { cache: "no-store" });
+      const response = await fetch(`/api/tasks/${taskId}/status?compact=1`, { cache: "no-store" });
       const payload = await readApiResponse(response);
       if (!response.ok || !payload.task) return null;
 
@@ -189,15 +216,22 @@ export function RegenteClient() {
     }
   }
 
-  async function pollTaskUntilSettled(taskId: string) {
-    const terminal = new Set(["succeeded", "blocked", "failed", "rejected", "needs_revision"]);
-    for (let attempt = 0; attempt < 180; attempt += 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, 5000));
-      const status = await refreshTaskStatus(taskId);
-      if (status && terminal.has(status)) {
-        if (sessionId) await openSession(sessionId);
-        return;
+  async function pollTaskUntilSettled(taskId: string, sessionToReload?: string | null) {
+    if (pollingTasksRef.current.has(taskId)) return;
+    pollingTasksRef.current.add(taskId);
+
+    try {
+      for (let attempt = 0; attempt < 480; attempt += 1) {
+        const status = await refreshTaskStatus(taskId);
+        if (status && TERMINAL_TASK_STATUSES.has(status)) {
+          const targetSession = sessionToReload || sessionId;
+          if (targetSession) await openSession(targetSession);
+          return;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 2500));
       }
+    } finally {
+      pollingTasksRef.current.delete(taskId);
     }
   }
 
@@ -248,7 +282,7 @@ export function RegenteClient() {
             ...item,
             payload: {
               ...item.payload,
-              taskStatus: executionPayload.status || "queued",
+              taskStatus: executionPayload.status || "executing",
               runtime: {
                 ...(item.payload.runtime || {}),
                 nextAction:
@@ -269,7 +303,7 @@ export function RegenteClient() {
           },
         ]);
 
-        void pollTaskUntilSettled(taskId);
+        void pollTaskUntilSettled(taskId, sessionId);
       }
 
       if (decision === "revise") {
@@ -354,6 +388,26 @@ export function RegenteClient() {
     );
   }
 
+  const monitoredPayload = [...messages]
+    .reverse()
+    .find((item) => item.role === "assistant" && item.payload?.taskId)?.payload || null;
+  const monitoredStepNumber = monitoredPayload?.runtime?.currentStep ?? null;
+  const monitoredRuntimeStep = monitoredPayload?.runtime?.steps?.find(
+    (step) => step.step_number === monitoredStepNumber,
+  );
+  const monitoredPipelineStep = monitoredPayload?.pipeline?.find(
+    (step) => step.step === monitoredStepNumber,
+  );
+  const monitoredNodes =
+    monitoredRuntimeStep?.node_ids?.length
+      ? monitoredRuntimeStep.node_ids.join(", ")
+      : monitoredPipelineStep?.nodes?.join(", ") || "—";
+  const monitoredLoop =
+    monitoredRuntimeStep?.role ||
+    monitoredPipelineStep?.role ||
+    (monitoredPayload?.taskStatus === "succeeded" ? "concluído" : "aguardando");
+  const monitoredProgress = monitoredPayload?.runtime?.progressPercent ?? 0;
+
   return (
     <main className="regent-app">
       <header className="regent-header">
@@ -405,7 +459,7 @@ export function RegenteClient() {
           <div className="message-stream">
             {!messages.length && !loadingHistory && (
               <div className="chat-welcome">
-                <span className="eyebrow">REGENTE v0.5</span>
+                <span className="eyebrow">REGENTE v0.6.1</span>
                 <h2>Qual resultado precisamos produzir?</h2>
                 <p>
                   O Regente decide a profundidade, combina referência, criatividade, crítica, criação e picker,
@@ -422,7 +476,7 @@ export function RegenteClient() {
 
                   {item.role === "assistant" && item.payload && (
                     <details className="plan-details" open={Boolean(item.payload.pipeline?.length)}>
-                      <summary>Ver pipeline v0.5</summary>
+                      <summary>Ver pipeline v0.6</summary>
 
                       <div className="plan-summary">
                         <div className="plan-meta-row">
@@ -505,7 +559,7 @@ export function RegenteClient() {
 
                       {item.payload.taskId &&
                         item.payload.approvalRequired &&
-                        !["rejected", "approved", "succeeded"].includes(item.payload.taskStatus || "") && (
+                        item.payload.taskStatus === "awaiting_approval" && (
                           <div className="approval-gate">
                             <strong>Validação humana</strong>
                             <small>Revise o pipeline antes de liberar qualquer ação externa.</small>
@@ -582,8 +636,32 @@ export function RegenteClient() {
         </section>
       </div>
 
+      {monitoredPayload?.taskId && (
+        <aside className={`task-live-monitor task-live-${monitoredPayload.taskStatus || "unknown"}`} aria-live="polite">
+          <div className="task-live-head">
+            <div>
+              <span className="task-live-kicker">TAREFA ATUAL</span>
+              <strong>{monitoredPayload.taskTitle || monitoredPayload.summary}</strong>
+            </div>
+            <span className="task-live-status">{taskStatusLabel(monitoredPayload.taskStatus)}</span>
+          </div>
+          <div className="task-live-progress-row">
+            <progress value={monitoredProgress} max={100} />
+            <b>{monitoredProgress}%</b>
+          </div>
+          <div className="task-live-grid">
+            <span><b>Etapa</b>{monitoredStepNumber ?? "—"}</span>
+            <span><b>Laço</b>{monitoredLoop}</span>
+            <span><b>Nó</b>{monitoredNodes}</span>
+          </div>
+          <small className="task-live-next">
+            <b>Agora:</b> {monitoredPayload.runtime?.nextAction || monitoredPayload.nextAction || "Aguardando próxima ação."}
+          </small>
+        </aside>
+      )}
+
       <footer>
-        v0.6 — execução durável em segundo plano + checkpoints + retomada + auditoria + A5 Recovery Engineer.
+        v0.6.1 — estado vivo + monitor da tarefa + execução durável + checkpoints + A5 Recovery Engineer.
       </footer>
     </main>
   );
