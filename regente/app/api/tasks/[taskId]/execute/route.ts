@@ -114,9 +114,33 @@ export async function POST(
       );
     }
 
+    if (queuedTask.status === "executing") {
+      return NextResponse.json(
+        {
+          taskId,
+          status: "executing",
+          alreadyRunning: true,
+          message: "Esta tarefa já está em execução. O Regente continuará do estado atual sem iniciar outra cópia.",
+        },
+        { status: 202 },
+      );
+    }
+
+    if (queuedTask.status === "succeeded") {
+      return NextResponse.json({
+        taskId,
+        status: "succeeded",
+        alreadyCompleted: true,
+        message: "Esta tarefa já foi concluída.",
+      });
+    }
+
     if (queuedTask.status !== "approved") {
       return NextResponse.json(
-        { error: "approval_required", message: "A tarefa precisa estar aprovada antes da execução." },
+        {
+          error: "invalid_execution_state",
+          message: `A tarefa está em estado ${queuedTask.status} e não precisa de uma nova autorização de execução.`,
+        },
         { status: 409 },
       );
     }
@@ -136,17 +160,83 @@ export async function POST(
       );
     }
 
-    const run = await start(taskExecutionWorkflow, [
-      {
-        taskId,
-        userId,
-        sealedSession: sealWorkflowSession({
-          accessToken: session.access_token,
-          refreshToken: session.refresh_token,
-        }),
-        origin: new URL(request.url).origin,
-      },
-    ]);
+    const lockingAt = new Date().toISOString();
+    const { data: lockedTask, error: lockError } = await supabase
+      .from("regent_tasks")
+      .update({
+        status: "executing",
+        next_action: "Preparando execução em segundo plano.",
+        updated_at: lockingAt,
+      })
+      .eq("id", taskId)
+      .eq("user_id", userId)
+      .eq("status", "approved")
+      .select("id")
+      .maybeSingle();
+
+    if (lockError || !lockedTask) {
+      const { data: currentTask } = await supabase
+        .from("regent_tasks")
+        .select("status")
+        .eq("id", taskId)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (currentTask?.status === "executing") {
+        return NextResponse.json(
+          {
+            taskId,
+            status: "executing",
+            alreadyRunning: true,
+            message: "Esta tarefa já está em execução. Nenhuma execução duplicada foi criada.",
+          },
+          { status: 202 },
+        );
+      }
+
+      return NextResponse.json(
+        {
+          error: "execution_lock_failed",
+          message: "Não foi possível reservar esta tarefa para execução.",
+        },
+        { status: 409 },
+      );
+    }
+
+    let run;
+    try {
+      run = await start(taskExecutionWorkflow, [
+        {
+          taskId,
+          userId,
+          sealedSession: sealWorkflowSession({
+            accessToken: session.access_token,
+            refreshToken: session.refresh_token,
+          }),
+          origin: new URL(request.url).origin,
+        },
+      ]);
+    } catch (workflowError) {
+      await supabase
+        .from("regent_tasks")
+        .update({
+          status: "approved",
+          next_action: "A execução não foi iniciada. Tente novamente.",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", taskId)
+        .eq("user_id", userId)
+        .eq("status", "executing");
+
+      await supabase.from("regent_task_events").insert({
+        task_id: taskId,
+        user_id: userId,
+        event_type: "workflow_enqueue_failed",
+        payload: { message: errorMessage(workflowError) },
+      });
+
+      throw workflowError;
+    }
 
     const queuedAt = new Date().toISOString();
     await supabase.from("regent_task_events").insert({
@@ -164,7 +254,7 @@ export async function POST(
       .from("regent_tasks")
       .update({
         next_action:
-          "Execução agendada em segundo plano. O Regente continuará mesmo com o painel fechado.",
+          "Execução em segundo plano ativa. O Regente continuará mesmo com o painel fechado.",
         updated_at: queuedAt,
       })
       .eq("id", taskId)
@@ -173,7 +263,7 @@ export async function POST(
     return NextResponse.json(
       {
         taskId,
-        status: "queued",
+        status: "executing",
         runId: run.runId,
         message:
           "Execução iniciada em segundo plano. Você pode fechar o painel; o Regente continuará processando e salvará cada checkpoint.",
