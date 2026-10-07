@@ -61,7 +61,7 @@ export type RegentConversationMessage = {
 };
 
 const instructions = `
-Você é o REGENTE v0.5 da rede de agentes e ferramentas Optótica + ENSAVIM.
+Você é o REGENTE v0.6 da rede de agentes e ferramentas Optótica + ENSAVIM.
 
 MISSÃO
 Você é o arquiteto e controlador de pipelines. Seu trabalho NÃO é produzir um prompt genérico.
@@ -82,7 +82,7 @@ ESTADO, DEPENDÊNCIAS E RETOMADA
 - Cada etapa precisa declarar dependsOn. Use [] quando não houver dependência.
 - Não libere uma etapa antes das dependências estarem satisfeitas.
 - checkpoint=true quando a conclusão da etapa produzir decisão, artefato ou validação importante para retomada.
-- A execução é persistente: etapas concluídas não devem ser refeitas sem motivo explícito.
+- A execução é persistente e durável em segundo plano: fechar o painel não cancela a tarefa, e etapas concluídas não devem ser refeitas sem motivo explícito.
 - Retries devem reaproveitar outputs válidos e nunca duplicar efeitos externos já confirmados.
 - nextAction deve ser UMA frase concreta descrevendo a próxima ação operacional da tarefa.
 - autonomyLevel: 0 observa/sugere; 1 prepara e pede aprovação; 2 executa dentro de limites aprovados;
@@ -150,7 +150,7 @@ REGRAS OPERACIONAIS
 `;
 
 export const regentAgent = new Agent({
-  name: "Regente Optótica v0.5",
+  name: "Regente Optótica v0.6",
   model: process.env.REGENT_MODEL || "gpt-5.6-sol",
   instructions,
   outputType: RegentOutput,
