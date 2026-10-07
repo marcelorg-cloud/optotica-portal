@@ -156,6 +156,51 @@ export function RegenteClient() {
     setError("");
   }
 
+  async function refreshTaskStatus(taskId: string) {
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/status`, { cache: "no-store" });
+      const payload = await readApiResponse(response);
+      if (!response.ok || !payload.task) return null;
+
+      setMessages((current) => current.map((item) => {
+        if (item.payload?.taskId !== taskId) return item;
+        return {
+          ...item,
+          payload: {
+            ...item.payload,
+            taskStatus: payload.task.status,
+            runtime: {
+              currentStep: payload.task.current_step,
+              progressPercent: payload.task.progress_percent,
+              nextAction: payload.task.next_action,
+              autonomyLevel: payload.task.autonomy_level,
+              blockedReason: payload.task.blocked_reason,
+              lastError: payload.task.last_error,
+              updatedAt: payload.task.updated_at,
+              steps: payload.steps || [],
+            },
+          },
+        };
+      }));
+
+      return payload.task.status as string;
+    } catch {
+      return null;
+    }
+  }
+
+  async function pollTaskUntilSettled(taskId: string) {
+    const terminal = new Set(["succeeded", "blocked", "failed", "rejected", "needs_revision"]);
+    for (let attempt = 0; attempt < 180; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 5000));
+      const status = await refreshTaskStatus(taskId);
+      if (status && terminal.has(status)) {
+        if (sessionId) await openSession(sessionId);
+        return;
+      }
+    }
+  }
+
   async function decide(
     taskId: string,
     decision: "execute" | "partial" | "reject" | "revise",
@@ -195,8 +240,36 @@ export function RegenteClient() {
           headers: { "Content-Type": "application/json" },
         });
         const executionPayload = await readApiResponse(execution);
-        if (!execution.ok) throw new Error(executionPayload.message || "Falha ao executar o pipeline.");
-        if (sessionId) await openSession(sessionId);
+        if (!execution.ok) throw new Error(executionPayload.message || "Falha ao iniciar o pipeline.");
+
+        setMessages((current) => current.map((item) => {
+          if (item.payload?.taskId !== taskId) return item;
+          return {
+            ...item,
+            payload: {
+              ...item.payload,
+              taskStatus: executionPayload.status || "queued",
+              runtime: {
+                ...(item.payload.runtime || {}),
+                nextAction:
+                  "Execução em segundo plano iniciada. O painel pode ser fechado sem interromper o processamento.",
+              },
+            },
+          };
+        }));
+
+        setMessages((current) => [
+          ...current,
+          {
+            id: `workflow-${Date.now()}`,
+            role: "assistant",
+            content:
+              executionPayload.message ||
+              "Execução iniciada em segundo plano. Você pode fechar o painel.",
+          },
+        ]);
+
+        void pollTaskUntilSettled(taskId);
       }
 
       if (decision === "revise") {
@@ -287,7 +360,7 @@ export function RegenteClient() {
         <div>
           <span className="eyebrow">REDE OPTÓTICA + ENSAVIM</span>
           <h1>Regente</h1>
-          <p>v0.5 · estado persistente · checkpoints · execução supervisionada · recovery A5</p>
+          <p>v0.6 · execução durável · checkpoints · segundo plano · recovery A5</p>
         </div>
         <div className="status">● Human-gated execution</div>
       </header>
@@ -510,7 +583,7 @@ export function RegenteClient() {
       </div>
 
       <footer>
-        v0.5 — estado persistente por etapa + dependências + próxima ação + auditoria + A5 Recovery Engineer.
+        v0.6 — execução durável em segundo plano + checkpoints + retomada + auditoria + A5 Recovery Engineer.
       </footer>
     </main>
   );
