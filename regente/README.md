@@ -1,4 +1,4 @@
-# Regente Optótica — v0.5
+# Regente Optótica — v0.6
 
 Orquestrador supervisionado da rede de agentes e ferramentas Optótica + ENSAVIM.
 
@@ -8,6 +8,7 @@ Orquestrador supervisionado da rede de agentes e ferramentas Optótica + ENSAVIM
 - Constituição de Sanidade;
 - planejamento multicamadas;
 - pipelines auditáveis com estado persistente por etapa;
+- execução durável em segundo plano via Vercel Workflow, independente da janela do navegador;
 - dependências explícitas entre etapas e tarefas;
 - progresso, etapa atual e próxima ação operacional;
 - checkpoints retomáveis sem repetir etapas concluídas;
@@ -21,7 +22,7 @@ Orquestrador supervisionado da rede de agentes e ferramentas Optótica + ENSAVIM
 
 ## Estado operacional
 
-Cada tarefa mantém `current_step`, `progress_percent`, `next_action`, bloqueio e último erro. Cada etapa é persistida separadamente com status, dependências, tentativas, artefato e timestamps. A execução reaproveita tool-runs já confirmados e bloqueia etapas cujas dependências ainda não foram satisfeitas.
+Cada tarefa mantém `current_step`, `progress_percent`, `next_action`, bloqueio e último erro. Cada etapa é persistida separadamente com status, dependências, tentativas, artefato e timestamps. A execução reaproveita tool-runs já confirmados e bloqueia etapas cujas dependências ainda não foram satisfeitas. Ao ser aprovada, a tarefa é entregue a um Workflow durável: fechar a aba, bloquear o celular ou perder a conexão do cliente não cancela o processamento.
 
 ## Recovery automático
 
@@ -51,3 +52,18 @@ REGENT_MODE=supervised_pipeline
 ## Princípio
 
 O Regente decide quanto pensar, quais nós combinar, quando pedir validação e quando parar. Ele só afirma que uma ação externa foi concluída depois de receber confirmação real do adapter responsável.
+
+
+## Execução durável v0.6
+
+A rota de execução usada pelo navegador não executa mais o pipeline inteiro. Ela:
+
+1. valida o usuário Master e a aprovação humana;
+2. cifra a sessão necessária para a execução;
+3. inicia um Vercel Workflow e retorna `202 Accepted` com um `runId`;
+4. o Workflow renova a sessão em um step persistente;
+5. o worker executa o pipeline usando os checkpoints existentes no Supabase;
+6. em retry ou retomada, tool-runs já confirmados não são repetidos;
+7. a interface apenas consulta o estado e pode ser fechada sem cancelar a tarefa.
+
+`REGENT_WORKFLOW_SECRET` é usado somente no servidor para cifrar a sessão temporária e autenticar a chamada interna do Workflow. Ele não substitui a autenticação Master, não desativa RLS e não concede service-role.
