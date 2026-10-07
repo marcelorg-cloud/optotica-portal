@@ -516,6 +516,11 @@ export function RegenteClient() {
               <strong>{sessionId ? "Conversa atual" : "Nova conversa"}</strong>
               <small>O Regente mantém contexto e transforma decisões em tarefas auditáveis.</small>
             </div>
+            <div className="chat-toolbar-actions">
+              <div className="chat-nav-buttons" aria-label="Navegar na conversa">
+                <button type="button" onClick={() => goToMessageEdge("top")} title="Ir ao início" aria-label="Ir ao início da conversa">↑ Topo</button>
+                <button type="button" onClick={() => goToMessageEdge("bottom")} title="Ir ao fim" aria-label="Ir ao fim da conversa">↓ Fim</button>
+              </div>
             <label className="budget-control">
               Orçamento
               <select value={budgetTier} onChange={(event) => setBudgetTier(event.target.value as Session["budget_tier"])}>
@@ -524,9 +529,10 @@ export function RegenteClient() {
                 <option value="flexible">Flexível</option>
               </select>
             </label>
+            </div>
           </div>
 
-          <div className="message-stream">
+          <div className="message-stream" ref={streamRef} onScroll={trackScroll}>
             {!messages.length && !loadingHistory && (
               <div className="chat-welcome">
                 <span className="eyebrow">REGENTE v0.6.1</span>
@@ -564,11 +570,11 @@ export function RegenteClient() {
                           <div className="pipeline-step-head">
                             <strong>Acompanhamento</strong>
                             <span className="pipeline-tag">
-                              {item.payload.runtime?.progressPercent ?? 0}% concluído
+                              {item.payload.taskStatus === "succeeded" ? 100 : item.payload.runtime?.progressPercent ?? 0}% concluído
                             </span>
                           </div>
                           <progress
-                            value={item.payload.runtime?.progressPercent ?? 0}
+                            value={item.payload.taskStatus === "succeeded" ? 100 : item.payload.runtime?.progressPercent ?? 0}
                             max={100}
                             style={{ width: "100%" }}
                           />
@@ -581,6 +587,9 @@ export function RegenteClient() {
                           <small>
                             <b>Autonomia:</b> nível {item.payload.runtime?.autonomyLevel ?? item.payload.autonomyLevel ?? 1}
                           </small>
+                          {item.payload.runtime?.isStale && (
+                            <small className="task-stale-warning"><b>Atenção:</b> execução sem atualização há mais de 15 minutos. O percentual não indica conclusão.</small>
+                          )}
                           {item.payload.runtime?.blockedReason && (
                             <small><b>Bloqueio:</b> {item.payload.runtime.blockedReason}</small>
                           )}
@@ -617,6 +626,12 @@ export function RegenteClient() {
                         </div>
                       )}
 
+                      {item.payload.taskId && (
+                        <button type="button" className="task-outputs-button" onClick={() => void showOutputs(item.payload!.taskId!, item.payload!.taskTitle || item.payload!.summary)}>
+                          Ver todos os outputs ↗
+                        </button>
+                      )}
+
                       {item.payload.picker?.enabled && (
                         <div className="picker-card">
                           <strong>Picker supervisionado</strong>
@@ -632,14 +647,14 @@ export function RegenteClient() {
                         item.payload.taskStatus === "awaiting_approval" && (
                           <div className="approval-gate">
                             <strong>Validação humana</strong>
-                            <small>Revise o pipeline antes de liberar qualquer ação externa.</small>
+                            <small>Uma autorização libera todas as etapas deste plano, inclusive as dependentes. Novas ações fora do plano continuam exigindo aprovação.</small>
                             <div className="approval-actions">
                               <button
                                 type="button"
                                 disabled={Boolean(decisionLoading)}
                                 onClick={() => void decide(item.payload!.taskId!, "execute")}
                               >
-                                Aprovar execução
+                                Autorizar todas as etapas
                               </button>
                               <button
                                 type="button"
@@ -680,7 +695,7 @@ export function RegenteClient() {
                 <div className="message-bubble typing">Montando o pipeline e aplicando a Constituição…</div>
               </article>
             )}
-            <div ref={bottomRef} />
+ 
           </div>
 
           {error && <p className="chat-error">{error}</p>}
@@ -719,6 +734,9 @@ export function RegenteClient() {
             <progress value={monitoredProgress} max={100} />
             <b>{monitoredProgress}%</b>
           </div>
+          {monitoredStale && (
+            <small className="task-stale-warning">Sem atividade recente: possivelmente interrompida, não concluída.</small>
+          )
           <div className="task-live-grid">
             <span><b>Etapa</b>{monitoredStepNumber ?? "—"}</span>
             <span><b>Laço</b>{monitoredLoop}</span>
@@ -727,6 +745,9 @@ export function RegenteClient() {
           <small className="task-live-next">
             <b>Agora:</b> {monitoredPayload.runtime?.nextAction || monitoredPayload.nextAction || "Aguardando próxima ação."}
           </small>
+          <button type="button" className="task-monitor-outputs" onClick={() => void showOutputs(monitoredPayload.taskId!, monitoredPayload.taskTitle || monitoredPayload.summary)}>
+            Outputs ↗
+          </button>
         </aside>
       )}
 
