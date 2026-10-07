@@ -67,20 +67,53 @@ export async function GET(
     ]);
 
     const taskMap = new Map((tasks || []).map((task) => [task.id, task]));
+    const progressByTask = new Map<string, {
+      percent: number;
+      isStale: boolean;
+      lastActivityAt: string | null;
+      currentStep: number | null;
+    }>();
+    for (const task of tasks || []) {
+      const ownSteps = (steps || []).filter((step) => step.task_id === task.id);
+      const completed = ownSteps.filter((step) =>
+        ["succeeded", "skipped"].includes(step.status)
+      ).length;
+      const percent = task.status === "succeeded"
+        ? 100
+        : ownSteps.length
+          ? Math.round(completed * 100 / ownSteps.length)
+          : Math.max(0, Math.min(100, Number(task.progress_percent || 0)));
+      const last = Math.max(
+        new Date(task.updated_at || 0).getTime() || 0,
+        ...ownSteps.map((step) => new Date(step.updated_at || 0).getTime() || 0)
+      );
+      const active = ownSteps.find((step) => ["running", "review"].includes(step.status));
+      progressByTask.set(task.id, {
+        percent,
+        isStale: task.status === "executing" && last > 0 && Date.now() - last > 15 * 60 * 1000,
+        lastActivityAt: last ? new Date(last).toISOString() : null,
+        currentStep: task.status === "succeeded" ? null : active?.step_number ?? task.current_step,
+      });
+    }
     enrichedMessages = baseMessages.map((message) => {
       const payload = message.payload as ({ taskId?: string } & Record<string, unknown>) | null;
       if (!payload?.taskId) return message;
       const task = taskMap.get(payload.taskId);
       if (!task) return message;
+      const progress = progressByTask.get(task.id);
       return {
         ...message,
         payload: {
           ...payload,
           taskStatus: task.status,
           runtime: {
-            currentStep: task.current_step,
-            progressPercent: task.progress_percent,
-            nextAction: task.next_action,
+            currentStep: progress?.currentStep ?? task.current_step,
+            progressPercent: progress?.percent ?? task.progress_percent,
+            isStale: progress?.isStale ?? false,
+            lastActivityAt: progress?.lastActivityAt ?? null,
+            nextAction: progress?.isStale
+              ? "Sem atualização há mais de 15 minutos. Verifique a execução antes de retomá-la."
+              : task.next_action,
             autonomyLevel: task.autonomy_level,
             blockedReason: task.blocked_reason,
             lastError: task.last_error,
