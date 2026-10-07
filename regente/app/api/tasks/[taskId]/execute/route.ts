@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server";
-import { requireMaster } from "../../../../../lib/require-master";
-import { createServerSupabaseClient } from "../../../../../lib/supabase";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { start } from "workflow/api";
+import { requireMaster, requireMasterBearer } from "../../../../../lib/require-master";
+import {
+  createBearerSupabaseClient,
+  createServerSupabaseClient,
+} from "../../../../../lib/supabase";
+import {
+  isValidWorkflowSecret,
+  sealWorkflowSession,
+} from "../../../../../lib/workflow-auth";
+import { taskExecutionWorkflow } from "../../../../../workflows/task-execution";
 import {
   buildCanvaSpec,
   executeCanvaBridge,
@@ -45,20 +55,132 @@ function errorMessage(error: unknown) {
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ taskId: string }> },
 ) {
-  const auth = await requireMaster();
-  if (!auth.ok) {
+  const { taskId } = await params;
+  const workflowHeader = request.headers.get("x-regent-workflow");
+  const workflowExecution = Boolean(workflowHeader);
+
+  let userId: string;
+  let supabase: SupabaseClient;
+
+  if (workflowExecution) {
+    if (!isValidWorkflowSecret(workflowHeader)) {
+      return NextResponse.json(
+        { error: "workflow_unauthorized", message: "Execução durável não autorizada." },
+        { status: 401 },
+      );
+    }
+
+    const authorization = request.headers.get("authorization") || "";
+    const accessToken = authorization.startsWith("Bearer ")
+      ? authorization.slice("Bearer ".length).trim()
+      : "";
+
+    const auth = await requireMasterBearer(accessToken);
+    if (!auth.ok) {
+      return NextResponse.json(
+        { error: auth.status === 401 ? "unauthorized" : "forbidden", message: auth.message },
+        { status: auth.status },
+      );
+    }
+
+    userId = auth.userId;
+    supabase = createBearerSupabaseClient(accessToken);
+  } else {
+    const auth = await requireMaster();
+    if (!auth.ok) {
+      return NextResponse.json(
+        { error: auth.status === 401 ? "unauthorized" : "forbidden", message: auth.message },
+        { status: auth.status },
+      );
+    }
+
+    userId = auth.userId;
+    supabase = await createServerSupabaseClient();
+
+    const { data: queuedTask, error: queuedTaskError } = await supabase
+      .from("regent_tasks")
+      .select("id,status")
+      .eq("id", taskId)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (queuedTaskError || !queuedTask) {
+      return NextResponse.json(
+        { error: "task_not_found", message: "Tarefa não encontrada." },
+        { status: 404 },
+      );
+    }
+
+    if (queuedTask.status !== "approved") {
+      return NextResponse.json(
+        { error: "approval_required", message: "A tarefa precisa estar aprovada antes da execução." },
+        { status: 409 },
+      );
+    }
+
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session?.access_token || !session.refresh_token) {
+      return NextResponse.json(
+        {
+          error: "session_required",
+          message: "A sessão Master precisa estar ativa para iniciar a execução durável.",
+        },
+        { status: 401 },
+      );
+    }
+
+    const run = await start(taskExecutionWorkflow, [
+      {
+        taskId,
+        userId,
+        sealedSession: sealWorkflowSession({
+          accessToken: session.access_token,
+          refreshToken: session.refresh_token,
+        }),
+        origin: new URL(request.url).origin,
+      },
+    ]);
+
+    const queuedAt = new Date().toISOString();
+    await supabase.from("regent_task_events").insert({
+      task_id: taskId,
+      user_id: userId,
+      event_type: "workflow_enqueued",
+      payload: {
+        run_id: run.runId,
+        backend: "vercel_workflow",
+        queued_at: queuedAt,
+      },
+    });
+
+    await supabase
+      .from("regent_tasks")
+      .update({
+        next_action:
+          "Execução agendada em segundo plano. O Regente continuará mesmo com o painel fechado.",
+        updated_at: queuedAt,
+      })
+      .eq("id", taskId)
+      .eq("user_id", userId);
+
     return NextResponse.json(
-      { error: auth.status === 401 ? "unauthorized" : "forbidden", message: auth.message },
-      { status: auth.status },
+      {
+        taskId,
+        status: "queued",
+        runId: run.runId,
+        message:
+          "Execução iniciada em segundo plano. Você pode fechar o painel; o Regente continuará processando e salvará cada checkpoint.",
+      },
+      { status: 202 },
     );
   }
-
-  const userId = auth.userId;
-  const { taskId } = await params;
-  const supabase = await createServerSupabaseClient();
 
   const { data: task, error: taskError } = await supabase
     .from("regent_tasks")
@@ -73,9 +195,13 @@ export async function POST(
 
   const taskData = task;
 
-  if (taskData.status !== "approved") {
+  const resumableStatuses = ["approved", "executing", "failed"];
+  if (!resumableStatuses.includes(taskData.status)) {
     return NextResponse.json(
-      { error: "approval_required", message: "A tarefa precisa estar aprovada antes da execução." },
+      {
+        error: "invalid_execution_state",
+        message: `A tarefa não pode ser executada ou retomada no estado ${taskData.status}.`,
+      },
       { status: 409 },
     );
   }
@@ -104,8 +230,12 @@ export async function POST(
   await supabase.from("regent_task_events").insert({
     task_id: taskId,
     user_id: userId,
-    event_type: "execution_started",
-    payload: { steps: executable.map((step) => step.step) },
+    event_type: taskData.status === "approved" ? "execution_started" : "execution_resumed",
+    payload: {
+      steps: executable.map((step) => step.step),
+      previous_status: taskData.status,
+      durable: workflowExecution,
+    },
   });
 
   const artifacts: Artifact[] = [];
