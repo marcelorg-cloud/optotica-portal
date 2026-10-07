@@ -736,7 +736,7 @@ export function RegenteClient() {
           </div>
           {monitoredStale && (
             <small className="task-stale-warning">Sem atividade recente: possivelmente interrompida, não concluída.</small>
-          )
+          )}
           <div className="task-live-grid">
             <span><b>Etapa</b>{monitoredStepNumber ?? "—"}</span>
             <span><b>Laço</b>{monitoredLoop}</span>
