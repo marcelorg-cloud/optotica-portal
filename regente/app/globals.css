@@ -306,7 +306,7 @@ input {
 .task-live-monitor {
   position: fixed;
   right: 18px;
-  top: 12px;
+  top: 82px;
   bottom: auto;
   z-index: 50;
   width: min(302px, calc(100vw - 36px));
@@ -399,7 +399,7 @@ input {
 @media (max-width: 560px) {
   .task-live-monitor {
     right: 8px;
-    top: 8px;
+    top: 64px;
     bottom: auto;
     width: min(265px, calc(100vw - 16px));
     padding: 8px 10px;
