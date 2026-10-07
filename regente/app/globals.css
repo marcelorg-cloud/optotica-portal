@@ -300,3 +300,111 @@ input {
 
 .message-link { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; overflow-wrap:anywhere; }
 .chat-message.user .message-link { color:#fff; }
+
+
+/* Regente v0.6.1 — monitor flutuante da tarefa */
+.task-live-monitor {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 50;
+  width: min(360px, calc(100vw - 36px));
+  padding: 14px 15px;
+  border: 1px solid #cfd9d4;
+  border-radius: 16px;
+  background: rgba(255,255,255,.97);
+  box-shadow: 0 16px 50px rgba(24,32,29,.16);
+  backdrop-filter: blur(10px);
+}
+.task-live-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.task-live-head > div { min-width: 0; }
+.task-live-head strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-live-kicker {
+  display: block;
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+.task-live-status {
+  flex: 0 0 auto;
+  padding: 5px 7px;
+  border-radius: 999px;
+  background: #eef2ef;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.task-live-executing .task-live-status { background:#e3f4ed; color:#176c5b; }
+.task-live-succeeded .task-live-status { background:#e3f4ed; color:#176c5b; }
+.task-live-blocked .task-live-status,
+.task-live-failed .task-live-status { background:#ffe1df; color:#8d2c26; }
+.task-live-awaiting_approval .task-live-status { background:#fff1cc; color:#7b5700; }
+.task-live-progress-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
+.task-live-progress-row progress { width: 100%; height: 8px; }
+.task-live-progress-row b { font-size: 11px; }
+.task-live-grid {
+  display: grid;
+  grid-template-columns: 58px minmax(0,1fr) minmax(0,1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+.task-live-grid span {
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 9px;
+  background: #f4f7f5;
+  color: var(--ink);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-live-grid b {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.task-live-next {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 10px;
+}
+
+@media (max-width: 560px) {
+  .task-live-monitor {
+    right: 10px;
+    bottom: 10px;
+    width: calc(100vw - 20px);
+    padding: 11px 12px;
+  }
+  .task-live-grid { grid-template-columns: 52px 1fr 1fr; }
+  .task-live-next {
+    max-height: 38px;
+    overflow: hidden;
+  }
+}

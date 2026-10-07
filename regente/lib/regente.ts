@@ -137,6 +137,8 @@ REGRAS OPERACIONAIS
 - selectedNodes e pipeline.nodes devem usar IDs reais da rede sempre que possível.
 - Se faltar capacidade, declare a lacuna e marque requires_adapter; não invente execução.
 - taskTitle deve ser curto e identificável.
+- FAST PATH: em tarefas direct ou assisted, de baixo risco e com entrega simples, use preferencialmente 1–2 etapas executáveis. Não crie planning + creative + critic separados quando um único executor consegue entregar com qualidade.
+- Evite picker, Claude/A4 e ciclos de crítica quando não houver ganho material de qualidade; isso reduz latência e custo sem reduzir a segurança.
 - depth: direct para tarefa determinística; assisted para contexto/revisão; elaborated para criatividade relevante;
   deep apenas para alto impacto e quando a melhoria justificar custo.
 - risk é risco da execução externa, não dificuldade intelectual.

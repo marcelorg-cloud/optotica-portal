@@ -3,7 +3,7 @@ import { requireMaster } from "../../../../../lib/require-master";
 import { createServerSupabaseClient } from "../../../../../lib/supabase";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ taskId: string }> },
 ) {
   const auth = await requireMaster();
@@ -16,6 +16,17 @@ export async function GET(
 
   const { taskId } = await params;
   const supabase = await createServerSupabaseClient();
+  const compact = new URL(request.url).searchParams.get("compact") === "1";
+
+  const eventsPromise = compact
+    ? Promise.resolve({ data: [] as Array<Record<string, unknown>>, error: null })
+    : supabase
+        .from("regent_task_events")
+        .select("id,event_type,payload,created_at")
+        .eq("task_id", taskId)
+        .eq("user_id", auth.userId)
+        .order("created_at", { ascending: false })
+        .limit(30);
 
   const [{ data: task, error: taskError }, { data: steps, error: stepsError }, { data: events, error: eventsError }] =
     await Promise.all([
@@ -31,13 +42,7 @@ export async function GET(
         .eq("task_id", taskId)
         .eq("user_id", auth.userId)
         .order("step_number", { ascending: true }),
-      supabase
-        .from("regent_task_events")
-        .select("id,event_type,payload,created_at")
-        .eq("task_id", taskId)
-        .eq("user_id", auth.userId)
-        .order("created_at", { ascending: false })
-        .limit(30),
+      eventsPromise,
     ]);
 
   if (taskError || !task) {
