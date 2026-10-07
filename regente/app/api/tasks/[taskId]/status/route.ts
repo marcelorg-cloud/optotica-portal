@@ -17,6 +17,7 @@ export async function GET(
   const { taskId } = await params;
   const supabase = await createServerSupabaseClient();
   const compact = new URL(request.url).searchParams.get("compact") === "1";
+  const STALE_AFTER_MS = 15 * 60 * 1000;
 
   const eventsPromise = compact
     ? Promise.resolve({ data: [] as Array<Record<string, unknown>>, error: null })
@@ -52,9 +53,45 @@ export async function GET(
     return NextResponse.json({ error: "task_state_failed", message: "Não foi possível carregar o estado da tarefa." }, { status: 500 });
   }
 
+  const allSteps = steps || [];
+  const completed = allSteps.filter((step) =>
+    step.status === "succeeded" || step.status === "skipped"
+  ).length;
+  const progress = task.status === "succeeded"
+    ? 100
+    : allSteps.length
+      ? Math.round(completed * 100 / allSteps.length)
+      : Math.max(0, Math.min(100, Number(task.progress_percent || 0)));
+
+  const mostRecentActivity = Math.max(
+    new Date(task.updated_at || 0).getTime() || 0,
+    ...allSteps.map((step) => new Date(step.updated_at || 0).getTime() || 0),
+  );
+  const isStale = task.status === "executing" &&
+    mostRecentActivity > 0 &&
+    Date.now() - mostRecentActivity > STALE_AFTER_MS;
+
+  const activeStep = allSteps.find((step) =>
+    ["running", "review"].includes(step.status)
+  );
+  const pendingStep = allSteps.find((step) =>
+    ["planned", "prepared", "awaiting_approval"].includes(step.status)
+  );
+
   return NextResponse.json({
-    task,
-    steps: steps || [],
+    task: {
+      ...task,
+      progress_percent: progress,
+      current_step: task.status === "succeeded"
+        ? null
+        : activeStep?.step_number ?? task.current_step ?? pendingStep?.step_number ?? null,
+      is_stale: isStale,
+      last_activity_at: mostRecentActivity ? new Date(mostRecentActivity).toISOString() : null,
+      next_action: isStale
+        ? "Sem atualização de execução há mais de 15 minutos. A tarefa pode estar interrompida; confira o último checkpoint antes de retomar."
+        : task.next_action,
+    },
+    steps: allSteps,
     events: events || [],
   });
 }
