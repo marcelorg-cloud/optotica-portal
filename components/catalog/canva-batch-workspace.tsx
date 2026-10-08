@@ -194,6 +194,14 @@ export function CanvaBatchWorkspace({ productId }: { productId: string }) {
           if (!result.authorizeUrl) throw new Error('Não foi possível iniciar a conexão.');
           window.location.assign(result.authorizeUrl);
         })}>Conectar Canva</button></div>}
+      {batch.connected && batch.configured && <div>
+        <p>O Regente usa esta mesma conexão Canva do portal. Para atualizar a conta ou equipe, autorize novamente com a conta desejada.</p>
+        <button type="button" className="button secondary" disabled={!!busy || !batch.colors[0]} onClick={() => void run('Atualizando conexão Canva…', async signal => {
+          const result = await post('/api/admin/catalog/canva/batch', 'connect', batch.colors[0].id, undefined, signal);
+          if (!result.authorizeUrl) throw new Error('Não foi possível iniciar a conexão.');
+          window.location.assign(result.authorizeUrl);
+        })}>Trocar conta Canva</button>
+      </div>}
       {!batch.hasMeasurements && <p>Cadastre a referência de formato e proporções do modelo antes de preparar o lote.</p>}
       {!batch.templateReady && <p>Cadastre a imagem modelo transparente na página de uma cor antes de preparar o lote.</p>}
       <p>Esta é a página única do produto. Cada cor abaixo reúne suas referências e seus dois comandos. No Canva, cada cor continua em uma página quadrada própria dentro do mesmo design, porque assim o portal consegue importar o PNG correto de cada cor.</p>
