@@ -7,6 +7,7 @@ type Color = { id: string; name: string; variant: number | null; filename: strin
   hasOriginal: boolean; hasResult: boolean; pageNumber: number | null; hasPage: boolean; stale: boolean; stage: string | null;
   prompt: string; refinementPrompt: string; originalUrl: string | null; formatUrl: string | null; currentUrl: string | null };
 type Batch = { productName: string; sku: string; connected: boolean; configured: boolean; configurationError: string | null;
+  canvaUserId: string | null; canvaTeamId: string | null;
   hasMeasurements: boolean; templateReady: boolean; pendingColorId: string | null; prompt: string; colors: Color[] };
 type Result = { status?: string; sessionId?: string; previewUrl?: string; editUrl?: string; authorizeUrl?: string; message?: string };
 type Preview = { sessionId: string; url: string; saved: boolean };
@@ -197,6 +198,8 @@ export function CanvaBatchWorkspace({ productId }: { productId: string }) {
         })}>Conectar Canva</button></div>}
       {batch.connected && batch.configured && <div>
         <p>O Regente usa esta mesma conexão Canva do portal.</p>
+        <p>Usuário Canva conectado: <code>{batch.canvaUserId || 'não identificado'}</code><br />
+          Equipe Canva: <code>{batch.canvaTeamId || 'não identificada'}</code></p>
         <button type="button" className="button secondary" disabled={!!busy}
           aria-expanded={switchAccount} aria-controls="canva-switch-account"
           onClick={() => { setSwitchAccount(true); setMessage(''); }}>Trocar conta Canva</button>

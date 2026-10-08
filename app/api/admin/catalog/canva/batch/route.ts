@@ -38,7 +38,8 @@ export async function GET(request: Request) {
     const product = productResult.data;
     if (!product) throw new CanvaError('Produto não encontrado.', 404);
     const config = configurationStatus();
-    const connected = config.configured ? !!(await connection(auth.admin, auth.userId)) : false;
+    const currentConnection = config.configured ? await connection(auth.admin, auth.userId) : null;
+    const connected = !!currentConnection;
     const links = new Map((linksResult.data || []).map(link => [link.color_id, link]));
     const colors = (colorsResult.data || []).map(color => {
       const link = links.get(color.id);
@@ -63,6 +64,8 @@ export async function GET(request: Request) {
     });
     return NextResponse.json({ productName: product.model_name, sku: product.sku_optotica,
       connected, configured: config.configured, configurationError: config.error,
+      canvaUserId: currentConnection?.canva_user_id || null,
+      canvaTeamId: currentConnection?.canva_team_id || null,
       hasMeasurements: !!product.position_image_path?.startsWith(productId + '/'),
       templateReady: !!template?.has_transparency,
       pendingColorId: designResult.data?.pending_color_id || null,
