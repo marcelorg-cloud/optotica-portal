@@ -301,6 +301,49 @@ export function RegenteClient() {
     }
   }
 
+  async function resumeTask(taskId: string) {
+    setDecisionLoading(taskId + "resume");
+    setError("");
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const payload = await readApiResponse(response);
+      if (!response.ok) throw new Error(payload.message || "Falha ao retomar o pipeline.");
+
+      setMessages((current) => current.map((item) => {
+        if (item.payload?.taskId !== taskId) return item;
+        return {
+          ...item,
+          payload: {
+            ...item.payload,
+            taskStatus: payload.status || "executing",
+            runtime: {
+              ...(item.payload.runtime || {}),
+              nextAction: "Execução retomada do último checkpoint válido.",
+            },
+          },
+        };
+      }));
+
+      setMessages((current) => [
+        ...current,
+        {
+          id: `resume-${Date.now()}`,
+          role: "assistant",
+          content: payload.message || "Execução retomada do último checkpoint válido.",
+        },
+      ]);
+
+      void pollTaskUntilSettled(taskId, sessionId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao retomar o pipeline.");
+    } finally {
+      setDecisionLoading("");
+    }
+  }
+
   async function decide(
     taskId: string,
     decision: "execute" | "partial" | "reject" | "revise",
@@ -683,6 +726,22 @@ export function RegenteClient() {
                             </div>
                           </div>
                         )}
+
+                      {item.payload.taskId && item.payload.taskStatus === "failed" && (
+                        <div className="approval-gate">
+                          <strong>Execução pausada</strong>
+                          <small>Depois de corrigir o bloqueio, retome do último checkpoint sem repetir etapas já concluídas.</small>
+                          <div className="approval-actions">
+                            <button
+                              type="button"
+                              disabled={Boolean(decisionLoading)}
+                              onClick={() => void resumeTask(item.payload!.taskId!)}
+                            >
+                              Retomar tarefa
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </details>
                   )}
                 </div>
