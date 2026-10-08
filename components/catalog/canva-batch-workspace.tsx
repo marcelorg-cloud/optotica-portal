@@ -201,15 +201,16 @@ export function CanvaBatchWorkspace({ productId }: { productId: string }) {
           aria-expanded={switchAccount} aria-controls="canva-switch-account"
           onClick={() => { setSwitchAccount(true); setMessage(''); }}>Trocar conta Canva</button>
         {switchAccount && <div id="canva-switch-account" style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 16, marginTop: 12, display: 'grid', gap: 12 }}>
-          <h2>Entrar com outra conta Canva</h2>
-          <p>Abra o Canva e entre na conta que deseja usar. Se a conta antiga estiver aberta, saia dela ou use a opção de trocar conta no Canva. Depois, volte aqui para autorizar a conexão.</p>
-          <a className="button secondary" href="https://www.canva.com/" target="_blank" rel="noopener noreferrer">Abrir Canva para trocar o login</a>
+          <h2>Trocar a conta usada pelo portal e pelo Regente</h2>
+          <p><strong>1.</strong> Abra o Canva e entre na conta que deseja usar. Esta etapa apenas troca o login no site do Canva; ainda não autoriza o portal.</p>
+          <a className="button secondary" href="https://www.canva.com/" target="_blank" rel="noopener noreferrer">1. Abrir Canva e mudar o login</a>
+          <p><strong>2.</strong> Depois de confirmar que a nova conta está aberta no Canva, volte a esta página e conclua a autorização:</p>
           <button type="button" className="button" disabled={!!busy} onClick={() => void run('Abrindo autorização Canva…', async signal => {
             const result = await post('/api/admin/catalog/canva/batch', 'reconnect', undefined, undefined, signal);
             if (!result.authorizeUrl) throw new Error('Não foi possível iniciar a autorização Canva. Tente novamente.');
             window.location.assign(result.authorizeUrl);
-          })}>Entrar com outra conta</button>
-          <p>A conexão atual será substituída somente após concluir a autorização no Canva.</p>
+          })}>2. Já entrei na outra conta — autorizar conexão</button>
+          <p>A conexão atual será substituída somente quando o Canva retornar a autorização concluída ao portal.</p>
           <button type="button" className="text-button" disabled={!!busy} onClick={() => setSwitchAccount(false)}>Cancelar</button>
         </div>}
       </div>}
