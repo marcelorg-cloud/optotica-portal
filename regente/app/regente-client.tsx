@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import type { TaskAttention, TaskRecoverySummary } from "../lib/task-observability";
 
 type PipelineStep = {
   step: number;
@@ -40,6 +41,8 @@ type TaskRuntime = {
   isStale?: boolean;
   lastActivityAt?: string | null;
   steps?: RuntimeStep[];
+  attention?: TaskAttention;
+  recovery?: TaskRecoverySummary;
 };
 
 type PlanPayload = {
@@ -270,6 +273,8 @@ export function RegenteClient() {
               isStale: Boolean(payload.task.is_stale),
               lastActivityAt: payload.task.last_activity_at,
               steps: payload.steps || [],
+              attention: payload.task.attention || null,
+              recovery: payload.task.recovery || null,
             },
           },
         };
@@ -343,6 +348,26 @@ export function RegenteClient() {
       void pollTaskUntilSettled(taskId, sessionToReload);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao retomar o pipeline.");
+    } finally {
+      setDecisionLoading("");
+    }
+  }
+
+  async function handleMonitorAction(taskId: string, action: NonNullable<TaskAttention>["action"]) {
+    if (action === "approve") {
+      await decide(taskId, "execute");
+      return;
+    }
+    if (action === "start" || action === "resume") {
+      await resumeTask(taskId);
+      return;
+    }
+
+    setDecisionLoading(taskId + "refresh");
+    setError("");
+    try {
+      const status = await refreshTaskStatus(taskId);
+      if (status === "executing") void pollTaskUntilSettled(taskId, sessionId);
     } finally {
       setDecisionLoading("");
     }
@@ -527,6 +552,15 @@ export function RegenteClient() {
     : Math.max(0, Math.min(100, monitoredPayload?.runtime?.progressPercent ?? 0));
   const monitoredStale = monitoredPayload?.taskStatus === "executing" &&
     Boolean(monitoredPayload.runtime?.isStale);
+  const monitoredAttention = monitoredPayload?.runtime?.attention || null;
+  const monitoredRecovery = monitoredPayload?.runtime?.recovery || null;
+  const monitoredActionLabel = monitoredAttention?.action === "approve"
+    ? "Autorizar e continuar"
+    : monitoredAttention?.action === "start"
+      ? "Iniciar execução"
+      : monitoredAttention?.action === "resume"
+        ? "Retomar do checkpoint"
+        : "Atualizar estado";
 
   return (
     <main className="regent-app">
@@ -827,9 +861,44 @@ export function RegenteClient() {
           <small className="task-live-next">
             <b>Agora:</b> {monitoredPayload.runtime?.nextAction || monitoredPayload.nextAction || "Aguardando próxima ação."}
           </small>
-          <button type="button" className="task-monitor-outputs" onClick={() => void showOutputs(monitoredPayload.taskId!, monitoredPayload.taskTitle || monitoredPayload.summary)}>
-            Outputs ↗
-          </button>
+          {monitoredAttention && (
+            <div
+              className={`task-live-attention task-live-attention-${monitoredAttention.severity}`}
+              role={monitoredAttention.severity === "critical" ? "alert" : "status"}
+            >
+              <strong>{monitoredAttention.title}</strong>
+              <small>{monitoredAttention.message}</small>
+              {monitoredAttention.attempts > 0 && (
+                <small><b>Tentativas:</b> {monitoredAttention.attempts}</small>
+              )}
+              {monitoredAttention.error && (
+                <small><b>Último erro:</b> {monitoredAttention.error}</small>
+              )}
+            </div>
+          )}
+          {monitoredRecovery && !monitoredRecovery.active && monitoredRecovery.recoveredStep && (
+            <div className="task-live-recovered" role="status">
+              <strong>✓ Autocorreção concluída</strong>
+              <small>
+                Etapa {monitoredRecovery.recoveredStep} recuperada após {monitoredRecovery.recoveredAttempts} tentativas; checkpoints preservados.
+              </small>
+            </div>
+          )}
+          <div className="task-live-actions">
+            {monitoredAttention && (
+              <button
+                type="button"
+                className="task-monitor-action"
+                disabled={Boolean(decisionLoading)}
+                onClick={() => void handleMonitorAction(monitoredPayload.taskId!, monitoredAttention.action)}
+              >
+                {monitoredActionLabel}
+              </button>
+            )}
+            <button type="button" className="task-monitor-outputs" onClick={() => void showOutputs(monitoredPayload.taskId!, monitoredPayload.taskTitle || monitoredPayload.summary)}>
+              Outputs ↗
+            </button>
+          </div>
         </aside>
       )}
 

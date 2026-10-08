@@ -316,6 +316,8 @@ input {
   background: rgba(255,255,255,.97);
   box-shadow: 0 16px 50px rgba(24,32,29,.16);
   backdrop-filter: blur(10px);
+  max-height: calc(100dvh - 100px);
+  overflow-y: auto;
 }
 .task-live-head {
   display: flex;
@@ -395,6 +397,40 @@ input {
   border-top: 1px solid var(--line);
   font-size: 10px;
 }
+.task-live-attention,
+.task-live-recovered {
+  display: grid;
+  gap: 3px;
+  margin-top: 7px;
+  padding: 8px;
+  border: 1px solid #d8e2dd;
+  border-radius: 9px;
+  background: #f4f7f5;
+}
+.task-live-attention strong,
+.task-live-recovered strong { font-size: 10px; }
+.task-live-attention small,
+.task-live-recovered small { font-size: 9px; line-height: 1.35; overflow-wrap: anywhere; }
+.task-live-attention-warning { border-color:#e9cd88; background:#fff3da; color:#754d05; }
+.task-live-attention-critical { border-color:#e6b7b3; background:#fff0ef; color:#7a2721; }
+.task-live-attention-info,
+.task-live-recovered { border-color:#badcca; background:#eef8f3; color:#176c5b; }
+.task-live-actions {
+  display: grid;
+  grid-template-columns: minmax(0,1.35fr) minmax(0,.65fr);
+  gap: 6px;
+  margin-top: 7px;
+}
+.task-live-actions:has(.task-monitor-outputs:only-child) { grid-template-columns: 1fr; }
+.task-monitor-action {
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+}
+.task-monitor-action:disabled { cursor: wait; opacity: .55; }
 
 @media (max-width: 560px) {
   .task-live-monitor {
@@ -424,6 +460,7 @@ input {
 }
 .chat-nav-buttons button:focus-visible,
 .task-outputs-button:focus-visible,
+.task-monitor-action:focus-visible,
 .task-monitor-outputs:focus-visible { outline:3px solid #b9dbcb; outline-offset:2px; }
 .task-stale-warning {
   display:block;
@@ -452,6 +489,7 @@ input {
   margin-top:7px;
   border-radius:8px;
 }
+.task-live-actions .task-monitor-outputs { margin-top:0; }
 .outputs-backdrop {
   position:fixed;
   inset:0;
@@ -534,5 +572,6 @@ input {
   .task-live-grid { grid-template-columns:42px 1fr 1fr; gap:4px; }
   .task-live-grid span { font-size:9px; padding:4px 5px; }
   .task-live-next { max-height:32px; overflow:hidden; }
+  .task-live-actions { grid-template-columns:1fr; }
   .outputs-drawer { padding:12px; }
 }

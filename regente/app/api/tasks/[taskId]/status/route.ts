@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireMaster } from "../../../../../lib/require-master";
 import { createServerSupabaseClient } from "../../../../../lib/supabase";
+import { deriveTaskObservability } from "../../../../../lib/task-observability";
 
 export async function GET(
   request: Request,
@@ -77,6 +78,11 @@ export async function GET(
   const pendingStep = allSteps.find((step) =>
     ["planned", "prepared", "awaiting_approval"].includes(step.status)
   );
+  const observability = deriveTaskObservability({
+    task,
+    steps: allSteps,
+    isStale,
+  });
 
   return NextResponse.json({
     task: {
@@ -90,6 +96,8 @@ export async function GET(
       next_action: isStale
         ? "Sem atualização de execução há mais de 15 minutos. A tarefa pode estar interrompida; confira o último checkpoint antes de retomar."
         : task.next_action,
+      attention: observability.attention,
+      recovery: observability.recovery,
     },
     steps: allSteps,
     events: events || [],

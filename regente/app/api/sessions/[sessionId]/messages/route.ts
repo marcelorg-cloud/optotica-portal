@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireMaster } from "../../../../../lib/require-master";
 import { createServerSupabaseClient } from "../../../../../lib/supabase";
+import {
+  deriveTaskObservability,
+  type TaskAttention,
+  type TaskRecoverySummary,
+} from "../../../../../lib/task-observability";
 
 export async function GET(
   _request: Request,
@@ -72,6 +77,8 @@ export async function GET(
       isStale: boolean;
       lastActivityAt: string | null;
       currentStep: number | null;
+      attention: TaskAttention;
+      recovery: TaskRecoverySummary;
     }>();
     for (const task of tasks || []) {
       const ownSteps = (steps || []).filter((step) => step.task_id === task.id);
@@ -88,11 +95,15 @@ export async function GET(
         ...ownSteps.map((step) => new Date(step.updated_at || 0).getTime() || 0)
       );
       const active = ownSteps.find((step) => ["running", "review"].includes(step.status));
+      const isStale = task.status === "executing" && last > 0 && Date.now() - last > 15 * 60 * 1000;
+      const observability = deriveTaskObservability({ task, steps: ownSteps, isStale });
       progressByTask.set(task.id, {
         percent,
-        isStale: task.status === "executing" && last > 0 && Date.now() - last > 15 * 60 * 1000,
+        isStale,
         lastActivityAt: last ? new Date(last).toISOString() : null,
         currentStep: task.status === "succeeded" ? null : active?.step_number ?? task.current_step,
+        attention: observability.attention,
+        recovery: observability.recovery,
       });
     }
     enrichedMessages = baseMessages.map((message) => {
@@ -119,6 +130,8 @@ export async function GET(
             lastError: task.last_error,
             updatedAt: task.updated_at,
             steps: (steps || []).filter((step) => step.task_id === payload.taskId),
+            attention: progress?.attention || null,
+            recovery: progress?.recovery || null,
           },
         },
       };
