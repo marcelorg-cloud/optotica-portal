@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createAuthSupabaseClient } from "../lib/supabase";
 import {
   getWorkflowSecretForInternalRequest,
@@ -10,6 +11,7 @@ export type TaskExecutionWorkflowInput = {
   userId: string;
   sealedSession: string;
   origin: string;
+  executionId: string;
 };
 
 function safeOrigin(value: string) {
@@ -60,6 +62,7 @@ async function executeTaskRequest(
   });
 
   const session = unsealWorkflowSession(preparedSession);
+  const invocationId = randomUUID();
   const response = await fetch(
     `${safeOrigin(input.origin)}/api/tasks/${encodeURIComponent(input.taskId)}/execute`,
     {
@@ -69,7 +72,11 @@ async function executeTaskRequest(
         "X-Regent-Workflow": getWorkflowSecretForInternalRequest(),
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ source: "vercel_workflow" }),
+      body: JSON.stringify({
+        source: "vercel_workflow",
+        executionId: input.executionId,
+        invocationId,
+      }),
     },
   );
 

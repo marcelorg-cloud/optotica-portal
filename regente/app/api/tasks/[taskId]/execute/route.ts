@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { start } from "workflow/api";
@@ -31,9 +31,10 @@ import {
 import { executeA5LocalPreflight } from "../../../../../lib/a5-preflight";
 import { evaluateResumeAuthorization } from "../../../../../lib/resume-authorization";
 import { markTaskStep, syncTaskProgress } from "../../../../../lib/task-state";
+import { artifactFingerprint } from "../../../../../lib/artifact-fingerprint";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 800;
 const configuredRecoveryAttempts = Number(process.env.REGENT_RECOVERY_MAX_ATTEMPTS || 3);
 const RECOVERY_MAX_ATTEMPTS = Number.isFinite(configuredRecoveryAttempts)
   ? Math.max(1, Math.min(3, Math.trunc(configuredRecoveryAttempts)))
@@ -57,10 +58,6 @@ function unique<T>(values: T[]) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error || "Falha desconhecida.");
-}
-
-function artifactFingerprint(artifacts: Artifact[]) {
-  return createHash("sha256").update(JSON.stringify(artifacts)).digest("hex");
 }
 
 function reusableRunForStep(
@@ -226,11 +223,15 @@ export async function POST(
     }
 
     const lockingAt = new Date().toISOString();
+    const executionId = randomUUID();
     const lockedFromStatus = queuedTask.status;
     const { data: lockedTask, error: lockError } = await supabase
       .from("regent_tasks")
       .update({
         status: "executing",
+        execution_id: executionId,
+        execution_invocation_id: null,
+        execution_lease_until: null,
         next_action: "Preparando execução em segundo plano.",
         updated_at: lockingAt,
       })
@@ -280,6 +281,7 @@ export async function POST(
             refreshToken: session.refresh_token,
           }),
           origin: new URL(request.url).origin,
+          executionId,
         },
       ]);
     } catch (workflowError) {
@@ -287,6 +289,9 @@ export async function POST(
         .from("regent_tasks")
         .update({
           status: lockedFromStatus,
+          execution_id: null,
+          execution_invocation_id: null,
+          execution_lease_until: null,
           next_action: "A execução não foi iniciada. Tente novamente.",
           updated_at: new Date().toISOString(),
         })
@@ -341,7 +346,7 @@ export async function POST(
 
   const { data: task, error: taskError } = await supabase
     .from("regent_tasks")
-    .select("id, session_id, title, objective, status, pipeline, picker, human_decision")
+    .select("id, session_id, title, objective, status, pipeline, picker, human_decision,execution_id,execution_invocation_id,execution_lease_until")
     .eq("id", taskId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -351,6 +356,60 @@ export async function POST(
   }
 
   const taskData = task;
+
+  let workflowInvocationId: string | null = null;
+  if (workflowExecution) {
+    const body = await request.json().catch(() => ({})) as {
+      executionId?: string;
+      invocationId?: string;
+    };
+    const requestedExecutionId = body.executionId?.trim() || null;
+    workflowInvocationId = body.invocationId?.trim() || randomUUID();
+
+    if (requestedExecutionId && taskData.execution_id !== requestedExecutionId) {
+      return NextResponse.json(
+        { error: "stale_workflow", message: "Esta execução foi substituída por uma retomada mais recente." },
+        { status: 409 },
+      );
+    }
+    if (!requestedExecutionId && taskData.execution_id) {
+      return NextResponse.json(
+        { error: "workflow_identity_required", message: "A execução durável precisa informar sua identidade." },
+        { status: 409 },
+      );
+    }
+
+    const now = new Date();
+    const leaseUntil = new Date(now.getTime() + 810_000).toISOString();
+    let claim = supabase
+      .from("regent_tasks")
+      .update({
+        execution_invocation_id: workflowInvocationId,
+        execution_lease_until: leaseUntil,
+        updated_at: now.toISOString(),
+      })
+      .eq("id", taskId)
+      .eq("user_id", userId)
+      .eq("status", "executing");
+    claim = requestedExecutionId
+      ? claim.eq("execution_id", requestedExecutionId)
+      : claim.is("execution_id", null);
+    const { data: claimedTask, error: claimError } = await claim
+      .or(`execution_lease_until.is.null,execution_lease_until.lt.${now.toISOString()}`)
+      .select("id")
+      .maybeSingle();
+
+    if (claimError) throw claimError;
+    if (!claimedTask) {
+      return NextResponse.json(
+        {
+          error: "workflow_lease_active",
+          message: "Outra invocação ainda processa esta tarefa; a repetição será tentada depois.",
+        },
+        { status: 409 },
+      );
+    }
+  }
 
   const resumableStatuses = ["approved", "executing", "failed", "blocked"];
   if (!resumableStatuses.includes(taskData.status)) {
@@ -904,9 +963,15 @@ export async function POST(
     });
     await supabase
       .from("regent_tasks")
-      .update({ status: finalStatus, updated_at: new Date().toISOString() })
+      .update({
+        status: finalStatus,
+        execution_invocation_id: null,
+        execution_lease_until: null,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", taskId)
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .eq("execution_invocation_id", workflowInvocationId);
 
     await event(
       humanEscalation
@@ -960,9 +1025,15 @@ export async function POST(
     const message = errorMessage(error);
     await supabase
       .from("regent_tasks")
-      .update({ status: "failed", updated_at: new Date().toISOString() })
+      .update({
+        status: "failed",
+        execution_invocation_id: null,
+        execution_lease_until: null,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", taskId)
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .eq("execution_invocation_id", workflowInvocationId);
 
     await event("execution_failed", { message, artifacts, blocked, deferred });
 

@@ -65,8 +65,12 @@ export async function markTaskStep(input: {
     updated_at: now(),
   };
 
-  if (input.status === "running") patch.started_at = now();
+  if (input.status === "running") {
+    patch.started_at = now();
+    patch.completed_at = null;
+  }
   if (["succeeded", "blocked", "failed", "skipped"].includes(input.status)) patch.completed_at = now();
+  if (["running", "succeeded", "skipped"].includes(input.status)) patch.last_error = null;
   if (input.artifact !== undefined) patch.artifact = input.artifact;
   if (input.error !== undefined) {
     patch.last_error = {
