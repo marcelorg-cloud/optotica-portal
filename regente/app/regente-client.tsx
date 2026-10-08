@@ -301,7 +301,7 @@ export function RegenteClient() {
     }
   }
 
-  async function resumeTask(taskId: string) {
+  async function resumeTask(taskId: string, sessionToReload: string | null = sessionId) {
     setDecisionLoading(taskId + "resume");
     setError("");
     try {
@@ -340,7 +340,7 @@ export function RegenteClient() {
         },
       ]);
 
-      void pollTaskUntilSettled(taskId, sessionId);
+      void pollTaskUntilSettled(taskId, sessionToReload);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao retomar o pipeline.");
     } finally {
@@ -479,6 +479,9 @@ export function RegenteClient() {
         },
       ]);
       await loadSessions(false);
+      if (payload.output?.taskId && payload.output.taskStatus === "approved") {
+        await resumeTask(payload.output.taskId, payload.sessionId);
+      }
     } catch (err) {
       setMessages((current) => current.filter((item) => item.id !== optimisticId));
       setMessage(text);
@@ -730,6 +733,22 @@ export function RegenteClient() {
                             </div>
                           </div>
                         )}
+
+                      {item.payload.taskId && item.payload.taskStatus === "approved" && (
+                        <div className="approval-gate">
+                          <strong>Pipeline pronta para iniciar</strong>
+                          <small>Esta tarefa foi aprovada, mas o workflow ainda não foi enfileirado.</small>
+                          <div className="approval-actions">
+                            <button
+                              type="button"
+                              disabled={Boolean(decisionLoading)}
+                              onClick={() => void resumeTask(item.payload!.taskId!)}
+                            >
+                              Iniciar execução
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {item.payload.taskId && ["failed", "blocked"].includes(item.payload.taskStatus || "") && (
                         <div className="approval-gate">
