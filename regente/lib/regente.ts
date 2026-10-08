@@ -112,6 +112,7 @@ MULTI-FERRAMENTA
 ADAPTERS DE EXECUÇÃO DISPONÍVEIS
 - A1, A2, A3 e A4: conectados via OpenAI Agents SDK. Marque executionState="ready".
 - A4 é o revisor independente: usa uma execução OpenAI separada, com instruções e contexto próprios.
+- A5: conectado como preflight local de recuperação, sem chamada generativa nem consumo adicional. Marque "ready".
 - F6: Canva conectado via bridge seguro com o portal Optótica e OAuth Canva existente. Marque "ready".
 - F12 e F13: Google Drive/Docs ainda não têm OAuth próprio do Regente. Marque "requires_adapter".
 - Outros nós externos: "requires_adapter" até integração explícita.

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireMaster } from "../../../../../lib/require-master";
 import { createServerSupabaseClient } from "../../../../../lib/supabase";
 import { syncTaskProgress } from "../../../../../lib/task-state";
+import { a5PipelineSteps } from "../../../../../lib/resume-authorization";
 
 type Decision = "execute" | "partial" | "reject" | "revise";
 
@@ -47,7 +48,11 @@ export async function POST(
     );
   }
 
-  if (!["awaiting_approval", "approved", "needs_revision"].includes(task.status)) {
+  const recoveryApproval = ["failed", "blocked"].includes(task.status);
+  if (
+    !["awaiting_approval", "approved", "needs_revision", "failed", "blocked"].includes(task.status) ||
+    (recoveryApproval && !["execute", "partial"].includes(decision))
+  ) {
     return NextResponse.json(
       { error: "invalid_state", message: `A tarefa está em estado ${task.status}.` },
       { status: 409 },
@@ -55,9 +60,34 @@ export async function POST(
   }
 
   const pipeline = Array.isArray(task.pipeline) ? task.pipeline : [];
+  const recoveryA5Steps = a5PipelineSteps(pipeline);
+  if (recoveryApproval && !recoveryA5Steps.length) {
+    return NextResponse.json(
+      {
+        error: "recovery_step_not_found",
+        message: "A retomada supervisionada só pode ser autorizada quando uma etapa A5 persistida estiver presente.",
+      },
+      { status: 409 },
+    );
+  }
+  if (
+    recoveryApproval &&
+    decision === "partial" &&
+    !recoveryA5Steps.some((step) => approvedSteps.includes(step))
+  ) {
+    return NextResponse.json(
+      {
+        error: "recovery_step_required",
+        message: `Inclua a etapa A5 (${recoveryA5Steps.join(", ")}) na autorização parcial.`,
+      },
+      { status: 400 },
+    );
+  }
+
   const missingAdapters = pipeline
     .filter((step: { executionState?: string }) => step.executionState === "requires_adapter")
-    .flatMap((step: { nodes?: string[] }) => step.nodes || []);
+    .flatMap((step: { nodes?: string[] }) => step.nodes || [])
+    .filter((node: string) => node !== "A5");
 
   let nextStatus = "approved";
   let message = "Pipeline aprovado para execução supervisionada.";
@@ -76,7 +106,12 @@ export async function POST(
       );
     }
     nextStatus = "approved";
-    message = `Execução parcial aprovada para as etapas ${approvedSteps.join(", ")}. Etapas sem adapter continuam bloqueadas.`;
+    message = recoveryApproval
+      ? `Retomada parcial aprovada para as etapas ${approvedSteps.join(", ")}, preservando checkpoints concluídos.`
+      : `Execução parcial aprovada para as etapas ${approvedSteps.join(", ")}. Etapas sem adapter continuam bloqueadas.`;
+  } else if (recoveryApproval) {
+    nextStatus = "approved";
+    message = "Retomada A5 autorizada. O Regente continuará do último checkpoint sem repetir etapas concluídas.";
   } else if (missingAdapters.length) {
     nextStatus = "approved";
     message =
@@ -101,6 +136,24 @@ export async function POST(
       : approvedSteps,
   };
 
+  const currentStatus = new Map<number, string>();
+  if (decision === "execute" || decision === "partial") {
+    const { data: currentSteps, error: currentStepsError } = await supabase
+      .from("regent_task_steps")
+      .select("step_number,status")
+      .eq("task_id", taskId)
+      .eq("user_id", auth.userId);
+    if (currentStepsError) {
+      return NextResponse.json(
+        { error: "step_state_unavailable", message: "Não foi possível preservar os checkpoints existentes." },
+        { status: 500 },
+      );
+    }
+    for (const step of currentSteps || []) {
+      currentStatus.set(Number(step.step_number), String(step.status));
+    }
+  }
+
   const { error: updateError } = await supabase
     .from("regent_tasks")
     .update({
@@ -124,6 +177,7 @@ export async function POST(
     for (const step of pipeline as Array<{ step?: number; executionState?: string }>) {
       const stepNumber = Number(step.step || 0);
       if (!stepNumber) continue;
+      if (currentStatus.get(stepNumber) === "succeeded") continue;
       const approved = !approvedSet || approvedSet.has(stepNumber);
       await supabase
         .from("regent_task_steps")
@@ -168,7 +222,9 @@ export async function POST(
     task_id: taskId,
     user_id: auth.userId,
     event_type:
-      decision === "execute"
+      recoveryApproval && (decision === "execute" || decision === "partial")
+        ? "human_recovery_approved"
+        : decision === "execute"
         ? "human_approved"
         : decision === "partial"
           ? "human_partial_approval"

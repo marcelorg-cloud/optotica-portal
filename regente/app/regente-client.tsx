@@ -310,6 +310,10 @@ export function RegenteClient() {
         headers: { "Content-Type": "application/json" },
       });
       const payload = await readApiResponse(response);
+      if (!response.ok && payload.error === "reapproval_required") {
+        await decide(taskId, "execute");
+        return;
+      }
       if (!response.ok) throw new Error(payload.message || "Falha ao retomar o pipeline.");
 
       setMessages((current) => current.map((item) => {
@@ -727,17 +731,17 @@ export function RegenteClient() {
                           </div>
                         )}
 
-                      {item.payload.taskId && item.payload.taskStatus === "failed" && (
+                      {item.payload.taskId && ["failed", "blocked"].includes(item.payload.taskStatus || "") && (
                         <div className="approval-gate">
                           <strong>Execução pausada</strong>
-                          <small>Depois de corrigir o bloqueio, retome do último checkpoint sem repetir etapas já concluídas.</small>
+                          <small>Retome do último checkpoint. Se necessário, o painel registrará uma nova autorização humana para A5 sem repetir etapas concluídas.</small>
                           <div className="approval-actions">
                             <button
                               type="button"
                               disabled={Boolean(decisionLoading)}
                               onClick={() => void resumeTask(item.payload!.taskId!)}
                             >
-                              Retomar tarefa
+                              Retomar do checkpoint
                             </button>
                           </div>
                         </div>

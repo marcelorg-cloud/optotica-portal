@@ -26,6 +26,8 @@ import {
   reviewRecoveryWithOpenAI,
   type RecoveryDecisionOutput,
 } from "../../../../../lib/recovery";
+import { executeA5LocalPreflight } from "../../../../../lib/a5-preflight";
+import { evaluateA5ResumeAuthorization } from "../../../../../lib/resume-authorization";
 import { markTaskStep, syncTaskProgress } from "../../../../../lib/task-state";
 
 export const runtime = "nodejs";
@@ -102,7 +104,7 @@ export async function POST(
 
     const { data: queuedTask, error: queuedTaskError } = await supabase
       .from("regent_tasks")
-      .select("id,status")
+      .select("id,status,pipeline,human_decision")
       .eq("id", taskId)
       .eq("user_id", userId)
       .maybeSingle();
@@ -135,7 +137,38 @@ export async function POST(
       });
     }
 
-    if (queuedTask.status !== "approved") {
+    let resumeAuthorization: ReturnType<typeof evaluateA5ResumeAuthorization> | null = null;
+    if (["failed", "blocked"].includes(queuedTask.status)) {
+      const { data: runtimeSteps, error: runtimeStepsError } = await supabase
+        .from("regent_task_steps")
+        .select("step_number,status,node_ids")
+        .eq("task_id", taskId)
+        .eq("user_id", userId)
+        .in("status", ["failed", "blocked", "review"]);
+
+      if (runtimeStepsError) {
+        return NextResponse.json(
+          { error: "resume_state_unavailable", message: "Não foi possível validar o checkpoint para retomada." },
+          { status: 500 },
+        );
+      }
+
+      resumeAuthorization = evaluateA5ResumeAuthorization({
+        taskStatus: queuedTask.status,
+        pipeline: queuedTask.pipeline,
+        humanDecision: queuedTask.human_decision,
+        runtimeSteps: runtimeSteps || [],
+      });
+      if (!resumeAuthorization.allowed) {
+        return NextResponse.json(
+          {
+            error: "reapproval_required",
+            message: `${resumeAuthorization.reason} Autorize novamente a retomada no painel.`,
+          },
+          { status: 409 },
+        );
+      }
+    } else if (queuedTask.status !== "approved") {
       return NextResponse.json(
         {
           error: "invalid_execution_state",
@@ -161,6 +194,7 @@ export async function POST(
     }
 
     const lockingAt = new Date().toISOString();
+    const lockedFromStatus = queuedTask.status;
     const { data: lockedTask, error: lockError } = await supabase
       .from("regent_tasks")
       .update({
@@ -170,7 +204,7 @@ export async function POST(
       })
       .eq("id", taskId)
       .eq("user_id", userId)
-      .eq("status", "approved")
+      .eq("status", lockedFromStatus)
       .select("id")
       .maybeSingle();
 
@@ -220,7 +254,7 @@ export async function POST(
       await supabase
         .from("regent_tasks")
         .update({
-          status: "approved",
+          status: lockedFromStatus,
           next_action: "A execução não foi iniciada. Tente novamente.",
           updated_at: new Date().toISOString(),
         })
@@ -247,6 +281,7 @@ export async function POST(
         run_id: run.runId,
         backend: "vercel_workflow",
         queued_at: queuedAt,
+        resumed_from: resumeAuthorization?.allowed ? lockedFromStatus : null,
       },
     });
 
@@ -285,7 +320,7 @@ export async function POST(
 
   const taskData = task;
 
-  const resumableStatuses = ["approved", "executing", "failed"];
+  const resumableStatuses = ["approved", "executing", "failed", "blocked"];
   if (!resumableStatuses.includes(taskData.status)) {
     return NextResponse.json(
       {
@@ -344,6 +379,16 @@ export async function POST(
   async function runStep(step: PipelineStep, variantOverride?: number): Promise<Artifact | Blocked> {
     const nodes = unique(step.nodes || []);
     const primary = nodes[0] || "";
+
+    if (primary === "A5") {
+      const output = await executeA5LocalPreflight({
+        supabase,
+        taskId,
+        userId,
+        step,
+      });
+      return { step: step.step, node: primary, output };
+    }
 
     if (isOpenAINode(primary)) {
       const { data: runRow, error: runError } = await supabase
@@ -784,7 +829,7 @@ export async function POST(
       break pipelineLoop;
     }
 
-    const finalStatus = blocked.length ? "blocked" : "succeeded";
+    const finalStatus = humanEscalation ? "failed" : blocked.length ? "blocked" : "succeeded";
     await syncTaskProgress({
       supabase, taskId, userId,
       fallbackNextAction: finalStatus === "succeeded" ? "Tarefa concluída." : "Resolver o bloqueio registrado e retomar do checkpoint.",
