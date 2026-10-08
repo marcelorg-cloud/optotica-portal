@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { Agent, run } from "@openai/agents";
+import type { AgentInputItem } from "@openai/agents";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { createServerSupabaseClient } from "./supabase";
 
 export type PipelineStep = {
   step: number;
@@ -14,6 +15,10 @@ export type PipelineStep = {
   requiresApproval: boolean;
   dependsOn?: number[];
   checkpoint?: boolean;
+  canvaMode?: "inspect" | "create";
+  canvaSourceRunIds?: string[];
+  canvaDesignIds?: string[];
+  onUnavailable?: "block" | "skip";
 };
 
 type PriorArtifact = {
@@ -49,6 +54,26 @@ function contextFromArtifacts(artifacts: PriorArtifact[]) {
     .join("\n\n");
 }
 
+function visualUrlsFromArtifacts(artifacts: PriorArtifact[]) {
+  const values: string[] = [];
+  const visit = (value: unknown) => {
+    if (!value || values.length >= 12) return;
+    if (typeof value === "string") {
+      if (/^https:\/\//i.test(value) && /(?:preview|export|\.png(?:\?|$)|\.jpe?g(?:\?|$)|\.webp(?:\?|$))/i.test(value)) {
+        values.push(value);
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (typeof value === "object") Object.values(value as Record<string, unknown>).forEach(visit);
+  };
+  artifacts.forEach((artifact) => visit(artifact.output));
+  return [...new Set(values)].slice(0, 12);
+}
+
 export async function executeOpenAIWorker(input: {
   node: string;
   step: PipelineStep;
@@ -80,7 +105,17 @@ export async function executeOpenAIWorker(input: {
     contextFromArtifacts(input.priorArtifacts),
   ].join("\n");
 
-  const result = await run(agent, prompt);
+  const visualUrls = visualUrlsFromArtifacts(input.priorArtifacts);
+  const agentInput: string | AgentInputItem[] = visualUrls.length
+    ? [{
+        role: "user",
+        content: [
+          { type: "input_text", text: prompt },
+          ...visualUrls.map((image) => ({ type: "input_image" as const, image, detail: "high" })),
+        ],
+      }]
+    : prompt;
+  const result = await run(agent, agentInput);
   if (!result.finalOutput) throw new Error("O executor OpenAI retornou saída vazia.");
   return result.finalOutput;
 }
@@ -181,17 +216,17 @@ function tokenHash(token: string) {
 }
 
 export async function executeCanvaBridge(input: {
+  supabase: SupabaseClient;
   taskId: string;
   userId: string;
   step: PipelineStep;
   spec: z.infer<typeof CanvaDesignSpec>;
   variants: number;
 }) {
-  const supabase = await createServerSupabaseClient();
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
 
-  const { data: toolRun, error } = await supabase
+  const { data: toolRun, error } = await input.supabase
     .from("regent_tool_runs")
     .insert({
       task_id: input.taskId,
@@ -200,14 +235,24 @@ export async function executeCanvaBridge(input: {
       node_id: "F6",
       adapter: "canva_portal_bridge",
       status: "pending",
-      input: { spec: input.spec, variants: input.variants },
+      input: { mode: "create", spec: input.spec, variants: input.variants },
       token_hash: tokenHash(token),
       token_expires_at: expiresAt,
     })
     .select("id")
     .single();
 
-  if (error || !toolRun) throw new Error("Não foi possível preparar a execução do Canva.");
+  if (error || !toolRun) {
+    console.error("regent_canva_run_prepare_failed", {
+      taskId: input.taskId,
+      step: input.step.step,
+      code: error?.code,
+      message: error?.message,
+      details: error?.details,
+      hint: error?.hint,
+    });
+    throw new Error(`Não foi possível preparar a execução do Canva${error?.code ? ` (${error.code})` : ""}.`);
+  }
 
   const portalOrigin = (process.env.REGENT_PORTAL_ORIGIN || "https://app.optotica.com.br").replace(/\/$/, "");
   const response = await fetch(`${portalOrigin}/api/internal/regente/canva`, {
@@ -219,7 +264,7 @@ export async function executeCanvaBridge(input: {
   const body = await response.json().catch(() => null) as { message?: string; designs?: unknown[] } | null;
 
   if (!response.ok) {
-    await supabase
+    await input.supabase
       .from("regent_tool_runs")
       .update({ status: "failed", output: body || { message: `HTTP ${response.status}` }, updated_at: new Date().toISOString() })
       .eq("id", toolRun.id)
@@ -227,12 +272,80 @@ export async function executeCanvaBridge(input: {
     throw new Error(body?.message || "O Canva não concluiu a execução.");
   }
 
-  await supabase
+  await input.supabase
     .from("regent_tool_runs")
     .update({ status: "succeeded", output: body, token_hash: null, token_expires_at: null, updated_at: new Date().toISOString() })
     .eq("id", toolRun.id)
     .eq("user_id", input.userId);
 
+  return body;
+}
+
+export async function executeCanvaInspectBridge(input: {
+  supabase: SupabaseClient;
+  taskId: string;
+  userId: string;
+  step: PipelineStep;
+}) {
+  const sourceRunIds = [...new Set(input.step.canvaSourceRunIds || [])];
+  const designIds = [...new Set(input.step.canvaDesignIds || [])];
+  if (!sourceRunIds.length || !designIds.length) {
+    throw new Error("A inspeção Canva precisa de referências canônicas aprovadas.");
+  }
+
+  const token = randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+  const { data: toolRun, error } = await input.supabase
+    .from("regent_tool_runs")
+    .insert({
+      task_id: input.taskId,
+      user_id: input.userId,
+      step_number: input.step.step,
+      node_id: "F6",
+      adapter: "canva_portal_inspect",
+      status: "pending",
+      input: { mode: "inspect", sourceRunIds, designIds },
+      token_hash: tokenHash(token),
+      token_expires_at: expiresAt,
+    })
+    .select("id")
+    .single();
+
+  if (error || !toolRun) {
+    console.error("regent_canva_inspect_prepare_failed", {
+      taskId: input.taskId,
+      step: input.step.step,
+      code: error?.code,
+      message: error?.message,
+      details: error?.details,
+      hint: error?.hint,
+    });
+    throw new Error(`Não foi possível preparar a inspeção do Canva${error?.code ? ` (${error.code})` : ""}.`);
+  }
+
+  const portalOrigin = (process.env.REGENT_PORTAL_ORIGIN || "https://app.optotica.com.br").replace(/\/$/, "");
+  const response = await fetch(`${portalOrigin}/api/internal/regente/canva`, {
+    method: "POST",
+    signal: AbortSignal.timeout(110000),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ runId: toolRun.id, token }),
+  });
+  const body = await response.json().catch(() => null) as { message?: string; designs?: unknown[] } | null;
+
+  if (!response.ok) {
+    await input.supabase
+      .from("regent_tool_runs")
+      .update({ status: "failed", output: body || { message: `HTTP ${response.status}` }, updated_at: new Date().toISOString() })
+      .eq("id", toolRun.id)
+      .eq("user_id", input.userId);
+    throw new Error(body?.message || "O Canva não concluiu a inspeção.");
+  }
+
+  await input.supabase
+    .from("regent_tool_runs")
+    .update({ status: "succeeded", output: body, token_hash: null, token_expires_at: null, updated_at: new Date().toISOString() })
+    .eq("id", toolRun.id)
+    .eq("user_id", input.userId);
   return body;
 }
 

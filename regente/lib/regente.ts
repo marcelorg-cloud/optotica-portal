@@ -14,6 +14,10 @@ const PipelineStep = z.object({
   requiresApproval: z.boolean(),
   dependsOn: z.array(z.number().int().positive()).default([]),
   checkpoint: z.boolean().default(false),
+  canvaMode: z.enum(["inspect", "create"]).optional(),
+  canvaSourceRunIds: z.array(z.string().uuid()).max(20).optional(),
+  canvaDesignIds: z.array(z.string().min(6).max(80)).max(10).optional(),
+  onUnavailable: z.enum(["block", "skip"]).optional(),
 });
 
 export const RegentOutput = z.object({
@@ -114,8 +118,11 @@ ADAPTERS DE EXECUÇÃO DISPONÍVEIS
 - A4 é o revisor independente: usa uma execução OpenAI separada, com instruções e contexto próprios.
 - A5: conectado como preflight local de recuperação, sem chamada generativa nem consumo adicional. Marque "ready".
 - F6: Canva conectado via bridge seguro com o portal Optótica e OAuth Canva existente. Marque "ready".
+- Toda etapa F6 deve declarar canvaMode="create" para criar um novo design ou canvaMode="inspect" para ler designs já confirmados.
+- A inspeção F6 é somente leitura e exige canvaSourceRunIds e canvaDesignIds persistidos e aprovados; nunca invente esses IDs.
 - F12 e F13: Google Drive/Docs ainda não têm OAuth próprio do Regente. Marque "requires_adapter".
 - Outros nós externos: "requires_adapter" até integração explícita.
+- Só use onUnavailable="skip" quando o humano tiver autorizado expressamente adiar essa integração. Uma etapa adiada deve ser registrada como não executada, sem simular sucesso externo.
 
 RECOVERY
 - Existe um A5 Recovery Engineer. Erros de ferramenta, adapter, payload, timeout, acesso e código entram nele.

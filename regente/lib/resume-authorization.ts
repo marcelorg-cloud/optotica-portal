@@ -6,6 +6,7 @@ type HumanDecision = {
   approval_scope?: string | null;
   approved_steps?: number[] | null;
   approved_pipeline_steps?: number[] | null;
+  recovery_authorized?: boolean;
 } | null;
 
 type RuntimeStep = {
@@ -18,6 +19,12 @@ export type A5ResumeAuthorization = {
   allowed: boolean;
   reason: string;
   a5Steps: number[];
+};
+
+export type ResumeAuthorization = {
+  allowed: boolean;
+  reason: string;
+  pausedSteps: number[];
 };
 
 function asStepSet(value: unknown) {
@@ -39,6 +46,70 @@ export function a5PipelineSteps(pipeline: unknown): number[] {
     ))
     .filter((step) => step.nodes.includes("A5"))
     .map((step) => step.step);
+}
+
+export function pipelineStepNumbers(pipeline: unknown): number[] {
+  if (!Array.isArray(pipeline)) return [];
+  return pipeline
+    .filter((step): step is PipelineStep => Boolean(
+      step &&
+      typeof step === "object" &&
+      Number.isInteger((step as Partial<PipelineStep>).step) &&
+      Array.isArray((step as Partial<PipelineStep>).nodes),
+    ))
+    .map((step) => step.step);
+}
+
+export function evaluateResumeAuthorization(input: {
+  taskStatus: string;
+  pipeline: unknown;
+  humanDecision: HumanDecision;
+  runtimeSteps: RuntimeStep[];
+}): ResumeAuthorization {
+  const pipelineSteps = new Set(pipelineStepNumbers(input.pipeline));
+  const pausedSteps = [...new Set(input.runtimeSteps
+    .filter((step) => ["failed", "blocked", "review"].includes(step.status))
+    .map((step) => step.step_number)
+    .filter((step) => pipelineSteps.has(step)))];
+
+  if (!["failed", "blocked"].includes(input.taskStatus)) {
+    return { allowed: false, reason: "A tarefa não está pausada em estado retomável.", pausedSteps };
+  }
+  if (!pausedSteps.length) {
+    return { allowed: false, reason: "Nenhuma etapa pausada foi comprovada no estado persistente.", pausedSteps };
+  }
+
+  const decision = input.humanDecision;
+  if (
+    !decision ||
+    decision.recovery_authorized !== true ||
+    !["execute", "partial"].includes(decision.decision || "") ||
+    !decision.decided_at
+  ) {
+    return {
+      allowed: false,
+      reason: "É necessária uma decisão humana persistida e específica para esta retomada.",
+      pausedSteps,
+    };
+  }
+
+  const approved = decision.decision === "partial"
+    ? asStepSet(decision.approved_steps)
+    : asStepSet(decision.approved_pipeline_steps);
+  const unapproved = pausedSteps.filter((step) => !approved.has(step));
+  if (unapproved.length) {
+    return {
+      allowed: false,
+      reason: `A decisão humana não autoriza explicitamente as etapas pausadas ${unapproved.join(", ")}.`,
+      pausedSteps,
+    };
+  }
+
+  return {
+    allowed: true,
+    reason: "Decisão humana persistida autoriza explicitamente a retomada das etapas pausadas.",
+    pausedSteps,
+  };
 }
 
 export function evaluateA5ResumeAuthorization(input: {

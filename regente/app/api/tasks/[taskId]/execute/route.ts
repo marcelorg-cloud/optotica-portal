@@ -14,6 +14,7 @@ import { taskExecutionWorkflow } from "../../../../../workflows/task-execution";
 import {
   buildCanvaSpec,
   executeCanvaBridge,
+  executeCanvaInspectBridge,
   executeIndependentOpenAIReviewer,
   executeOpenAIWorker,
   isOpenAINode,
@@ -27,7 +28,7 @@ import {
   type RecoveryDecisionOutput,
 } from "../../../../../lib/recovery";
 import { executeA5LocalPreflight } from "../../../../../lib/a5-preflight";
-import { evaluateA5ResumeAuthorization } from "../../../../../lib/resume-authorization";
+import { evaluateResumeAuthorization } from "../../../../../lib/resume-authorization";
 import { markTaskStep, syncTaskProgress } from "../../../../../lib/task-state";
 
 export const runtime = "nodejs";
@@ -39,6 +40,7 @@ const RECOVERY_MAX_ATTEMPTS = Number.isFinite(configuredRecoveryAttempts)
 
 type Artifact = { step: number; node: string; output: unknown };
 type Blocked = { step: number; nodes: string[]; reason: string; recovery?: unknown };
+type Deferred = { step: number; nodes: string[]; reason: string };
 type RecoveryAttempt = {
   attempt: number;
   errorBefore: string;
@@ -54,6 +56,26 @@ function unique<T>(values: T[]) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error || "Falha desconhecida.");
+}
+
+function reusableRunForStep(
+  step: PipelineStep,
+  run: { adapter?: string | null; input?: unknown; output?: unknown },
+) {
+  const primary = unique(step.nodes || [])[0] || "";
+  if (primary !== "F6") return true;
+  if (step.canvaMode === "inspect") {
+    const runInput = run.input as { sourceRunIds?: unknown; designIds?: unknown } | null;
+    const sameValues = (left: unknown, right: unknown) =>
+      Array.isArray(left) && Array.isArray(right) &&
+      JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+    return run.adapter === "canva_portal_inspect" &&
+      (run.output as { mode?: unknown } | null)?.mode === "inspect" &&
+      sameValues(runInput?.sourceRunIds, step.canvaSourceRunIds) &&
+      sameValues(runInput?.designIds, step.canvaDesignIds);
+  }
+  if (step.canvaMode === "create") return run.adapter === "canva_portal_bridge";
+  return false;
 }
 
 export async function POST(
@@ -137,7 +159,7 @@ export async function POST(
       });
     }
 
-    let resumeAuthorization: ReturnType<typeof evaluateA5ResumeAuthorization> | null = null;
+    let resumeAuthorization: ReturnType<typeof evaluateResumeAuthorization> | null = null;
     if (["failed", "blocked"].includes(queuedTask.status)) {
       const { data: runtimeSteps, error: runtimeStepsError } = await supabase
         .from("regent_task_steps")
@@ -153,7 +175,7 @@ export async function POST(
         );
       }
 
-      resumeAuthorization = evaluateA5ResumeAuthorization({
+      resumeAuthorization = evaluateResumeAuthorization({
         taskStatus: queuedTask.status,
         pipeline: queuedTask.pipeline,
         humanDecision: queuedTask.human_decision,
@@ -365,6 +387,7 @@ export async function POST(
 
   const artifacts: Artifact[] = [];
   const blocked: Blocked[] = [];
+  const deferred: Deferred[] = [];
   let humanEscalation = false;
 
   async function event(eventType: string, payload: unknown) {
@@ -486,6 +509,18 @@ export async function POST(
     }
 
     if (primary === "F6") {
+      if (step.canvaMode === "inspect") {
+        const output = await executeCanvaInspectBridge({
+          supabase,
+          taskId,
+          userId,
+          step,
+        });
+        return { step: step.step, node: primary, output };
+      }
+      if (step.canvaMode !== "create") {
+        throw new Error("A etapa F6 precisa declarar se vai inspecionar ou criar no Canva.");
+      }
       const configuredVariants = Number(
         (taskData.picker as { variantsRequested?: number } | null)?.variantsRequested || 1,
       );
@@ -498,6 +533,7 @@ export async function POST(
         variants,
       });
       const output = await executeCanvaBridge({
+        supabase,
         taskId,
         userId: userId,
         step,
@@ -568,22 +604,40 @@ export async function POST(
   try {
     pipelineLoop:
     for (const originalStep of executable) {
+      const originalNodes = unique(originalStep.nodes || []);
+      const originalPrimary = originalNodes[0] || "unknown";
+      if (originalStep.executionState === "requires_adapter" && originalStep.onUnavailable === "skip") {
+        const reason = `O nó ${originalPrimary} foi adiado por autorização humana porque o adapter ainda não está disponível. Nenhuma ação externa foi executada.`;
+        const output = { deferred: true, node: originalPrimary, reason };
+        artifacts.push({ step: originalStep.step, node: originalPrimary, output });
+        deferred.push({ step: originalStep.step, nodes: originalNodes, reason });
+        await markTaskStep({
+          supabase, taskId, userId, stepNumber: originalStep.step,
+          status: "skipped", artifact: output,
+          nextAction: "Etapa adiada com segurança; seguir para a próxima dependência liberada.",
+        });
+        await event("adapter_deferred", { step: originalStep.step, node: originalPrimary, reason });
+        await syncTaskProgress({ supabase, taskId, userId });
+        continue;
+      }
+
       const existing = await supabase
         .from("regent_tool_runs")
-        .select("id, node_id, output")
+        .select("id, node_id, adapter, input, output")
         .eq("task_id", taskId)
         .eq("user_id", userId)
         .eq("step_number", originalStep.step)
         .eq("status", "succeeded")
         .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(10);
 
-      if (existing.data) {
-        artifacts.push({ step: originalStep.step, node: existing.data.node_id, output: existing.data.output });
+      if (existing.error) throw new Error("Não foi possível conferir os checkpoints executados.");
+      const reusableRun = existing.data?.find((run) => reusableRunForStep(originalStep, run));
+      if (reusableRun) {
+        artifacts.push({ step: originalStep.step, node: reusableRun.node_id, output: reusableRun.output });
         await markTaskStep({
           supabase, taskId, userId, stepNumber: originalStep.step,
-          status: "succeeded", artifact: existing.data.output,
+          status: "succeeded", artifact: reusableRun.output,
           nextAction: "Resultado confirmado e reaproveitado; seguir para a próxima etapa.",
         });
         await syncTaskProgress({ supabase, taskId, userId });
@@ -607,7 +661,7 @@ export async function POST(
           .eq("user_id", userId)
           .in("step_number", dependencies);
         const unresolved = dependencies.filter((dep) =>
-          !dependencyRows.data?.some((row) => row.step_number === dep && row.status === "succeeded")
+          !dependencyRows.data?.some((row) => row.step_number === dep && ["succeeded", "skipped"].includes(row.status))
         );
         if (unresolved.length) {
           const reason = `Dependências pendentes: etapas ${unresolved.join(", ")}.`;
@@ -832,7 +886,11 @@ export async function POST(
     const finalStatus = humanEscalation ? "failed" : blocked.length ? "blocked" : "succeeded";
     await syncTaskProgress({
       supabase, taskId, userId,
-      fallbackNextAction: finalStatus === "succeeded" ? "Tarefa concluída." : "Resolver o bloqueio registrado e retomar do checkpoint.",
+      fallbackNextAction: finalStatus === "succeeded"
+        ? deferred.length
+          ? "Tarefa concluída no escopo disponível; integrações adiadas podem ser configuradas depois."
+          : "Tarefa concluída."
+        : "Resolver o bloqueio registrado e retomar do checkpoint.",
     });
     await supabase
       .from("regent_tasks")
@@ -846,7 +904,7 @@ export async function POST(
         : blocked.length
           ? "execution_partially_blocked"
           : "execution_succeeded",
-      { artifacts, blocked },
+      { artifacts, blocked, deferred },
     );
 
     const canvaLinks = artifacts
@@ -867,6 +925,9 @@ export async function POST(
       blocked.length
         ? `Bloqueios / recovery:\n${blocked.map((item) => `Etapa ${item.step}: ${item.reason}`).join("\n")}`
         : "",
+      deferred.length
+        ? `Etapas adiadas sem execução externa:\n${deferred.map((item) => `Etapa ${item.step}: ${item.reason}`).join("\n")}`
+        : "",
     ].filter(Boolean).join("\n\n");
 
     await supabase.from("regent_messages").insert({
@@ -881,6 +942,7 @@ export async function POST(
       status: finalStatus,
       artifacts,
       blocked,
+      deferred,
       recoveryEscalated: humanEscalation,
       message: completionMessage,
     });
@@ -892,10 +954,10 @@ export async function POST(
       .eq("id", taskId)
       .eq("user_id", userId);
 
-    await event("execution_failed", { message, artifacts, blocked });
+    await event("execution_failed", { message, artifacts, blocked, deferred });
 
     return NextResponse.json(
-      { error: "execution_failed", message, artifacts, blocked },
+      { error: "execution_failed", message, artifacts, blocked, deferred },
       { status: 500 },
     );
   }

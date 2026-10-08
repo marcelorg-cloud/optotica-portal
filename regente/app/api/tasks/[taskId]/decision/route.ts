@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { requireMaster } from "../../../../../lib/require-master";
 import { createServerSupabaseClient } from "../../../../../lib/supabase";
 import { syncTaskProgress } from "../../../../../lib/task-state";
-import { a5PipelineSteps } from "../../../../../lib/resume-authorization";
 
 type Decision = "execute" | "partial" | "reject" | "revise";
 
@@ -60,32 +59,45 @@ export async function POST(
   }
 
   const pipeline = Array.isArray(task.pipeline) ? task.pipeline : [];
-  const recoveryA5Steps = a5PipelineSteps(pipeline);
-  if (recoveryApproval && !recoveryA5Steps.length) {
-    return NextResponse.json(
-      {
-        error: "recovery_step_not_found",
-        message: "A retomada supervisionada só pode ser autorizada quando uma etapa A5 persistida estiver presente.",
-      },
-      { status: 409 },
-    );
+  let pausedSteps: number[] = [];
+  if (recoveryApproval) {
+    const { data: pausedRuntimeSteps, error: pausedRuntimeStepsError } = await supabase
+      .from("regent_task_steps")
+      .select("step_number,status")
+      .eq("task_id", taskId)
+      .eq("user_id", auth.userId)
+      .in("status", ["failed", "blocked", "review"]);
+    if (pausedRuntimeStepsError) {
+      return NextResponse.json(
+        { error: "recovery_state_unavailable", message: "Não foi possível validar as etapas pausadas." },
+        { status: 500 },
+      );
+    }
+    pausedSteps = [...new Set((pausedRuntimeSteps || []).map((step) => Number(step.step_number)).filter(Boolean))];
+    if (!pausedSteps.length) {
+      return NextResponse.json(
+        { error: "recovery_step_not_found", message: "Nenhuma etapa pausada foi comprovada para retomada." },
+        { status: 409 },
+      );
+    }
   }
   if (
     recoveryApproval &&
     decision === "partial" &&
-    !recoveryA5Steps.some((step) => approvedSteps.includes(step))
+    pausedSteps.some((step) => !approvedSteps.includes(step))
   ) {
     return NextResponse.json(
       {
         error: "recovery_step_required",
-        message: `Inclua a etapa A5 (${recoveryA5Steps.join(", ")}) na autorização parcial.`,
+        message: `Inclua todas as etapas pausadas (${pausedSteps.join(", ")}) na autorização parcial.`,
       },
       { status: 400 },
     );
   }
 
   const missingAdapters = pipeline
-    .filter((step: { executionState?: string }) => step.executionState === "requires_adapter")
+    .filter((step: { executionState?: string; onUnavailable?: string }) =>
+      step.executionState === "requires_adapter" && step.onUnavailable !== "skip")
     .flatMap((step: { nodes?: string[] }) => step.nodes || [])
     .filter((node: string) => node !== "A5");
 
@@ -111,7 +123,7 @@ export async function POST(
       : `Execução parcial aprovada para as etapas ${approvedSteps.join(", ")}. Etapas sem adapter continuam bloqueadas.`;
   } else if (recoveryApproval) {
     nextStatus = "approved";
-    message = "Retomada A5 autorizada. O Regente continuará do último checkpoint sem repetir etapas concluídas.";
+    message = `Retomada autorizada nas etapas ${pausedSteps.join(", ")}. O Regente continuará do último checkpoint sem repetir etapas concluídas.`;
   } else if (missingAdapters.length) {
     nextStatus = "approved";
     message =
@@ -134,6 +146,8 @@ export async function POST(
     approved_pipeline_steps: decision === "execute"
       ? pipeline.map((step: { step?: number }) => step.step).filter(Boolean)
       : approvedSteps,
+    recovery_authorized: recoveryApproval,
+    recovery_steps: recoveryApproval ? pausedSteps : null,
   };
 
   const currentStatus = new Map<number, string>();

@@ -1,5 +1,6 @@
 import JSZip from "jszip";
 import { access, api, type Admin } from "./api";
+import { listPages } from "./pages";
 import { CanvaError, canvaUrl } from "./security";
 
 export type RegentCanvaSpec = {
@@ -108,6 +109,82 @@ type ImportJob = {
   result?: { designs?: Array<{ id: string }> };
   error?: { code?: string; message?: string };
 };
+
+type ExportJob = {
+  id?: string;
+  status: "success" | "failed" | "in_progress";
+  urls?: string[];
+  error?: { code?: string; message?: string };
+};
+
+async function waitForExport(token: string, jobId: string) {
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const { job } = await api<{ job: ExportJob }>(token, "/exports/" + encodeURIComponent(jobId));
+    if (job.status === "success") return job;
+    if (job.status === "failed") {
+      throw new CanvaError(job.error?.message || "O Canva recusou a exportação para inspeção.", 422, job.error?.code);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 900));
+  }
+  throw new CanvaError("O Canva ainda está preparando as imagens para inspeção. Tente retomar a tarefa.", 409);
+}
+
+async function exportDesignPages(token: string, designId: string, pageNumbers: number[]) {
+  const { job } = await api<{ job: ExportJob }>(token, "/exports", {
+    method: "POST",
+    body: JSON.stringify({
+      design_id: designId,
+      format: { type: "png", pages: pageNumbers },
+    }),
+  });
+  if (!job.id) throw new CanvaError("O Canva não confirmou a exportação para inspeção.", 502);
+  const complete = job.status === "success" ? job : await waitForExport(token, job.id);
+  if (!Array.isArray(complete.urls) || !complete.urls.length) {
+    throw new CanvaError("O Canva não retornou imagens para inspeção.", 502);
+  }
+  return complete.urls.map(canvaUrl);
+}
+
+export async function inspectRegentCanvaDesigns(admin: Admin, userId: string, designIds: string[]) {
+  const requested = [...new Set(designIds.map((value) => value.trim()))];
+  if (!requested.length || requested.length > 10 || requested.some((id) => !/^[A-Za-z0-9_-]{6,80}$/.test(id))) {
+    throw new CanvaError("As referências Canva solicitadas são inválidas.", 422);
+  }
+
+  const { token } = await access(admin, userId);
+  const designs = [];
+  for (const designId of requested) {
+    const [{ design }, pages] = await Promise.all([
+      api<{ design: { id: string; title?: string; urls: { edit_url: string; view_url: string } } }>(
+        token,
+        "/designs/" + encodeURIComponent(designId),
+      ),
+      listPages(token, designId),
+    ]);
+    const pageNumbers = pages
+      .map((page) => page.page_number)
+      .filter((pageNumber) => Number.isInteger(pageNumber) && pageNumber > 0 && pageNumber <= 500);
+    if (!pageNumbers.length || pageNumbers.length !== pages.length) {
+      throw new CanvaError("O Canva não retornou páginas estáveis para inspeção.", 409);
+    }
+    const previewUrls = await exportDesignPages(token, designId, pageNumbers);
+    designs.push({
+      id: design.id,
+      title: design.title || `Design ${design.id}`,
+      editUrl: canvaUrl(design.urls.edit_url),
+      viewUrl: canvaUrl(design.urls.view_url),
+      pageCount: pages.length,
+      pages: pages.map((page, index) => ({
+        id: page.id || null,
+        pageNumber: page.page_number,
+        dimensions: page.dimensions || null,
+        previewUrl: previewUrls.length === pages.length ? previewUrls[index] : null,
+      })),
+      previewUrls,
+    });
+  }
+  return designs;
+}
 
 async function waitForImport(token: string, jobId: string) {
   for (let attempt = 0; attempt < 18; attempt += 1) {
