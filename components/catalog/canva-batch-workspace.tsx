@@ -21,6 +21,7 @@ export function CanvaBatchWorkspace({ productId }: { productId: string }) {
   const [batch, setBatch] = useState<Batch | null>(null);
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
+  const [switchAccount, setSwitchAccount] = useState(false);
   const [progress, setProgress] = useState<Record<string, string>>({});
   const [previews, setPreviews] = useState<Record<string, Preview>>({});
   const [reviewed, setReviewed] = useState<Record<string, boolean>>({});
@@ -195,12 +196,22 @@ export function CanvaBatchWorkspace({ productId }: { productId: string }) {
           window.location.assign(result.authorizeUrl);
         })}>Conectar Canva</button></div>}
       {batch.connected && batch.configured && <div>
-        <p>O Regente usa esta mesma conexão Canva do portal. Para atualizar a conta ou equipe, autorize novamente com a conta desejada.</p>
-        <button type="button" className="button secondary" disabled={!!busy || !batch.colors[0]} onClick={() => void run('Atualizando conexão Canva…', async signal => {
-          const result = await post('/api/admin/catalog/canva/batch', 'connect', batch.colors[0].id, undefined, signal);
-          if (!result.authorizeUrl) throw new Error('Não foi possível iniciar a conexão.');
-          window.location.assign(result.authorizeUrl);
-        })}>Trocar conta Canva</button>
+        <p>O Regente usa esta mesma conexão Canva do portal.</p>
+        <button type="button" className="button secondary" disabled={!!busy}
+          aria-expanded={switchAccount} aria-controls="canva-switch-account"
+          onClick={() => { setSwitchAccount(true); setMessage(''); }}>Trocar conta Canva</button>
+        {switchAccount && <div id="canva-switch-account" style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 16, marginTop: 12, display: 'grid', gap: 12 }}>
+          <h2>Entrar com outra conta Canva</h2>
+          <p>Abra o Canva e entre na conta que deseja usar. Se a conta antiga estiver aberta, saia dela ou use a opção de trocar conta no Canva. Depois, volte aqui para autorizar a conexão.</p>
+          <a className="button secondary" href="https://www.canva.com/" target="_blank" rel="noopener noreferrer">Abrir Canva para trocar o login</a>
+          <button type="button" className="button" disabled={!!busy} onClick={() => void run('Abrindo autorização Canva…', async signal => {
+            const result = await post('/api/admin/catalog/canva/batch', 'reconnect', undefined, undefined, signal);
+            if (!result.authorizeUrl) throw new Error('Não foi possível iniciar a autorização Canva. Tente novamente.');
+            window.location.assign(result.authorizeUrl);
+          })}>Entrar com outra conta</button>
+          <p>A conexão atual será substituída somente após concluir a autorização no Canva.</p>
+          <button type="button" className="text-button" disabled={!!busy} onClick={() => setSwitchAccount(false)}>Cancelar</button>
+        </div>}
       </div>}
       {!batch.hasMeasurements && <p>Cadastre a referência de formato e proporções do modelo antes de preparar o lote.</p>}
       {!batch.templateReady && <p>Cadastre a imagem modelo transparente na página de uma cor antes de preparar o lote.</p>}

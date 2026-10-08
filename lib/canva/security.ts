@@ -14,8 +14,10 @@ export function config() {
   if (!clientId || !clientSecret || !encryptionKey || !origin) {
     throw new CanvaError('A conexão com o Canva ainda precisa ser configurada no portal.', 503);
   }
-  if (!/^OC-[A-Za-z0-9_-]+$/.test(clientId)) {
-    throw new CanvaError('O Client ID do Canva cadastrado no portal é inválido.', 503, 'invalid_client_id_config');
+  // Canva Client IDs are opaque identifiers; documented examples also omit
+  // the hyphen after OC. Do not reject a valid app ID based on that prefix.
+  if (!/^OC[A-Za-z0-9_-]{4,125}$/.test(clientId)) {
+    throw new CanvaError('O Client ID do aplicativo Canva cadastrado no portal é inválido. Copie o Client ID das credenciais da integração Canva; o ID do usuário não serve neste campo.', 503, 'invalid_client_id_config');
   }
   if (!clientSecret.startsWith('cnvca') || /\s/.test(clientSecret)) {
     throw new CanvaError('O Client Secret do Canva cadastrado no portal é inválido. Gere e copie o segredo novamente.', 503,

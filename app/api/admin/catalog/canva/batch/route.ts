@@ -85,6 +85,18 @@ export async function POST(request: Request) {
       const result = await ensureColorPage(auth.admin, auth.userId, body.productId, body.colorId);
       return NextResponse.json({ status: result.ready ? 'ready' : 'processing' });
     }
+    if (body.action === 'reconnect') {
+      // The user is changing a connection, not choosing a catalog color.
+      // Resolve the return context on the server instead of accepting a color ID.
+      const { data: color, error } = await auth.admin.from('catalog_product_color_images')
+        .select('id').eq('product_id', body.productId)
+        .order('id', { ascending: true }).limit(1).maybeSingle();
+      dbError(error);
+      if (!color) throw new CanvaError('Cadastre uma cor neste produto para iniciar a autorização Canva.', 409);
+      await getColor(auth.admin, body.productId, color.id);
+      return NextResponse.json({ authorizeUrl: await beginOAuth(auth.admin, auth.userId, body.productId, color.id) },
+        { headers: { 'Cache-Control': 'no-store' } });
+    }
     if (body.action === 'connect') {
       if (!uuid(body.colorId)) throw new CanvaError('Escolha uma cor válida para conectar o Canva.');
       await getColor(auth.admin, body.productId, body.colorId);
