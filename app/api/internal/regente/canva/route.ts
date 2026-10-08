@@ -84,7 +84,7 @@ export async function POST(request: Request) {
         .maybeSingle(),
       admin
         .from("regent_tasks")
-        .select("id, status, session_id")
+        .select("id, status")
         .eq("id", toolRun.task_id)
         .eq("user_id", toolRun.user_id)
         .maybeSingle(),
@@ -139,16 +139,16 @@ export async function POST(request: Request) {
       const sourceTaskIds = [...new Set(sourceRuns.map((run) => run.task_id))];
       const { data: sourceTasks, error: sourceTasksError } = await admin
         .from("regent_tasks")
-        .select("id, session_id")
+        .select("id, status")
         .eq("user_id", toolRun.user_id)
         .in("id", sourceTaskIds);
       if (
         sourceTasksError ||
         !sourceTasks ||
         sourceTasks.length !== sourceTaskIds.length ||
-        sourceTasks.some((sourceTask) => sourceTask.session_id !== task.session_id)
+        sourceTasks.some((sourceTask) => sourceTask.status !== "succeeded")
       ) {
-        return NextResponse.json({ message: "Os designs Canva não pertencem a esta missão." }, { status: 403 });
+        return NextResponse.json({ message: "Os designs Canva não possuem uma execução de origem concluída." }, { status: 403 });
       }
 
       const allowedDesignIds = new Set(designIdsFromRegentRuns(sourceRuns));
