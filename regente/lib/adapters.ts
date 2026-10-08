@@ -85,58 +85,58 @@ export async function executeOpenAIWorker(input: {
   return result.finalOutput;
 }
 
-export async function executeClaudeWorker(input: {
+export async function executeIndependentOpenAIReviewer(input: {
   step: PipelineStep;
   objective: string;
   priorArtifacts: PriorArtifact[];
 }) {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-  if (!apiKey) {
+  if (!process.env.OPENAI_API_KEY?.trim()) {
     return {
       blocked: true as const,
-      reason: "ANTHROPIC_API_KEY não configurada no ambiente do Regente.",
+      reason: "OPENAI_API_KEY não configurada no ambiente do Regente.",
     };
   }
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    signal: AbortSignal.timeout(60000),
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: process.env.REGENT_CLAUDE_MODEL || "claude-sonnet-4-5",
-      max_tokens: 3000,
-      messages: [{
-        role: "user",
-        content: [
-          `Objetivo: ${input.objective}`,
-          `Função: ${input.step.role}`,
-          `Ação: ${input.step.action}`,
-          `Entrada: ${input.step.input}`,
-          `Saída esperada: ${input.step.expectedOutput}`,
-          "Contexto anterior:",
-          contextFromArtifacts(input.priorArtifacts),
-          "Faça uma revisão crítica independente e devolva a melhor versão possível, sem conversa desnecessária.",
-        ].join("\n\n"),
-      }],
-    }),
+  const agent = new Agent({
+    name: "Revisor independente A4",
+    model:
+      process.env.REGENT_REVIEW_MODEL ||
+      process.env.REGENT_RECOVERY_MODEL ||
+      process.env.REGENT_WORKER_MODEL ||
+      process.env.REGENT_MODEL ||
+      "gpt-5.6-sol",
+    instructions: [
+      "Você é o revisor independente A4 da rede Optótica + ENSAVIM.",
+      "Trabalhe em uma execução separada dos demais nós e faça uma crítica genuína.",
+      "Não apenas confirme o material anterior: identifique falhas, riscos, lacunas e alternativas.",
+      "Preserve autenticação, RLS, aprovação humana e limites de custo.",
+      "Devolva uma versão melhorada e notas objetivas sobre as mudanças.",
+    ].join("\n"),
+    outputType: TextWorkerOutput,
   });
 
-  const body = await response.json().catch(() => null) as {
-    content?: Array<{ type?: string; text?: string }>;
-    error?: { message?: string };
-  } | null;
+  const prompt = [
+    `OBJETIVO GERAL: ${input.objective}`,
+    `FUNÇÃO DA ETAPA: ${input.step.role}`,
+    `AÇÃO: ${input.step.action}`,
+    `ENTRADA: ${input.step.input}`,
+    `SAÍDA ESPERADA: ${input.step.expectedOutput}`,
+    "",
+    "ARTEFATOS ANTERIORES:",
+    contextFromArtifacts(input.priorArtifacts),
+    "",
+    "Faça uma revisão crítica independente e devolva a melhor versão possível.",
+  ].join("\n");
 
-  if (!response.ok) {
-    throw new Error(body?.error?.message || `Claude respondeu HTTP ${response.status}`);
+  const result = await run(agent, prompt);
+  if (!result.finalOutput) {
+    throw new Error("O revisor independente A4 retornou saída vazia.");
   }
-
-  const text = body?.content?.filter((item) => item.type === "text").map((item) => item.text || "").join("\n").trim();
-  if (!text) throw new Error("Claude retornou resposta vazia.");
-  return { blocked: false as const, result: text };
+  return {
+    blocked: false as const,
+    result: result.finalOutput.result,
+    notes: result.finalOutput.notes,
+  };
 }
 
 export async function buildCanvaSpec(input: {
@@ -209,7 +209,7 @@ export async function executeCanvaBridge(input: {
 
   if (error || !toolRun) throw new Error("Não foi possível preparar a execução do Canva.");
 
-  const portalOrigin = (process.env.REGENT_PORTAL_ORIGIN || "https://optotica-portal.vercel.app").replace(/\/$/, "");
+  const portalOrigin = (process.env.REGENT_PORTAL_ORIGIN || "https://app.optotica.com.br").replace(/\/$/, "");
   const response = await fetch(`${portalOrigin}/api/internal/regente/canva`, {
     method: "POST",
     signal: AbortSignal.timeout(110000),

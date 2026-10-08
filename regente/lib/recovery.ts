@@ -22,6 +22,10 @@ const RecoveryDecision = z.object({
 
 export type RecoveryDecisionOutput = z.infer<typeof RecoveryDecision>;
 
+const IndependentRecoveryReview = z.object({
+  review: z.string().min(1),
+});
+
 function normalizeError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || "Unknown error");
   return message
@@ -77,7 +81,7 @@ export async function analyzeRecovery(input: {
   error: unknown;
   artifacts: RecoveryArtifact[];
   previousRecovery?: RecoveryDecisionOutput | null;
-  claudeReview?: string | null;
+  independentReview?: string | null;
   recurrence: number;
 }) {
   const agent = new Agent({
@@ -96,9 +100,9 @@ export async function analyzeRecovery(input: {
       "Nunca contorne autenticação, RLS, autorização humana, limites de custo ou segurança.",
       "Não repita uma estratégia que já falhou sem uma razão concreta.",
       "O protocolo permite até 3 tentativas progressivas. Em cada recorrência, avance o diagnóstico com base no que falhou antes.",
-      "Na tentativa 1, priorize correção operacional direta. Nas tentativas 2 e 3, use a revisão independente do Claude quando disponível e refine criticamente a estratégia.",
+      "Na tentativa 1, priorize correção operacional direta. Nas tentativas 2 e 3, use a revisão independente do A4 em uma execução OpenAI separada e refine criticamente a estratégia.",
       "Se uma mudança de código parecer necessária, proponha o patch com precisão; nas tentativas seguintes procure também uma alternativa operacional segura antes de concluir que intervenção humana é indispensável.",
-      "Quando houver revisão do Claude, trate-a como contraponto: compare hipóteses, resolva divergências e produza uma decisão consolidada.",
+      "Quando houver revisão independente do A4, trate-a como contraponto: compare hipóteses, resolva divergências e produza uma decisão consolidada.",
     ].join("\n"),
     outputType: RecoveryDecision,
   });
@@ -121,7 +125,7 @@ export async function analyzeRecovery(input: {
     artifactsText(input.artifacts),
     "",
     input.previousRecovery ? `RECUPERAÇÃO ANTERIOR:\n${JSON.stringify(input.previousRecovery)}\n` : "",
-    input.claudeReview ? `REVISÃO INDEPENDENTE DO CLAUDE:\n${input.claudeReview}\n` : "",
+    input.independentReview ? `REVISÃO INDEPENDENTE A4 (OPENAI, CONTEXTO SEPARADO):\n${input.independentReview}\n` : "",
     "CÓDIGO / ARQUITETURA RELEVANTE:",
     code,
   ].filter(Boolean).join("\n");
@@ -131,7 +135,7 @@ export async function analyzeRecovery(input: {
   return result.finalOutput;
 }
 
-export async function reviewRecoveryWithClaude(input: {
+export async function reviewRecoveryWithOpenAI(input: {
   objective: string;
   taskTitle: string;
   step: PipelineStep;
@@ -139,57 +143,45 @@ export async function reviewRecoveryWithClaude(input: {
   error: unknown;
   firstDecision: RecoveryDecisionOutput;
 }) {
-  const key = process.env.ANTHROPIC_API_KEY?.trim();
-  if (!key) {
-    return {
-      available: false as const,
-      review: "Claude não está configurado neste ambiente (ANTHROPIC_API_KEY ausente).",
-    };
-  }
-
   const code = await sourceContext(input.node);
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    signal: AbortSignal.timeout(70000),
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01",
+  const agent = new Agent({
+    name: "A4 — Revisor independente de recovery",
+    model:
+      process.env.REGENT_REVIEW_MODEL ||
+      process.env.REGENT_RECOVERY_MODEL ||
+      process.env.REGENT_MODEL ||
+      "gpt-5.6-sol",
+    modelSettings: {
+      reasoning: { effort: "high" },
+      text: { verbosity: "medium" },
     },
-    body: JSON.stringify({
-      model: process.env.REGENT_CLAUDE_MODEL || "claude-sonnet-4-5",
-      max_tokens: 3500,
-      messages: [{
-        role: "user",
-        content: [
-          "Você é o revisor independente A4 do mecanismo de recuperação do Regente.",
-          "Analise o erro, a hipótese mais recente do Recovery Engineer e o código real abaixo.",
-          "Sua resposta será devolvida ao ChatGPT/A5 para uma nova rodada; destaque discordâncias, hipóteses alternativas e testes objetivos para criar uma análise cruzada real entre os dois modelos.",
-          "Procure principalmente diagnóstico errado, repetição inútil, problemas de acesso, timeout, payload e bug de programação.",
-          "Não proponha atalhos que removam autenticação, RLS ou aprovação humana.",
-          "",
-          `Tarefa: ${input.taskTitle}`,
-          `Objetivo: ${input.objective}`,
-          `Etapa: ${input.step.step} / ${input.step.role} / nó ${input.node}`,
-          `Erro: ${normalizeError(input.error)}`,
-          `Primeira correção proposta: ${JSON.stringify(input.firstDecision)}`,
-          "",
-          "Código relevante:",
-          code,
-        ].join("\n"),
-      }],
-    }),
+    instructions: [
+      "Você é o revisor independente A4 do mecanismo de recuperação do Regente.",
+      "Você executa com contexto separado do A5 e deve produzir um contraponto real.",
+      "Analise o erro, a hipótese mais recente do Recovery Engineer e o código real.",
+      "Destaque discordâncias, hipóteses alternativas e testes objetivos.",
+      "Procure diagnóstico errado, repetição inútil, problemas de acesso, timeout, payload e bug de programação.",
+      "Não proponha atalhos que removam autenticação, RLS, aprovação humana ou controles de custo.",
+    ].join("\n"),
+    outputType: IndependentRecoveryReview,
   });
 
-  const raw = await response.text();
-  let body: { content?: Array<{ type?: string; text?: string }>; error?: { message?: string } } | null = null;
-  try { body = JSON.parse(raw); } catch {}
-  if (!response.ok) {
-    throw new Error(body?.error?.message || `Claude recovery HTTP ${response.status}: ${raw.slice(0, 300)}`);
+  const prompt = [
+    `TAREFA: ${input.taskTitle}`,
+    `OBJETIVO: ${input.objective}`,
+    `ETAPA: ${input.step.step} / ${input.step.role} / nó ${input.node}`,
+    `ERRO: ${normalizeError(input.error)}`,
+    `PRIMEIRA CORREÇÃO PROPOSTA: ${JSON.stringify(input.firstDecision)}`,
+    "",
+    "CÓDIGO RELEVANTE:",
+    code,
+  ].join("\n");
+
+  const result = await run(agent, prompt);
+  if (!result.finalOutput) {
+    throw new Error("O revisor independente A4 retornou saída vazia.");
   }
-  const review = body?.content?.filter((item) => item.type === "text").map((item) => item.text || "").join("\n").trim();
-  if (!review) throw new Error("Claude recovery retornou resposta vazia.");
-  return { available: true as const, review };
+  return { available: true as const, review: result.finalOutput.review };
 }
 
 export function applyRecoveryDecision(step: PipelineStep, decision: RecoveryDecisionOutput) {

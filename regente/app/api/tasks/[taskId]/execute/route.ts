@@ -14,7 +14,7 @@ import { taskExecutionWorkflow } from "../../../../../workflows/task-execution";
 import {
   buildCanvaSpec,
   executeCanvaBridge,
-  executeClaudeWorker,
+  executeIndependentOpenAIReviewer,
   executeOpenAIWorker,
   isOpenAINode,
   type PipelineStep,
@@ -23,7 +23,7 @@ import {
   analyzeRecovery,
   applyRecoveryDecision,
   errorFingerprint,
-  reviewRecoveryWithClaude,
+  reviewRecoveryWithOpenAI,
   type RecoveryDecisionOutput,
 } from "../../../../../lib/recovery";
 import { markTaskStep, syncTaskProgress } from "../../../../../lib/task-state";
@@ -41,7 +41,7 @@ type RecoveryAttempt = {
   attempt: number;
   errorBefore: string;
   decision?: RecoveryDecisionOutput | null;
-  claudeReview?: string | null;
+  independentReview?: string | null;
   outcome: "analysis_failed" | "analysis_only" | "retry_failed" | "retry_blocked" | "succeeded";
   errorAfter?: string;
 };
@@ -396,16 +396,16 @@ export async function POST(
           user_id: userId,
           step_number: step.step,
           node_id: primary,
-          adapter: "anthropic_messages",
+          adapter: "openai_agents_independent_review",
           status: "running",
           input: { step, objective: taskData.objective },
         })
         .select("id")
         .single();
-      if (runError || !runRow) throw new Error("Não foi possível registrar a execução Claude.");
+      if (runError || !runRow) throw new Error("Não foi possível registrar a execução do revisor independente A4.");
 
       try {
-        const output = await executeClaudeWorker({
+        const output = await executeIndependentOpenAIReviewer({
           step,
           objective: taskData.objective,
           priorArtifacts: artifacts,
@@ -417,7 +417,7 @@ export async function POST(
             .update({ status: "blocked", output, updated_at: new Date().toISOString() })
             .eq("id", runRow.id)
             .eq("user_id", userId);
-          return { step: step.step, nodes, reason: output.reason || "Claude indisponível." };
+          return { step: step.step, nodes, reason: output.reason || "Revisor independente A4 indisponível." };
         }
 
         await supabase
@@ -488,7 +488,7 @@ export async function POST(
   ) {
     humanEscalation = true;
     const lastDecision = [...attempts].reverse().find((item) => item.decision)?.decision || null;
-    const claudeParticipated = attempts.some((item) => Boolean(item.claudeReview));
+    const independentReviewParticipated = attempts.some((item) => Boolean(item.independentReview));
     await markTaskStep({
       supabase, taskId, userId, stepNumber: step.step,
       status: "failed", error,
@@ -500,7 +500,7 @@ export async function POST(
       `Último erro: ${errorMessage(error)}`,
       lastDecision?.diagnosis ? `Diagnóstico final: ${lastDecision.diagnosis}` : "",
       lastDecision?.patchProposal ? `Correção de código sugerida: ${lastDecision.patchProposal}` : "",
-      claudeParticipated ? "ChatGPT e Claude participaram da análise cruzada antes do escalonamento." : "",
+      independentReviewParticipated ? "O A5 e o revisor independente A4 da OpenAI participaram da análise cruzada antes do escalonamento." : "",
       "A pipeline foi pausada somente após o protocolo de autorrecuperação ser esgotado.",
     ].filter(Boolean).join(" ");
 
@@ -637,11 +637,11 @@ export async function POST(
 
       for (let attempt = 1; attempt <= RECOVERY_MAX_ATTEMPTS; attempt += 1) {
         const errorBefore = errorMessage(currentError);
-        let claudeReview: string | null = null;
+        let independentReview: string | null = null;
 
         if (attempt >= 2 && previousDecision) {
           try {
-            const review = await reviewRecoveryWithClaude({
+            const review = await reviewRecoveryWithOpenAI({
               objective: taskData.objective,
               taskTitle: taskData.title,
               step: workingStep,
@@ -649,7 +649,7 @@ export async function POST(
               error: currentError,
               firstDecision: previousDecision,
             });
-            claudeReview = review.review;
+            independentReview = review.review;
             await event("recovery_a4_review", {
               step: originalStep.step,
               node: primary,
@@ -657,13 +657,13 @@ export async function POST(
               available: review.available,
               review: review.review,
             });
-          } catch (claudeError) {
-            claudeReview = `Claude indisponível nesta tentativa: ${errorMessage(claudeError)}`;
+          } catch (reviewError) {
+            independentReview = `Revisor independente A4 indisponível nesta tentativa: ${errorMessage(reviewError)}`;
             await event("recovery_a4_failed", {
               step: originalStep.step,
               node: primary,
               attempt,
-              error: errorMessage(claudeError),
+              error: errorMessage(reviewError),
             });
           }
         }
@@ -678,7 +678,7 @@ export async function POST(
             error: currentError,
             artifacts,
             previousRecovery: previousDecision,
-            claudeReview,
+            independentReview,
             recurrence: attempt,
           });
           await event("recovery_a5_analysis", {
@@ -686,14 +686,14 @@ export async function POST(
             node: primary,
             recurrence: attempt,
             decision,
-            claudeReview,
+            independentReview,
           });
         } catch (analysisError) {
           currentError = analysisError;
           attempts.push({
             attempt,
             errorBefore,
-            claudeReview,
+            independentReview,
             outcome: "analysis_failed",
             errorAfter: errorMessage(analysisError),
           });
@@ -707,7 +707,7 @@ export async function POST(
             attempt,
             errorBefore,
             decision,
-            claudeReview,
+            independentReview,
             outcome: "analysis_only",
             errorAfter: errorMessage(currentError),
           });
@@ -723,7 +723,7 @@ export async function POST(
               attempt,
               errorBefore,
               decision,
-              claudeReview,
+              independentReview,
               outcome: "succeeded",
             });
             await markTaskStep({
@@ -737,7 +737,7 @@ export async function POST(
               node: primary,
               attempt,
               decision,
-              claudeReview,
+              independentReview,
             });
             recovered = true;
             break;
@@ -748,7 +748,7 @@ export async function POST(
             attempt,
             errorBefore,
             decision,
-            claudeReview,
+            independentReview,
             outcome: "retry_blocked",
             errorAfter: retryResult.reason,
           });
@@ -764,7 +764,7 @@ export async function POST(
             attempt,
             errorBefore,
             decision,
-            claudeReview,
+            independentReview,
             outcome: "retry_failed",
             errorAfter: errorMessage(retryError),
           });
