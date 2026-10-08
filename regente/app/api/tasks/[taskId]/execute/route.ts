@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { start } from "workflow/api";
@@ -58,11 +59,20 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error || "Falha desconhecida.");
 }
 
+function artifactFingerprint(artifacts: Artifact[]) {
+  return createHash("sha256").update(JSON.stringify(artifacts)).digest("hex");
+}
+
 function reusableRunForStep(
   step: PipelineStep,
   run: { adapter?: string | null; input?: unknown; output?: unknown },
+  artifacts: Artifact[],
 ) {
   const primary = unique(step.nodes || [])[0] || "";
+  if (isOpenAINode(primary) || primary === "A4") {
+    return (run.input as { priorArtifactFingerprint?: unknown } | null)?.priorArtifactFingerprint ===
+      artifactFingerprint(artifacts);
+  }
   if (primary !== "F6") return true;
   if (step.canvaMode === "inspect") {
     const runInput = run.input as { sourceRunIds?: unknown; designIds?: unknown } | null;
@@ -423,7 +433,7 @@ export async function POST(
           node_id: primary,
           adapter: "openai_agents",
           status: "running",
-          input: { step, objective: taskData.objective },
+          input: { step, objective: taskData.objective, priorArtifactFingerprint: artifactFingerprint(artifacts) },
         })
         .select("id")
         .single();
@@ -466,7 +476,7 @@ export async function POST(
           node_id: primary,
           adapter: "openai_agents_independent_review",
           status: "running",
-          input: { step, objective: taskData.objective },
+          input: { step, objective: taskData.objective, priorArtifactFingerprint: artifactFingerprint(artifacts) },
         })
         .select("id")
         .single();
@@ -632,7 +642,7 @@ export async function POST(
         .limit(10);
 
       if (existing.error) throw new Error("Não foi possível conferir os checkpoints executados.");
-      const reusableRun = existing.data?.find((run) => reusableRunForStep(originalStep, run));
+      const reusableRun = existing.data?.find((run) => reusableRunForStep(originalStep, run, artifacts));
       if (reusableRun) {
         artifacts.push({ step: originalStep.step, node: reusableRun.node_id, output: reusableRun.output });
         await markTaskStep({
