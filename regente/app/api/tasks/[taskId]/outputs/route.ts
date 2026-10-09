@@ -8,6 +8,14 @@ const MAX_OUTPUT_CHARS = 24_000;
 const MAX_ITEMS = 100;
 
 function outputText(value: unknown) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const result = (value as { result?: unknown }).result;
+    if (typeof result === "string" && result.trim()) {
+      return result.length <= MAX_OUTPUT_CHARS
+        ? result
+        : result.slice(0, MAX_OUTPUT_CHARS) + "\n… [conteúdo truncado na visualização]";
+    }
+  }
   const text = typeof value === "string"
     ? value
     : JSON.stringify(value, null, 2) || "";
@@ -85,17 +93,6 @@ export async function GET(
   }
 
   const items = [
-    ...(runs || []).filter((run) => run.output !== null).map((run) => ({
-      id: `run-${run.id}`,
-      step: run.step_number,
-      node: run.node_id || "—",
-      kind: run.adapter || "execução",
-      source: "execução",
-      status: run.status,
-      createdAt: run.updated_at || run.created_at,
-      content: outputText(run.output),
-      links: outputLinks(run.output),
-    })),
     ...(steps || []).filter((step) => step.artifact !== null).map((step) => ({
       id: `step-${step.step_number}`,
       step: step.step_number,
@@ -106,11 +103,40 @@ export async function GET(
       createdAt: step.completed_at || step.updated_at,
       content: outputText(step.artifact),
       links: outputLinks(step.artifact),
+      filename: `etapa-${String(step.step_number).padStart(2, "0")}-${(step.node_ids || []).join("-").toLowerCase() || "output"}.md`,
+    })),
+    ...(runs || []).filter((run) =>
+      run.output !== null && !(steps || []).some((step) => step.step_number === run.step_number && step.artifact !== null)
+    ).map((run) => ({
+      id: `run-${run.id}`,
+      step: run.step_number,
+      node: run.node_id || "—",
+      kind: run.adapter || "execução",
+      source: "execução",
+      status: run.status,
+      createdAt: run.updated_at || run.created_at,
+      content: outputText(run.output),
+      links: outputLinks(run.output),
+      filename: `etapa-${String(run.step_number).padStart(2, "0")}-${(run.node_id || "output").toLowerCase()}.md`,
     })),
   ].sort((a, b) => a.step - b.step || a.source.localeCompare(b.source));
 
+  const completedSteps = (steps || []).filter((step) => ["succeeded", "skipped"].includes(step.status)).length;
+  const failedSteps = (steps || []).filter((step) => ["failed", "blocked", "review"].includes(step.status)).length;
+
   return NextResponse.json(
-    { task: { id: task.id, title: task.title, status: task.status }, items },
+    {
+      task: {
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        completedSteps,
+        failedSteps,
+        totalSteps: (steps || []).length,
+        outputCount: items.length,
+      },
+      items,
+    },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

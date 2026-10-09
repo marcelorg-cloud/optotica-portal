@@ -84,6 +84,14 @@ type OutputItem = {
   createdAt?: string | null;
   content: string;
   links: string[];
+  filename?: string;
+};
+
+type OutputTaskSummary = {
+  completedSteps: number;
+  failedSteps: number;
+  totalSteps: number;
+  outputCount: number;
 };
 
 type ChatMessage = {
@@ -115,6 +123,25 @@ function taskStatusLabel(status?: string) {
     case "rejected": return "Rejeitada";
     default: return status || "Preparando";
   }
+}
+
+function runtimeCounts(steps: RuntimeStep[] = []) {
+  return {
+    ready: steps.filter((step) => ["succeeded", "skipped"].includes(step.status)).length,
+    failed: steps.filter((step) => ["failed", "blocked", "review"].includes(step.status)).length,
+    pending: steps.filter((step) => ["planned", "prepared", "awaiting_approval"].includes(step.status)).length,
+  };
+}
+
+function taskUpdatedLabel(value?: string | null) {
+  if (!value) return "horário indisponível";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "horário indisponível";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "America/Sao_Paulo",
+  }).format(date);
 }
 
 async function readApiResponse(response: Response) {
@@ -153,6 +180,7 @@ export function RegenteClient() {
   const [outputsItems, setOutputsItems] = useState<OutputItem[]>([]);
   const [outputsLoading, setOutputsLoading] = useState(false);
   const [outputsError, setOutputsError] = useState("");
+  const [outputsTaskSummary, setOutputsTaskSummary] = useState<OutputTaskSummary | null>(null);
   const pollingTasksRef = useRef<Set<string>>(new Set());
 
   useEffect(() => { void loadSessions(); }, []);
@@ -185,6 +213,7 @@ export function RegenteClient() {
     setOutputsTaskId(taskId);
     setOutputsTitle(title);
     setOutputsItems([]);
+    setOutputsTaskSummary(null);
     setOutputsError("");
     setOutputsLoading(true);
     try {
@@ -192,11 +221,26 @@ export function RegenteClient() {
       const data = await readApiResponse(response);
       if (!response.ok) throw new Error(data.message || "Falha ao carregar outputs.");
       setOutputsItems((data.items || []) as OutputItem[]);
+      setOutputsTaskSummary((data.task || null) as OutputTaskSummary | null);
     } catch (err) {
       setOutputsError(err instanceof Error ? err.message : "Falha ao carregar outputs.");
     } finally {
       setOutputsLoading(false);
     }
+  }
+
+  function downloadOutput(output: OutputItem) {
+    const heading = `# Etapa ${output.step} · ${output.node}\n\n`;
+    const metadata = `- Fonte: ${output.source}\n- Tipo: ${output.kind}\n- Status: ${output.status}\n- Gerado em: ${taskUpdatedLabel(output.createdAt)}\n\n`;
+    const blob = new Blob([heading, metadata, output.content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = output.filename || `etapa-${output.step}-output.md`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   }
 
   async function loadSessions(selectLatest = true) {
@@ -568,7 +612,7 @@ export function RegenteClient() {
         <div>
           <span className="eyebrow">REDE OPTÓTICA + ENSAVIM</span>
           <h1>Regente</h1>
-          <p>v0.6 · execução durável · checkpoints · segundo plano · recovery A5</p>
+          <p>v0.6.3 · outputs baixáveis · checkpoints · segundo plano · recovery A5</p>
         </div>
         <div className="status">● Human-gated execution</div>
       </header>
@@ -604,6 +648,16 @@ export function RegenteClient() {
               <div className="chat-nav-buttons" aria-label="Navegar na conversa">
                 <button type="button" onClick={() => goToMessageEdge("top")} title="Ir ao início" aria-label="Ir ao início da conversa">↑ Topo</button>
                 <button type="button" onClick={() => goToMessageEdge("bottom")} title="Ir ao fim" aria-label="Ir ao fim da conversa">↓ Fim</button>
+                {sessionId && (
+                  <button
+                    type="button"
+                    onClick={() => void openSession(sessionId)}
+                    disabled={loadingHistory}
+                    title="Buscar o estado mais recente no servidor"
+                  >
+                    ↻ Atualizar
+                  </button>
+                )}
               </div>
             <label className="budget-control">
               Orçamento
@@ -619,7 +673,7 @@ export function RegenteClient() {
           <div className="message-stream" ref={streamRef} onScroll={trackScroll}>
             {!messages.length && !loadingHistory && (
               <div className="chat-welcome">
-                <span className="eyebrow">REGENTE v0.6.2</span>
+                <span className="eyebrow">REGENTE v0.6.3</span>
                 <h2>Qual resultado precisamos produzir?</h2>
                 <p>
                   O Regente decide a profundidade, combina referência, criatividade, crítica, criação e picker,
@@ -651,6 +705,16 @@ export function RegenteClient() {
 
                       {(item.payload.runtime || item.payload.nextAction) && (
                         <div className="picker-card">
+                          {(() => {
+                            const counts = runtimeCounts(item.payload?.runtime?.steps || []);
+                            return (
+                              <div className="task-output-summary" aria-label="Resumo dos entregáveis">
+                                <span><b>{counts.ready}</b> outputs preservados</span>
+                                <span><b>{counts.failed}</b> etapa pausada</span>
+                                <span><b>{counts.pending}</b> pendentes</span>
+                              </div>
+                            );
+                          })()}
                           <div className="pipeline-step-head">
                             <strong>Acompanhamento</strong>
                             <span className="pipeline-tag">
@@ -677,6 +741,7 @@ export function RegenteClient() {
                           {item.payload.runtime?.blockedReason && (
                             <small><b>Bloqueio:</b> {item.payload.runtime.blockedReason}</small>
                           )}
+                          <small><b>Estado atualizado:</b> {taskUpdatedLabel(item.payload.runtime?.updatedAt)}</small>
                         </div>
                       )}
 
@@ -712,7 +777,7 @@ export function RegenteClient() {
 
                       {item.payload.taskId && (
                         <button type="button" className="task-outputs-button" onClick={() => void showOutputs(item.payload!.taskId!, item.payload!.taskTitle || item.payload!.summary)}>
-                          Ver todos os outputs ↗
+                          Abrir outputs e baixar arquivos ↗
                         </button>
                       )}
 
@@ -786,8 +851,10 @@ export function RegenteClient() {
 
                       {item.payload.taskId && ["failed", "blocked"].includes(item.payload.taskStatus || "") && (
                         <div className="approval-gate">
-                          <strong>Execução pausada</strong>
-                          <small>Retome do último checkpoint. Se necessário, o painel registrará uma nova autorização humana para A5 sem repetir etapas concluídas.</small>
+                          <strong>Execução pausada com checkpoints preservados</strong>
+                          <small>
+                            {runtimeCounts(item.payload.runtime?.steps || []).ready} outputs estão disponíveis acima. A retomada começa na etapa {item.payload.runtime?.currentStep || "pendente"} sem repetir o que já foi concluído.
+                          </small>
                           <div className="approval-actions">
                             <button
                               type="button"
@@ -918,6 +985,12 @@ export function RegenteClient() {
               </div>
               <button type="button" onClick={() => setOutputsTaskId(null)} aria-label="Fechar outputs">✕</button>
             </div>
+            {outputsTaskSummary && (
+              <div className="outputs-task-summary">
+                <strong>{outputsTaskSummary.outputCount} arquivos disponíveis</strong>
+                <span>{outputsTaskSummary.completedSteps} de {outputsTaskSummary.totalSteps} etapas concluídas · {outputsTaskSummary.failedSteps} pausada(s)</span>
+              </div>
+            )}
             {outputsLoading && <p>Carregando textos, imagens e arquivos da tarefa…</p>}
             {outputsError && <p className="task-stale-warning">{outputsError}</p>}
             {!outputsLoading && !outputsError && !outputsItems.length && (
@@ -931,6 +1004,12 @@ export function RegenteClient() {
                     <span className="pipeline-tag">{output.source}</span>
                   </div>
                   <small>{output.kind} · {output.status}</small>
+                  <p className="outputs-preview">
+                    {output.content.slice(0, 420)}{output.content.length > 420 ? "…" : ""}
+                  </p>
+                  <div className="outputs-item-actions">
+                    <button type="button" onClick={() => downloadOutput(output)}>Baixar arquivo .md ↓</button>
+                  </div>
                   {!!output.links.length && (
                     <div className="outputs-links">
                       {output.links.map((link) => (
@@ -944,7 +1023,7 @@ export function RegenteClient() {
                     </div>
                   )}
                   <details>
-                    <summary>Visualizar texto/JSON</summary>
+                    <summary>Visualizar conteúdo completo</summary>
                     <pre>{output.content}</pre>
                   </details>
                 </article>
@@ -955,7 +1034,7 @@ export function RegenteClient() {
       )}
 
       <footer>
-        v0.6.2 — estado vivo + monitor da tarefa + execução durável + checkpoints + A5 Recovery Engineer.
+        v0.6.3 — outputs visíveis e baixáveis + estado vivo + execução durável + checkpoints.
       </footer>
     </main>
   );

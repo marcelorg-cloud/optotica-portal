@@ -447,7 +447,43 @@ input {
   }
 }
 
-/* Regente v0.6.2 — navegação, outputs e monitor compacto */
+/* Regente v0.6.3 — outputs visíveis, baixáveis e monitor compacto */
+.task-output-summary,
+.outputs-task-summary {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:7px;
+  margin-bottom:10px;
+}
+.task-output-summary span,
+.outputs-task-summary span,
+.outputs-task-summary strong {
+  border:1px solid #d2e6dc;
+  background:#f1f8f4;
+  border-radius:9px;
+  padding:8px;
+  font-size:11px;
+  line-height:1.35;
+}
+.task-output-summary b { display:block; font-size:15px; color:var(--accent); }
+.outputs-task-summary { grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr); }
+.outputs-task-summary strong { color:var(--accent); }
+.outputs-preview {
+  margin:10px 0 0;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  color:#34483f;
+  font-size:12px;
+  line-height:1.5;
+}
+.outputs-item-actions { display:flex; gap:7px; margin-top:10px; }
+.outputs-item-actions button {
+  padding:7px 10px;
+  border-radius:8px;
+  background:var(--accent);
+  color:#fff;
+  font-size:11px;
+}
 .chat-toolbar-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 .chat-nav-buttons { display:flex; gap:5px; }
 .chat-nav-buttons button {
@@ -574,4 +610,6 @@ input {
   .task-live-next { max-height:32px; overflow:hidden; }
   .task-live-actions { grid-template-columns:1fr; }
   .outputs-drawer { padding:12px; }
+  .task-output-summary,
+  .outputs-task-summary { grid-template-columns:1fr; }
 }
