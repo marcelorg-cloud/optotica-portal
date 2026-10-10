@@ -118,6 +118,9 @@ export function failureDisposition(error: unknown, node: string, mode?: string) 
   if (node === "F6" && mode !== "inspect") {
     return { message, kind: "external_effect_unknown", retry: false, action: "Verificar os designs e o run original no Canva antes de refazer. Um erro de transporte pode ocorrer após a criação; não repetir automaticamente." };
   }
+  if (/error while downloading file|upstream status code:\s*(?:401|403|404)/i.test(raw)) {
+    return { message, kind: "media_access", retry: false, action: "O provedor não conseguiu abrir uma imagem remota. Use evidências textuais para planejamento ou renove e confira os previews na fase de revisão visual. Não repetir o mesmo link nem trocar credenciais sem diagnóstico." };
+  }
   // A locally cancelled request may already have consumed generation budget.
   // Give the operator a concrete scope correction instead of repeating it or
   // spending another request diagnosing the same known deadline.
