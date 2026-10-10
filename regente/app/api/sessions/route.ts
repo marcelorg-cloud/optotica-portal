@@ -24,5 +24,5 @@ export async function GET() {
     return NextResponse.json({ error: "sessions_load_failed" }, { status: 500 });
   }
 
-  return NextResponse.json({ sessions: data || [] });
+  return NextResponse.json({ sessions: data || [] }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -11,6 +11,7 @@ type StepLike = {
   attempt_count?: number | null;
   last_error?: unknown;
   next_action?: string | null;
+  recovered_at?: string | null;
 };
 
 export type TaskAttention = {
@@ -60,7 +61,7 @@ export function deriveTaskObservability(input: {
     .find((step) =>
       step.status === "succeeded" &&
       Number(step.attempt_count || 0) > 1 &&
-      Boolean(errorMessage(step.last_error)),
+      Boolean(step.recovered_at || errorMessage(step.last_error)),
     ) || null;
   const recovering = Boolean(activeStep && currentAttempts > 1);
 
@@ -82,7 +83,7 @@ export function deriveTaskObservability(input: {
         kind: "stale",
         severity: "warning",
         title: "Execução sem atualização",
-        message: "O monitor não recebeu um novo checkpoint há mais de 15 minutos. Atualize o estado antes de decidir uma retomada.",
+        message: "A reserva de execução expirou. Atualize o estado e use Recuperar execução; o checkpoint será preservado.",
         action: "refresh",
         step: currentStep?.step_number || input.task.current_step || null,
         attempts: currentAttempts,
@@ -112,14 +113,14 @@ export function deriveTaskObservability(input: {
     };
   }
 
-  if (input.task.status === "awaiting_approval") {
+  if (["awaiting_approval", "awaiting_validation"].includes(input.task.status)) {
     return {
       recovery,
       attention: {
         kind: "approval",
         severity: "warning",
-        title: "Autorização necessária",
-        message: input.task.next_action || "Revise o plano e autorize a execução supervisionada.",
+        title: input.task.status === "awaiting_validation" ? "Output pronto: valide a fase" : "Autorização necessária",
+        message: input.task.next_action || "Revise o plano e autorize somente a próxima fase.",
         action: "approve",
         step: input.task.current_step || null,
         attempts: currentAttempts,
