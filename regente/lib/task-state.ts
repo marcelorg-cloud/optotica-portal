@@ -38,14 +38,14 @@ export async function initializeTaskSteps(input: {
       : step.executionState === "planned"
         ? "planned"
         : "prepared",
-    depends_on: step.dependsOn?.length ? step.dependsOn : index > 0 ? [input.pipeline[index - 1].step] : [],
-    checkpoint: Boolean(step.checkpoint),
+    depends_on: step.dependsOn ?? (index > 0 ? [input.pipeline[index - 1].step] : []),
+    checkpoint: true,
     next_action: index === 0 ? step.action : null,
   }));
 
   const { error } = await input.supabase
     .from("regent_task_steps")
-    .upsert(rows, { onConflict: "task_id,step_number" });
+    .upsert(rows, { onConflict: "task_id,step_number", ignoreDuplicates: true });
   if (error) throw error;
 }
 
@@ -59,6 +59,8 @@ export async function markTaskStep(input: {
   error?: unknown;
   nextAction?: string | null;
   incrementAttempt?: boolean;
+  recovered?: boolean;
+  executionId?: string;
 }) {
   const patch: Record<string, unknown> = {
     status: input.status,
@@ -71,6 +73,7 @@ export async function markTaskStep(input: {
   }
   if (["succeeded", "blocked", "failed", "skipped"].includes(input.status)) patch.completed_at = now();
   if (["running", "succeeded", "skipped"].includes(input.status)) patch.last_error = null;
+  if (input.recovered) patch.recovered_at = now();
   if (input.artifact !== undefined) patch.artifact = input.artifact;
   if (input.error !== undefined) {
     patch.last_error = {
@@ -88,7 +91,8 @@ export async function markTaskStep(input: {
       .eq("user_id", input.userId)
       .eq("step_number", input.stepNumber)
       .maybeSingle();
-    patch.attempt_count = Number(current.data?.attempt_count || 0) + 1;
+    if (current.error || !current.data) throw new Error("Não foi possível ler o contador da etapa.");
+    patch.attempt_count = Number(current.data.attempt_count || 0) + 1;
   }
 
   const { error } = await input.supabase

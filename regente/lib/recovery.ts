@@ -1,6 +1,8 @@
 import { Agent, run } from "@openai/agents";
 import { z } from "zod";
 import type { PipelineStep } from "./adapters";
+import { guardianSpecialistInstructions, loadGuardianSourceSnapshot } from "./guardian-context";
+import { redactSecrets } from "./phase-control";
 
 export type RecoveryArtifact = { step: number; node: string; output: unknown };
 
@@ -27,7 +29,7 @@ const IndependentRecoveryReview = z.object({
 });
 
 function normalizeError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error || "Unknown error");
+  const message = redactSecrets(error instanceof Error ? error.message : String(error || "Unknown error"));
   return message
     .replace(/[0-9a-f]{8}-[0-9a-f-]{20,}/gi, "<uuid>")
     .replace(/\b\d{4,}\b/g, "<n>")
@@ -40,39 +42,23 @@ function normalizeError(error: unknown) {
 export function errorFingerprint(error: unknown) {
   return normalizeError(error).toLowerCase();
 }
-
 function artifactsText(artifacts: RecoveryArtifact[]) {
   if (!artifacts.length) return "Nenhum output anterior.";
-  return artifacts.slice(-6).map((item) =>
-    `ETAPA ${item.step} / ${item.node}\n${typeof item.output === "string" ? item.output : JSON.stringify(item.output)}`
-  ).join("\n\n").slice(0, 12000);
+  return redactSecrets(artifacts.slice(-6).map((item) =>
+    `ETAPA ${item.step} / ${item.node}\n${typeof item.output === "string" ? item.output : JSON.stringify(item.output)}`,
+  ).join("\n\n")).slice(0, 12000);
 }
-
-async function fetchSource(path: string) {
-  const base = process.env.REGENT_REPO_RAW_BASE?.trim() ||
-    "https://raw.githubusercontent.com/marcelorg-cloud/optotica-portal/main";
-  const response = await fetch(`${base}/${path}`, {
-    cache: "no-store",
-    signal: AbortSignal.timeout(7000),
-    headers: { "User-Agent": "optotica-regente-recovery" },
-  });
-  if (!response.ok) return `[${path}] indisponível HTTP ${response.status}`;
-  const text = await response.text();
-  return `### ${path}\n${text.slice(0, 18000)}`;
-}
-
 async function sourceContext(node: string) {
-  const common = [
-    "regente/app/api/tasks/[taskId]/execute/route.ts",
-    "regente/lib/adapters.ts",
-  ];
-  const paths = node === "F6"
-    ? [...common, "app/api/internal/regente/canva/route.ts", "lib/canva/regent.ts"]
-    : [...common, "regente/lib/regente.ts"];
-  const values = await Promise.all(paths.map(fetchSource));
-  return values.join("\n\n").slice(0, 52000);
+  const sources = await loadGuardianSourceSnapshot();
+  const required = new Set([
+    "regente/lib/phase-control.ts", "regente/lib/phase-executor.ts", "regente/lib/orchestra-health.ts",
+    "regente/app/api/tasks/[taskId]/execute/route.ts", "regente/app/api/tasks/[taskId]/decision/route.ts",
+    "regente/lib/adapters.ts", ...(node === "F6" ? ["app/api/internal/regente/canva/route.ts"] : []),
+  ]);
+  return sources.filter((source) => required.has(source.path)).map((source) =>
+    `### ${source.path} @ ${source.commit || "commit não comprovado"} / ${source.state}\n${source.content || "Fonte indisponível: não presumir seu conteúdo."}`,
+  ).join("\n\n").slice(0, 62000);
 }
-
 export async function analyzeRecovery(input: {
   objective: string;
   taskTitle: string;
@@ -85,13 +71,14 @@ export async function analyzeRecovery(input: {
   recurrence: number;
 }) {
   const agent = new Agent({
-    name: "A5 Recovery Engineer — Regente",
+    name: "Guardião externo OpenAI — Engenharia do Regente",
     model: process.env.REGENT_RECOVERY_MODEL || "gpt-5.6-sol",
     modelSettings: {
       reasoning: { effort: "high" },
       text: { verbosity: "medium" },
     },
     instructions: [
+      guardianSpecialistInstructions("openai"),
       "Você é o engenheiro de recuperação do Regente Optótica.",
       "Sua função é diagnosticar falhas de execução de pipeline e propor a menor correção segura.",
       "Você conhece a arquitetura do Regente e recebe trechos reais do código de produção.",
@@ -99,9 +86,8 @@ export async function analyzeRecovery(input: {
       "Se o problema exigir mudança de código, não finja que aplicou: marque codeChangeRequired=true e proponha patch objetivo.",
       "Nunca contorne autenticação, RLS, autorização humana, limites de custo ou segurança.",
       "Não repita uma estratégia que já falhou sem uma razão concreta.",
-      "O protocolo permite até 3 tentativas progressivas. Em cada recorrência, avance o diagnóstico com base no que falhou antes.",
-      "Na tentativa 1, priorize correção operacional direta. Nas tentativas 2 e 3, use a revisão independente do A4 em uma execução OpenAI separada e refine criticamente a estratégia.",
-      "Se uma mudança de código parecer necessária, proponha o patch com precisão; nas tentativas seguintes procure também uma alternativa operacional segura antes de concluir que intervenção humana é indispensável.",
+      "O runtime classifica erros determinísticos localmente e só repete falhas transitórias em operações seguras. Não invente três tentativas nem recomende repetir configuração ausente.",
+      "Seu diagnóstico é único e pode ser revisto pelo segundo guardião em contexto separado. Uma proposta de patch não significa código aplicado.",
       "Quando houver revisão independente do A4, trate-a como contraponto: compare hipóteses, resolva divergências e produza uma decisão consolidada.",
     ].join("\n"),
     outputType: RecoveryDecision,
@@ -130,7 +116,7 @@ export async function analyzeRecovery(input: {
     code,
   ].filter(Boolean).join("\n");
 
-  const result = await run(agent, prompt);
+  const result = await run(agent, prompt, { maxTurns: 2, signal: AbortSignal.timeout(90_000) });
   if (!result.finalOutput) throw new Error("Recovery Engineer retornou saída vazia.");
   return result.finalOutput;
 }
@@ -157,6 +143,7 @@ export async function reviewRecoveryWithOpenAI(input: {
     },
     instructions: [
       "Você é o revisor independente A4 do mecanismo de recuperação do Regente.",
+      guardianSpecialistInstructions("openai"),
       "Você executa com contexto separado do A5 e deve produzir um contraponto real.",
       "Analise o erro, a hipótese mais recente do Recovery Engineer e o código real.",
       "Destaque discordâncias, hipóteses alternativas e testes objetivos.",
@@ -177,7 +164,7 @@ export async function reviewRecoveryWithOpenAI(input: {
     code,
   ].join("\n");
 
-  const result = await run(agent, prompt);
+  const result = await run(agent, prompt, { maxTurns: 2, signal: AbortSignal.timeout(90_000) });
   if (!result.finalOutput) {
     throw new Error("O revisor independente A4 retornou saída vazia.");
   }

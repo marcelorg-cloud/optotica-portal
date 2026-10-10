@@ -1,260 +1,60 @@
 import { NextResponse } from "next/server";
 import { requireMaster } from "../../../../../lib/require-master";
 import { createServerSupabaseClient } from "../../../../../lib/supabase";
-import { syncTaskProgress } from "../../../../../lib/task-state";
+import { validatePhasePatch } from "../../../../../lib/phase-patch";
 
-type Decision = "execute" | "partial" | "reject" | "revise";
+const decisions = new Set(["execute", "partial", "continue", "redo", "skip", "reject", "revise", "recover"]);
+const explanations: Record<string, string> = {
+  forbidden: "Somente o operador Master ativo pode autorizar a execução.",
+  task_not_ready: "A pipeline ainda precisa ser preparada antes de executar.",
+  task_closed: "A missão está encerrada. Use Refazer com nova orientação para criar uma nova versão.",
+  recovery_not_required: "Não existe execução expirada a recuperar. Atualize e use a ação da fase atual.",
+  phase_not_found: "A fase escolhida não existe nesta missão.",
+  note_too_long: "A orientação deve ter no máximo 8.000 caracteres.",
+  invalid_phase_patch: "A configuração solicitada não é válida. Escolha um executor e referências canônicas para inspecionar Canva.",
+  revision_conflict: "O estado mudou desde a última leitura. Atualize o monitor antes de decidir.",
+  execution_active: "Há uma invocação ativa. Aguarde o término ou a expiração do lock; não iniciar outra cópia.",
+  phase_validation_required: "Revise os outputs e use Continuar para validar a fase antes de avançar.",
+  phase_report_stale: "O relatório pertence a outra versão. Atualize o estado.",
+  guidance_required: "Informe a orientação para refazer somente esta fase.",
+  next_phase_only: "A 0.7 libera somente a próxima fase; as demais continuam pendentes.",
+  dependencies_pending: "Há dependências pendentes. Revise a pipeline, sem simular resultados.",
+  phase_not_optional: "Esta fase não pode ser pulada. Configure o adapter ou revise o plano.",
+  skip_requires_pending_phase_and_reason: "Escolha uma fase opcional pendente e informe a razão para adiar.",
+  task_not_found: "Tarefa não encontrada.",
+  final_validation_required: "A última fase precisa ser validada antes de finalizar a missão.",
+};
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ taskId: string }> },
-) {
+export async function POST(request: Request, { params }: { params: Promise<{ taskId: string }> }) {
   const auth = await requireMaster();
-  if (!auth.ok) {
-    return NextResponse.json(
-      { error: auth.status === 401 ? "unauthorized" : "forbidden", message: auth.message },
-      { status: auth.status },
-    );
-  }
-
+  if (!auth.ok) return NextResponse.json({ error: "unauthorized", message: auth.message }, { status: auth.status });
+  const origin = request.headers.get("origin");
+  if (origin && origin !== new URL(request.url).origin) return NextResponse.json({ error: "origin_mismatch" }, { status: 403 });
   const { taskId } = await params;
   const body = await request.json().catch(() => ({}));
-  const decision = body.decision as Decision;
+  if (!decisions.has(body.decision)) return NextResponse.json({ error: "invalid_decision", message: "Decisão inválida." }, { status: 400 });
+  if (!Number.isInteger(body.expectedRevision) || body.expectedRevision < 0) {
+    return NextResponse.json({ error: "revision_required", message: "Atualize a página para carregar a revisão atual antes de decidir." }, { status: 409 });
+  }
   const note = typeof body.note === "string" ? body.note.trim() : "";
-  const approvedSteps = Array.isArray(body.approvedSteps)
-    ? body.approvedSteps.filter((step: unknown) => Number.isInteger(step) && Number(step) > 0).map(Number)
-    : [];
-
-  if (!["execute", "partial", "reject", "revise"].includes(decision)) {
-    return NextResponse.json(
-      { error: "invalid_decision", message: "Decisão inválida." },
-      { status: 400 },
-    );
+  const target = body.targetStep ?? body.step ?? (Array.isArray(body.approvedSteps) ? body.approvedSteps[0] : null);
+  if (target != null && (!Number.isInteger(target) || target < 1)) return NextResponse.json({ error: "invalid_step" }, { status: 400 });
+  let patch = null;
+  if (body.phasePatch != null) {
+    if (body.decision !== "redo" || !note || target == null) return NextResponse.json({ error: "invalid_phase_patch", message: "Alterar a configuração exige Refazer, a fase e uma orientação explícita." }, { status: 400 });
+    try { patch = validatePhasePatch(body.phasePatch); } catch (error) {
+      return NextResponse.json({ error: "invalid_phase_patch", message: (error as Error).message }, { status: 400 });
+    }
   }
-
   const supabase = await createServerSupabaseClient();
-  const { data: task, error } = await supabase
-    .from("regent_tasks")
-    .select("id, status, pipeline")
-    .eq("id", taskId)
-    .eq("user_id", auth.userId)
-    .maybeSingle();
-
-  if (error || !task) {
-    return NextResponse.json(
-      { error: "task_not_found", message: "Tarefa não encontrada." },
-      { status: 404 },
-    );
-  }
-
-  const recoveryApproval = ["failed", "blocked"].includes(task.status);
-  if (
-    !["awaiting_approval", "approved", "needs_revision", "failed", "blocked"].includes(task.status) ||
-    (recoveryApproval && !["execute", "partial"].includes(decision))
-  ) {
-    return NextResponse.json(
-      { error: "invalid_state", message: `A tarefa está em estado ${task.status}.` },
-      { status: 409 },
-    );
-  }
-
-  const pipeline = Array.isArray(task.pipeline) ? task.pipeline : [];
-  let pausedSteps: number[] = [];
-  if (recoveryApproval) {
-    const { data: pausedRuntimeSteps, error: pausedRuntimeStepsError } = await supabase
-      .from("regent_task_steps")
-      .select("step_number,status")
-      .eq("task_id", taskId)
-      .eq("user_id", auth.userId)
-      .in("status", ["failed", "blocked", "review"]);
-    if (pausedRuntimeStepsError) {
-      return NextResponse.json(
-        { error: "recovery_state_unavailable", message: "Não foi possível validar as etapas pausadas." },
-        { status: 500 },
-      );
-    }
-    pausedSteps = [...new Set((pausedRuntimeSteps || []).map((step) => Number(step.step_number)).filter(Boolean))];
-    if (!pausedSteps.length) {
-      return NextResponse.json(
-        { error: "recovery_step_not_found", message: "Nenhuma etapa pausada foi comprovada para retomada." },
-        { status: 409 },
-      );
-    }
-  }
-  if (
-    recoveryApproval &&
-    decision === "partial" &&
-    pausedSteps.some((step) => !approvedSteps.includes(step))
-  ) {
-    return NextResponse.json(
-      {
-        error: "recovery_step_required",
-        message: `Inclua todas as etapas pausadas (${pausedSteps.join(", ")}) na autorização parcial.`,
-      },
-      { status: 400 },
-    );
-  }
-
-  const missingAdapters = pipeline
-    .filter((step: { executionState?: string; onUnavailable?: string }) =>
-      step.executionState === "requires_adapter" && step.onUnavailable !== "skip")
-    .flatMap((step: { nodes?: string[] }) => step.nodes || [])
-    .filter((node: string) => node !== "A5");
-
-  let nextStatus = "approved";
-  let message = "Pipeline aprovado para execução supervisionada.";
-
-  if (decision === "reject") {
-    nextStatus = "rejected";
-    message = "Pipeline rejeitado. Nenhuma ação externa foi executada.";
-  } else if (decision === "revise") {
-    nextStatus = "needs_revision";
-    message = "Pipeline devolvido para revisão. Nenhuma ação externa foi executada.";
-  } else if (decision === "partial") {
-    if (!approvedSteps.length) {
-      return NextResponse.json(
-        { error: "steps_required", message: "Selecione ao menos uma etapa para execução parcial." },
-        { status: 400 },
-      );
-    }
-    nextStatus = "approved";
-    message = recoveryApproval
-      ? `Retomada parcial aprovada para as etapas ${approvedSteps.join(", ")}, preservando checkpoints concluídos.`
-      : `Execução parcial aprovada para as etapas ${approvedSteps.join(", ")}. Etapas sem adapter continuam bloqueadas.`;
-  } else if (recoveryApproval) {
-    nextStatus = "approved";
-    message = `Retomada autorizada nas etapas ${pausedSteps.join(", ")}. O Regente continuará do último checkpoint sem repetir etapas concluídas.`;
-  } else if (missingAdapters.length) {
-    nextStatus = "approved";
-    message =
-      "Todas as etapas do plano atual foram autorizadas em uma única ação. Etapas sem adapter continuam bloqueadas: " +
-      [...new Set(missingAdapters)].join(", ") +
-      ".";
-  } else {
-    nextStatus = "approved";
-    message =
-      "Todas as etapas já previstas neste plano foram autorizadas de uma vez. Novas ações fora do plano exigirão outra autorização.";
-  }
-
-  const humanDecision = {
-    decision,
-    note: note || null,
-    decided_at: new Date().toISOString(),
-    missing_adapters: [...new Set(missingAdapters)],
-    approved_steps: decision === "partial" ? approvedSteps : null,
-    approval_scope: decision === "execute" ? "all_current_pipeline_steps" : decision === "partial" ? "selected_steps" : null,
-    approved_pipeline_steps: decision === "execute"
-      ? pipeline.map((step: { step?: number }) => step.step).filter(Boolean)
-      : approvedSteps,
-    recovery_authorized: recoveryApproval,
-    recovery_steps: recoveryApproval ? pausedSteps : null,
-  };
-
-  const currentStatus = new Map<number, string>();
-  if (decision === "execute" || decision === "partial") {
-    const { data: currentSteps, error: currentStepsError } = await supabase
-      .from("regent_task_steps")
-      .select("step_number,status")
-      .eq("task_id", taskId)
-      .eq("user_id", auth.userId);
-    if (currentStepsError) {
-      return NextResponse.json(
-        { error: "step_state_unavailable", message: "Não foi possível preservar os checkpoints existentes." },
-        { status: 500 },
-      );
-    }
-    for (const step of currentSteps || []) {
-      currentStatus.set(Number(step.step_number), String(step.status));
-    }
-  }
-
-  const { error: updateError } = await supabase
-    .from("regent_tasks")
-    .update({
-      status: nextStatus,
-      human_decision: humanDecision,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", taskId)
-    .eq("user_id", auth.userId);
-
-  if (updateError) {
-    console.error("regente_task_decision_failed", updateError);
-    return NextResponse.json(
-      { error: "decision_failed", message: "Não foi possível registrar a decisão." },
-      { status: 500 },
-    );
-  }
-
-  if (decision === "execute" || decision === "partial") {
-    const approvedSet = decision === "partial" ? new Set(approvedSteps) : null;
-    for (const step of pipeline as Array<{ step?: number; executionState?: string }>) {
-      const stepNumber = Number(step.step || 0);
-      if (!stepNumber) continue;
-      if (currentStatus.get(stepNumber) === "succeeded") continue;
-      const approved = !approvedSet || approvedSet.has(stepNumber);
-      await supabase
-        .from("regent_task_steps")
-        .update({
-          status: approved
-            ? step.executionState === "planned" ? "planned" : "prepared"
-            : "skipped",
-          next_action: approved ? null : "Etapa fora da aprovação parcial.",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("task_id", taskId)
-        .eq("user_id", auth.userId)
-        .eq("step_number", stepNumber);
-    }
-  } else if (decision === "reject") {
-    await supabase
-      .from("regent_task_steps")
-      .update({ status: "skipped", next_action: "Pipeline rejeitado pelo operador.", updated_at: new Date().toISOString() })
-      .eq("task_id", taskId)
-      .eq("user_id", auth.userId);
-  } else if (decision === "revise") {
-    await supabase
-      .from("regent_task_steps")
-      .update({ status: "awaiting_approval", next_action: "Aguardar revisão do pipeline.", updated_at: new Date().toISOString() })
-      .eq("task_id", taskId)
-      .eq("user_id", auth.userId);
-  }
-
-  await syncTaskProgress({
-    supabase,
-    taskId,
-    userId: auth.userId,
-    fallbackNextAction:
-      decision === "execute" || decision === "partial"
-        ? "Executar a primeira etapa liberada."
-        : decision === "revise"
-          ? "Revisar o pipeline."
-          : "Nenhuma execução pendente.",
+  const result = await supabase.rpc("regent_decide_phase", {
+    p_task_id: taskId, p_expected_revision: body.expectedRevision, p_decision: body.decision, p_note: note, p_step: target, p_phase_patch: patch,
   });
-
-  await supabase.from("regent_task_events").insert({
-    task_id: taskId,
-    user_id: auth.userId,
-    event_type:
-      recoveryApproval && (decision === "execute" || decision === "partial")
-        ? "human_recovery_approved"
-        : decision === "execute"
-        ? "human_approved"
-        : decision === "partial"
-          ? "human_partial_approval"
-          : decision === "reject"
-          ? "human_rejected"
-          : "human_requested_revision",
-    payload: humanDecision,
-  });
-
-  return NextResponse.json({
-    taskId,
-    status: nextStatus,
-    decision,
-    missingAdapters: [...new Set(missingAdapters)],
-    approvedSteps: decision === "partial" ? approvedSteps : null,
-    executionAvailable: (decision === "execute" || decision === "partial") && missingAdapters.length === 0,
-    message,
-  });
+  if (result.error) {
+    const key = Object.keys(explanations).find((key) => result.error.message.startsWith(key));
+    const status = key === "task_not_found" ? 404 : key ? 409 : 500;
+    if (!key) console.error("regente_phase_decision_failed", { code: result.error.code });
+    return NextResponse.json({ error: key || "decision_failed", message: key ? explanations[key] : "Não foi possível registrar a decisão com segurança." }, { status, headers: { "Cache-Control": "no-store" } });
+  }
+  return NextResponse.json(result.data, { headers: { "Cache-Control": "no-store" } });
 }

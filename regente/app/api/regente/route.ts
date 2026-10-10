@@ -3,8 +3,10 @@ import { askRegent, type RegentConversationMessage } from "../../../lib/regente"
 import { requireMaster } from "../../../lib/require-master";
 import { createServerSupabaseClient } from "../../../lib/supabase";
 import { initializeTaskSteps, syncTaskProgress } from "../../../lib/task-state";
+import { normalizeNewPipeline, REGENT_VERSION } from "../../../lib/phase-control";
 
 export const runtime = "nodejs";
+export const maxDuration = 180;
 
 const MAX_HISTORY_MESSAGES = 16;
 
@@ -112,28 +114,26 @@ export async function POST(request: Request) {
       );
     }
 
-    let output;
-    try {
-      output = await askRegent({ message, history, budgetTier });
-    } catch (error) {
-      await supabase
-        .from("regent_messages")
-        .delete()
-        .eq("id", savedUserMessage.id)
-        .eq("user_id", auth.userId);
-      throw error;
-    }
+    const planned = await askRegent({ message, history, budgetTier });
 
-    if (!output) {
-      await supabase
-        .from("regent_messages")
-        .delete()
-        .eq("id", savedUserMessage.id)
-        .eq("user_id", auth.userId);
+    if (!planned) {
       throw new Error("Regente retornou output vazio.");
     }
 
-    const taskStatus = output.approvalRequired ? "awaiting_approval" : "approved";
+    if (!planned.pipeline.length) {
+      // A conversational reply is not an executable mission with a nonexistent checkpoint.
+      const content = planned.message || planned.summary;
+      const payload = { ...planned, approvalRequired: false };
+      const saved = await supabase.from("regent_messages").insert({ session_id: sessionId, user_id: auth.userId,
+        role: "assistant", content, payload });
+      if (saved.error) throw new Error("Não foi possível salvar a resposta conversacional.");
+      return NextResponse.json({ mode: "conversation", version: REGENT_VERSION, sessionId, isNewSession,
+        message: content, output: payload }, { headers: { "Cache-Control": "no-store" } });
+    }
+
+    // The model suggests a plan; only deterministic normalization defines executable stages.
+    const output = { ...planned, pipeline: normalizeNewPipeline(planned.pipeline), approvalRequired: true };
+    const taskStatus = "awaiting_approval";
     const { data: task, error: taskError } = await supabase
       .from("regent_tasks")
       .insert({
@@ -166,7 +166,7 @@ export async function POST(request: Request) {
       taskId: task.id,
       userId: auth.userId,
       pipeline: output.pipeline,
-      approvalRequired: output.approvalRequired,
+      approvalRequired: true,
     });
     await syncTaskProgress({ supabase, taskId: task.id, userId: auth.userId, fallbackNextAction: output.nextAction });
 
@@ -216,7 +216,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       mode: "supervised_pipeline",
-      version: "0.5",
+      version: REGENT_VERSION,
       sessionId,
       isNewSession,
       taskId: task.id,
@@ -225,7 +225,7 @@ export async function POST(request: Request) {
       output: persistedPayload,
     });
   } catch (error) {
-    console.error("Regente error", error);
+    console.error("regente_planning_failed", { code: (error as { code?: unknown })?.code || "planning_error" });
     return NextResponse.json(
       { error: "regent_failed", message: "Falha ao consultar o Regente." },
       { status: 500 },

@@ -30,7 +30,7 @@ export const RegentOutput = z.object({
   depth: z.enum(["direct", "assisted", "elaborated", "deep"]),
   risk: z.enum(["low", "medium", "high"]),
   selectedNodes: z.array(z.string()),
-  pipeline: z.array(PipelineStep).max(12),
+  pipeline: z.array(PipelineStep).max(11),
   actions: z.array(
     z.object({
       step: z.number().int().positive(),
@@ -65,7 +65,7 @@ export type RegentConversationMessage = {
 };
 
 const instructions = `
-Você é o REGENTE v0.6 da rede de agentes e ferramentas Optótica + ENSAVIM.
+Você é o REGENTE v0.7 da rede de agentes e ferramentas Optótica + ENSAVIM.
 
 MISSÃO
 Você é o arquiteto e controlador de pipelines. Seu trabalho NÃO é produzir um prompt genérico.
@@ -86,6 +86,9 @@ ESTADO, DEPENDÊNCIAS E RETOMADA
 - Cada etapa precisa declarar dependsOn. Use [] quando não houver dependência.
 - Não libere uma etapa antes das dependências estarem satisfeitas.
 - checkpoint=true quando a conclusão da etapa produzir decisão, artefato ou validação importante para retomada.
+- Na v0.7, toda fase da pipeline é um checkpoint humano: use checkpoint=true em todas as etapas.
+- A aprovação libera somente a próxima fase cujas dependências estejam satisfeitas. Nunca presuma autorização para a pipeline inteira.
+- Ao concluir uma fase, preserve outputs, produza resumo e aguarde o operador continuar, revisar ou solicitar uma nova versão.
 - A execução é persistente e durável em segundo plano: fechar o painel não cancela a tarefa, e etapas concluídas não devem ser refeitas sem motivo explícito.
 - Retries devem reaproveitar outputs válidos e nunca duplicar efeitos externos já confirmados.
 - nextAction deve ser UMA frase concreta descrevendo a próxima ação operacional da tarefa.
@@ -96,6 +99,9 @@ ESTADO, DEPENDÊNCIAS E RETOMADA
 - Separe claramente "planejado", "executado", "confirmado" e "bloqueado".
 
 ARQUITETURA DE PIPELINE
+Uma etapa local A5 de afinamento básico será acrescentada deterministicamente antes do seu plano.
+Reserve no máximo 11 etapas produtivas. Cada etapa executa somente o nó principal (nodes[0]).
+Se vários atores precisam agir, separe-os em etapas próprias; nós citados como referência não significam adapters executados.
 Você pode usar:
 1. reference — buscar briefing, manual de marca, arquivos, código, dados ou resultados existentes.
 2. planning — decompor objetivo e critérios.
@@ -117,6 +123,7 @@ ADAPTERS DE EXECUÇÃO DISPONÍVEIS
 - A1, A2, A3 e A4: conectados via OpenAI Agents SDK. Marque executionState="ready".
 - A4 é o revisor independente: usa uma execução OpenAI separada, com instruções e contexto próprios.
 - A5: conectado como preflight local de recuperação, sem chamada generativa nem consumo adicional. Marque "ready".
+- A6 é o guardião Claude externo por importação manual do pacote desta missão, etapa, revisão e commit. Marque "ready", requiresApproval=true e explique a necessidade do parecer humano; não afirme chamada automática e não exija ANTHROPIC_API_KEY. O operador deverá baixar o pacote, revisar no Claude e importar o parecer.
 - F6: Canva conectado via bridge seguro com o portal Optótica e OAuth Canva existente. Marque "ready".
 - Toda etapa F6 deve declarar canvaMode="create" para criar um novo design ou canvaMode="inspect" para ler designs já confirmados.
 - A inspeção F6 é somente leitura e exige canvaSourceRunIds e canvaDesignIds persistidos e aprovados; nunca invente esses IDs.
@@ -125,8 +132,8 @@ ADAPTERS DE EXECUÇÃO DISPONÍVEIS
 - Só use onUnavailable="skip" quando o humano tiver autorizado expressamente adiar essa integração. Uma etapa adiada deve ser registrada como não executada, sem simular sucesso externo.
 
 RECOVERY
-- Existe um A5 Recovery Engineer. Erros de ferramenta, adapter, payload, timeout, acesso e código entram nele.
-- A5 tenta a menor correção operacional segura.
+- A5 é exclusivamente preflight determinístico local, sem geração e sem alterar código.
+- Guardiões especialistas externos fazem diagnóstico e revisão separados da orquestra produtiva; correção de código ou mudança de conta exige ação auditável, nunca é simulada pelo planner.
 - Recorrência pode ser revisada independentemente pelo A4 em uma execução OpenAI separada.
 - Se persistir ou exigir patch de código, a pipeline pausa e escala ao humano com relatório.
 - Não tente substituir esse mecanismo com repetição cega.
@@ -160,7 +167,7 @@ REGRAS OPERACIONAIS
 `;
 
 export const regentAgent = new Agent({
-  name: "Regente Optótica v0.6",
+  name: "Regente Optótica v0.7",
   model: process.env.REGENT_MODEL || "gpt-5.6-sol",
   instructions,
   outputType: RegentOutput,
@@ -193,6 +200,6 @@ export async function askRegent(input: {
     "Se houver execução externa, prepare-a e pare no gate humano.",
   ].join("\n");
 
-  const result = await run(regentAgent, prompt);
+  const result = await run(regentAgent, prompt, { maxTurns: 2, signal: AbortSignal.timeout(120_000) });
   return result.finalOutput;
 }
