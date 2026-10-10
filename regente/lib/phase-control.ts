@@ -118,6 +118,18 @@ export function failureDisposition(error: unknown, node: string, mode?: string) 
   if (node === "F6" && mode !== "inspect") {
     return { message, kind: "external_effect_unknown", retry: false, action: "Verificar os designs e o run original no Canva antes de refazer. Um erro de transporte pode ocorrer após a criação; não repetir automaticamente." };
   }
+  // A locally cancelled request may already have consumed generation budget.
+  // Give the operator a concrete scope correction instead of repeating it or
+  // spending another request diagnosing the same known deadline.
+  if ((error as { name?: string } | null)?.name === "AbortError" || /request was aborted|operation was aborted|aborted by|cancelad[ao]/i.test(raw)) {
+    return {
+      message: "A chamada foi cancelada ou atingiu o limite de tempo. " + message,
+      kind: "cancelled", retry: false,
+      action: node === "F6"
+        ? "Confira o run original e os outputs preservados antes de autorizar nova inspeção. Não é necessário refazer fases já concluídas."
+        : "Use Reorientar esta etapa para dividir a revisão em blocos menores e limitar a saída. Confira o modelo configurado; autorize apenas esta fase, preservando os outputs anteriores.",
+    };
+  }
   const transient = [408, 429, 500, 502, 503, 504].includes(status) || /timeout|timed out|ECONNRESET|ETIMEDOUT|rate.?limit|HTTP 50[234]|fetch failed|temporar/i.test(raw);
   return { message, kind: transient ? "transient" : "unknown", retry: transient && (["A1", "A2", "A3", "A4"].includes(node) || node === "F6" && mode === "inspect"), action: transient ? "Repetir apenas esta fase dentro do limite autorizado; efeitos externos confirmados serão preservados." : "Analisar o diagnóstico e autorizar a retomada ou refazer apenas esta fase com nova orientação." };
 }

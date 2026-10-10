@@ -38,3 +38,14 @@ test("configuration and deterministic errors do not burn retries; Canva creation
   assert.equal(failureDisposition(Object.assign(new Error("billing exhausted"), { status: 429 }), "A2").retry, false);
   assert.equal(redactSecrets("secret-value-1234", { OPENAI_API_KEY: "secret-value-1234" }), "[segredo ocultado]");
 });
+test("cancelled generation gives scope guidance without another paid retry or generic guardian diagnosis", () => {
+  const failure = failureDisposition(new Error("Request was aborted."), "A4");
+  assert.equal(failure.kind, "cancelled");
+  assert.equal(failure.retry, false);
+  assert.match(failure.message, /limite de tempo/);
+  assert.match(failure.action, /blocos menores/);
+  assert.ok(!["unknown", "transient"].includes(failure.kind));
+  assert.equal(failureDisposition(Object.assign(new Error("cancelled"), { name: "AbortError" }), "A1").retry, false);
+  assert.equal(failureDisposition(new Error("Request was aborted."), "F6", "create").kind, "external_effect_unknown");
+  assert.match(failureDisposition(new Error("Request was aborted."), "F6", "inspect").action, /run original/);
+});
