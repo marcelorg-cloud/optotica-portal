@@ -45,7 +45,7 @@ test("A5 calcula a primeira continuação liberada sem executar provedor", () =>
   assert.equal(report.capabilityInventory.F6.operationalVerification, "not_verified");
 });
 
-test("A5 reaproveita metadados de runs succeeded sem incluir segredos", () => {
+test("A5 mantém runs succeeded como histórico sem alegar reaproveitamento verificado", () => {
   const secretMarker = "never-include-this-secret";
   const report = buildA5PreflightReport({
     task: {
@@ -78,10 +78,66 @@ test("A5 reaproveita metadados de runs succeeded sem incluir segredos", () => {
   });
 
   assert.deepEqual(report.completedSteps, [2]);
-  assert.equal(report.reusableSucceededRuns[0].runId, "run-2");
+  assert.equal(report.historicalSucceededRuns[0].runId, "run-2");
+  assert.equal(report.historicalSucceededRuns[0].reuseVerified, false);
+  assert.deepEqual(report.reusableSucceededRuns, []);
   assert.equal(report.capabilityInventory.A1.credentialConfigured, true);
   assert.equal(report.executionSafety.secretValuesIncluded, false);
   assert.equal(JSON.stringify(report).includes(secretMarker), false);
+});
+
+function preflightInput(steps, succeededRuns = []) {
+  return {
+    task: { id: "task-1", status: "executing", current_step: 1, progress_percent: 0, next_action: null, blocked_reason: null, pipeline },
+    steps, succeededRuns, a5StepNumber: 1, openAICredentialConfigured: true,
+  };
+}
+
+test("histórico de uma revisão invalidada não satisfaz dependências atuais", () => {
+  const report = buildA5PreflightReport(preflightInput([
+    { step_number: 1, status: "running", depends_on: [], node_ids: ["A5"], revision: 1 },
+    { step_number: 2, status: "prepared", depends_on: [1], node_ids: ["A1"], revision: 2 },
+    { step_number: 3, status: "planned", depends_on: [2], node_ids: ["A2"], revision: 2 },
+  ], [{ id: "old-run", step_number: 2, node_id: "A1", adapter: "openai_agents", status: "succeeded", created_at: "2026-10-01T12:00:00.000Z" }]));
+  assert.deepEqual(report.completedSteps, []);
+  assert.equal(report.prospectiveContinuation.nextStep, 2);
+  assert.deepEqual(report.pendingDependencies.find((entry) => entry.step === 3).unresolved, [2]);
+  assert.equal(report.historicalSucceededRuns[0].currentStepRevision, 2);
+  assert.equal(report.historicalSucceededRuns[0].reuseVerified, false);
+});
+
+test("arestas persistidas prevalecem sobre plano legado ausente ou divergente", () => {
+  const input = preflightInput([
+    { step_number: 1, status: "running", depends_on: [], node_ids: ["A5"] },
+    { step_number: 2, status: "planned", depends_on: [99], node_ids: ["A1"] },
+    { step_number: 3, status: "planned", depends_on: [2], node_ids: ["A2"] },
+  ]);
+  input.task.pipeline = pipeline.map(({ dependsOn, ...step }) => step);
+  const report = buildA5PreflightReport(input);
+  assert.equal(report.prospectiveContinuation.nextStep, null);
+  assert.equal(report.prospectiveContinuation.dependenciesSatisfied, false);
+  assert.deepEqual(report.pendingDependencies.find((entry) => entry.step === 2).unresolved, [99]);
+});
+
+test("fase pulada explicitamente satisfaz dependência sem gerar execução fictícia", () => {
+  const report = buildA5PreflightReport(preflightInput([
+    { step_number: 1, status: "running", depends_on: [], node_ids: ["A5"] },
+    { step_number: 2, status: "skipped", depends_on: [1], node_ids: ["F9"] },
+    { step_number: 3, status: "planned", depends_on: [2], node_ids: ["A2"] },
+  ]));
+  assert.deepEqual(report.completedSteps, [2]);
+  assert.equal(report.prospectiveContinuation.nextStep, 3);
+  assert.deepEqual(report.pendingDependencies, []);
+});
+
+test("textos persistidos são redigidos antes de truncar, sem fragmentos de segredo", () => {
+  const secret = "sk-proj-THIS-MUST-NEVER-BE-EXPOSED";
+  const input = preflightInput([{ step_number: 1, status: "failed", depends_on: [], node_ids: ["A5"], next_action: `Erro ${secret}` }]);
+  input.task.blocked_reason = `Bearer eyJTHISMUSTNEVERBEEXPOSED0123456`;
+  const report = buildA5PreflightReport(input);
+  assert.equal(JSON.stringify(report).includes(secret), false);
+  assert.equal(JSON.stringify(report).includes("eyJTHIS"), false);
+  assert.match(report.blockers[0].reason, /segredo ocultado/);
 });
 
 class FakeQuery {
@@ -148,7 +204,7 @@ test("A5 marca o run como failed e propaga qualquer falha de leitura", async () 
   const supabase = new FakeSupabase();
   await assert.rejects(
     executeA5LocalPreflight({ supabase, taskId: "task-1", userId: "user-1", step: pipeline[0] }),
-    /forced read failure/,
+    /checkpoints autenticados no preflight A5/,
   );
 
   const failedUpdate = supabase.operations.find(
@@ -157,6 +213,7 @@ test("A5 marca o run como failed e propaga qualquer falha de leitura", async () 
   assert.ok(failedUpdate);
   assert.ok(failedUpdate.filters.some(([key, value]) => key === "task_id" && value === "task-1"));
   assert.ok(failedUpdate.filters.some(([key, value]) => key === "user_id" && value === "user-1"));
+  assert.equal(JSON.stringify(failedUpdate.payload).includes("forced read failure"), false);
 });
 
 test("consultas A5 são isoladas por task_id/user_id e não chamam APIs externas", async () => {

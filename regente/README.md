@@ -1,76 +1,65 @@
-# Regente Optótica — v0.6
+# Regente Optótica — v0.7.0
 
-Orquestrador supervisionado da rede de agentes e ferramentas Optótica + ENSAVIM.
+Orquestrador supervisionado Optótica + ENSAVIM em produção via GitHub → Vercel.
 
-## Capacidades atuais
+## Capacidades
 
-- conversa persistente por sessão;
-- Constituição de Sanidade;
-- planejamento multicamadas;
-- pipelines auditáveis com estado persistente por etapa;
-- execução durável em segundo plano via Vercel Workflow, independente da janela do navegador;
-- dependências explícitas entre etapas e tarefas;
-- progresso, etapa atual e próxima ação operacional;
-- checkpoints retomáveis sem repetir etapas concluídas;
-- níveis de autonomia 0–4, mantendo o padrão supervisionado;
-- histórico de tentativas, erros e resultados por etapa;
-- gate humano antes de ações externas;
-- execução real de A1/A2/A3 via OpenAI Agents SDK;
-- bridge real com Canva (F6);
-- revisão independente A4 em uma execução separada da OpenAI;
-- A5 Recovery Engineer para falhas de programação, acesso, payload, timeout e adapters.
+- missões e conversas persistentes, estado canônico atualizado sem cache;
+- uma fase por autorização, com relatório e validação humana antes da próxima;
+- refazer com orientação e revisão versionada, sem apagar outputs anteriores;
+- locks de execução, sessão cifrada, Workflow durável e retomada auditável;
+- monitor minimizado/normal/expandido, bloqueios visíveis e ações concretas;
+- download completo e histórico dos checkpoints, runs e versões substituídas;
+- afinamento básico local gratuito e profundo solicitado, apenas com leituras;
+- guardiões especialistas externos com constituição e snapshot de código do deployment.
 
-## Estado operacional
+## Arquitetura existente, sem credenciais inventadas
 
-Cada tarefa mantém `current_step`, `progress_percent`, `next_action`, bloqueio e último erro. Cada etapa é persistida separadamente com status, dependências, tentativas, artefato e timestamps. A execução reaproveita tool-runs já confirmados e bloqueia etapas cujas dependências ainda não foram satisfeitas. Ao ser aprovada, a tarefa é entregue a um Workflow durável: fechar a aba, bloquear o celular ou perder a conexão do cliente não cancela o processamento.
+A1/A2/A3 e A4 usam OpenAI API; A4 é revisão separada, não outro provedor.
+A5 é preflight local determinístico Supabase, não um worker generativo.
+A6 usa parecer Claude manual por pacote/importação, sem presumir Anthropic API.
+DeepSeek está deliberadamente reservado para a 0.8.
 
-## Recovery automático
+F6 chama o bridge autenticado do Portal em `https://app.optotica.com.br`.
+Client ID, Client Secret e OAuth Canva ficam exclusivamente no Portal. Reconectar
+no Portal atualiza a conexão usada pelo Regente. Um link Canva depende das
+permissões da conta e não equivale a um arquivo exportado permanente.
 
-Quando uma etapa falha:
-
-1. a pipeline pausa a etapa;
-2. A5 analisa o erro com raciocínio alto e trechos reais do código;
-3. A5 tenta uma correção operacional segura;
-4. se o mesmo erro reaparecer, A4 faz uma revisão independente em outra execução OpenAI;
-5. A5 consolida uma segunda correção e tenta novamente;
-6. se a falha persistir, a pipeline é pausada e escalada ao humano com diagnóstico e eventual patch sugerido.
-
-O recovery nunca remove autenticação, RLS, aprovação humana ou controles de custo para contornar um erro.
-
-## Variáveis principais
+## Configuração do projeto Regente
 
 ```bash
 OPENAI_API_KEY=...
+REGENT_WORKFLOW_SECRET=...
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
 REGENT_MODEL=gpt-5.6-sol
 REGENT_WORKER_MODEL=gpt-5.6-sol
 REGENT_RECOVERY_MODEL=gpt-5.6-sol
 REGENT_REVIEW_MODEL=gpt-5.6-sol
-REGENT_MODE=supervised_pipeline
+REGENT_PORTAL_ORIGIN=https://app.optotica.com.br
 ```
 
-## Arquitetura de integrações
+Use os nomes realmente consumidos por cada adapter. Não publique valores de
+chaves nem os envie no chat. `REGENT_WORKFLOW_SECRET` cifra a sessão temporária e
+autentica chamadas internas; nunca substitui Auth, Master ou RLS.
+Consulte `.env.example` e o registry para os nomes completos existentes.
 
-- O Regente usa somente a OpenAI API para planejamento, execução, crítica e recovery.
-- O Canva é autenticado e persistido exclusivamente pelo Portal Optótica.
-- O Regente não mantém `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET` ou tokens Canva próprios.
-- Quando uma etapa F6 é aprovada, o Regente chama o bridge interno do Portal em `https://app.optotica.com.br`.
-- A troca de conta Canva é feita uma vez no Portal por OAuth; a mesma conexão passa a ser usada pelo Portal e pelo Regente.
+## Recuperação segura
 
-## Princípio
+Configuração/adapter/escopo/faturamento ausentes bloqueiam imediatamente com ação
+humana, sem três diagnósticos pagos idênticos. Erros transitórios em operações
+seguras têm tentativas delimitadas. Criação Canva com efeito desconhecido não
+é repetida. Um diagnóstico especialista não aplica patches nem autoriza uma fase.
 
-O Regente decide quanto pensar, quais nós combinar, quando pedir validação e quando parar. Ele só afirma que uma ação externa foi concluída depois de receber confirmação real do adapter responsável.
+Missões antigas mantêm IDs, outputs e versão original. A 0.7 não presume que
+resultados antigos foram validados nem que um nó indisponível foi executado.
 
+## Verificação e operação
 
-## Execução durável v0.6
+`npm test`, `npm run typecheck`, `npm run build`.
+`/api/version` informa versão e commit do servidor, sem credenciais.
+O operador deve comparar com a versão do cliente e revisar o checkpoint antes
+de continuar. APIs de missões, outputs, afinamento e guardiões exigem Master ativo.
 
-A rota de execução usada pelo navegador não executa mais o pipeline inteiro. Ela:
-
-1. valida o usuário Master e a aprovação humana;
-2. cifra a sessão necessária para a execução;
-3. inicia um Vercel Workflow e retorna `202 Accepted` com um `runId`;
-4. o Workflow renova a sessão em um step persistente;
-5. o worker executa o pipeline usando os checkpoints existentes no Supabase;
-6. em retry ou retomada, tool-runs já confirmados não são repetidos;
-7. a interface apenas consulta o estado e pode ser fechada sem cancelar a tarefa.
-
-`REGENT_WORKFLOW_SECRET` é usado somente no servidor para cifrar a sessão temporária e autenticar a chamada interna do Workflow. Ele não substitui a autenticação Master, não desativa RLS e não concede service-role.
+Veja [arquitetura e limites](docs/v0.7-architecture.md) e
+[guardiões especialistas](docs/guardian-v0.7.md).

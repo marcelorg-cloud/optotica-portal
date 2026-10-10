@@ -3,6 +3,7 @@ import { Agent, run } from "@openai/agents";
 import type { AgentInputItem } from "@openai/agents";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { guardianSpecialistInstructions } from "./guardian-context";
 
 export type PipelineStep = {
   step: number;
@@ -86,6 +87,8 @@ export async function executeOpenAIWorker(input: {
     instructions: [
       "Você é um nó executor da rede Optótica + ENSAVIM.",
       "Execute somente a etapa recebida. Não replaneje a tarefa inteira.",
+      "Execute apenas o nó recebido; referências a outras ferramentas não comprovam execução dessas ferramentas.",
+      "Não invente fontes, consultas jurídicas, vigência de normas, autorizações, documentos, gastos nem resultados externos. Sem fonte verificável, declare a limitação.",
       "Use o contexto anterior quando ele melhorar a consistência.",
       "Entregue conteúdo específico, aplicável e detalhado; evite prompts genéricos.",
       "Se estiver revisando, critique e devolva uma versão melhorada.",
@@ -115,7 +118,7 @@ export async function executeOpenAIWorker(input: {
         ],
       }]
     : prompt;
-  const result = await run(agent, agentInput);
+  const result = await run(agent, agentInput, { maxTurns: 2, signal: AbortSignal.timeout(120_000) });
   if (!result.finalOutput) throw new Error("O executor OpenAI retornou saída vazia.");
   return result.finalOutput;
 }
@@ -142,6 +145,7 @@ export async function executeIndependentOpenAIReviewer(input: {
       "gpt-5.6-sol",
     instructions: [
       "Você é o revisor independente A4 da rede Optótica + ENSAVIM.",
+      guardianSpecialistInstructions("openai"),
       "Trabalhe em uma execução separada dos demais nós e faça uma crítica genuína.",
       "Não apenas confirme o material anterior: identifique falhas, riscos, lacunas e alternativas.",
       "Preserve autenticação, RLS, aprovação humana e limites de custo.",
@@ -163,7 +167,7 @@ export async function executeIndependentOpenAIReviewer(input: {
     "Faça uma revisão crítica independente e devolva a melhor versão possível.",
   ].join("\n");
 
-  const result = await run(agent, prompt);
+  const result = await run(agent, prompt, { maxTurns: 2, signal: AbortSignal.timeout(120_000) });
   if (!result.finalOutput) {
     throw new Error("O revisor independente A4 retornou saída vazia.");
   }
@@ -206,7 +210,7 @@ export async function buildCanvaSpec(input: {
     contextFromArtifacts(input.priorArtifacts),
   ].join("\n");
 
-  const result = await run(agent, prompt);
+  const result = await run(agent, prompt, { maxTurns: 2, signal: AbortSignal.timeout(120_000) });
   if (!result.finalOutput) throw new Error("Não foi possível montar a especificação do Canva.");
   return result.finalOutput;
 }
@@ -215,138 +219,150 @@ function tokenHash(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-export async function executeCanvaBridge(input: {
+type CanvaBridgeContext = {
   supabase: SupabaseClient;
   taskId: string;
   userId: string;
   step: PipelineStep;
+  revision?: number;
+  executionId: string;
+  executionInvocationId: string;
+};
+
+class CanvaBridgeError extends Error {
+  constructor(message: string, public status = 503, public code = "canva_bridge_failed") { super(message); }
+}
+
+function safeCanvaBridgeUrl(value: unknown) {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password && !url.port &&
+      (url.hostname === "canva.com" || url.hostname.endsWith(".canva.com"));
+  } catch { return false; }
+}
+
+/** HTTP 200 alone never proves that a Canva design exists or was saved. */
+export function validCanvaBridgeOutput(value: unknown, expected: { mode: "create" | "inspect"; runId: string; step: number; revision: number; executionId: string; count: number; designIds?: string[] }) {
+  const output = value as { mode?: unknown; complete?: unknown; runId?: unknown; step?: unknown; revision?: unknown; executionId?: unknown; designs?: unknown } | null;
+  if (!output || output.mode !== expected.mode || output.complete !== true || output.runId !== expected.runId ||
+    output.step !== expected.step || output.revision !== expected.revision || output.executionId !== expected.executionId ||
+    !Array.isArray(output.designs) || output.designs.length !== expected.count) return false;
+  const ids = new Set<string>();
+  return output.designs.every((value) => {
+    const design = value as { id?: unknown; editUrl?: unknown; viewUrl?: unknown; inspectionComplete?: unknown; pageCount?: unknown; pages?: unknown; previewUrls?: unknown } | null;
+    if (!design || typeof design.id !== "string" || !/^[A-Za-z0-9_-]{6,80}$/.test(design.id) || ids.has(design.id) ||
+      !safeCanvaBridgeUrl(design.editUrl) || !safeCanvaBridgeUrl(design.viewUrl)) return false;
+    ids.add(design.id);
+    if (expected.mode === "create") return true;
+    return expected.designIds?.includes(design.id) === true && design.inspectionComplete === true &&
+      Number.isInteger(design.pageCount) && Number(design.pageCount) > 0 && Array.isArray(design.pages) &&
+      design.pages.length === design.pageCount && Array.isArray(design.previewUrls) && design.previewUrls.length > 0 &&
+      design.previewUrls.every(safeCanvaBridgeUrl);
+  });
+}
+
+async function callCanvaPortal(input: CanvaBridgeContext, mode: "create" | "inspect", details: Record<string, unknown>, count: number, designIds?: string[]) {
+  const revision = input.revision ?? 1;
+  if (!Number.isInteger(revision) || revision < 1 || !input.executionId || !input.executionInvocationId) {
+    throw new CanvaBridgeError("A fase Canva precisa de revisão e invocação autorizadas. Atualize o monitor.", 409, "canva_execution_fence_required");
+  }
+  const portal = new URL(process.env.REGENT_PORTAL_ORIGIN || "https://app.optotica.com.br");
+  if ((portal.protocol !== "https:" && !(portal.protocol === "http:" && portal.hostname === "localhost")) || portal.username || portal.password) {
+    throw new CanvaBridgeError("REGENT_PORTAL_ORIGIN precisa de um endereço HTTPS válido, sem credenciais.", 503, "invalid_portal_origin");
+  }
+  const token = randomBytes(32).toString("base64url");
+  const digest = tokenHash(token);
+  const { data: toolRun, error } = await input.supabase.from("regent_tool_runs").insert({
+    task_id: input.taskId, user_id: input.userId, step_number: input.step.step, node_id: "F6",
+    adapter: mode === "create" ? "canva_portal_bridge" : "canva_portal_inspect", status: "pending",
+    input: { mode, step: input.step, stepRevision: revision, executionId: input.executionId,
+      executionInvocationId: input.executionInvocationId, ...details },
+    token_hash: digest, token_expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+  }).select("id").single();
+  if (error || !toolRun) throw new CanvaBridgeError("Não foi possível persistir a preparação da fase Canva; nenhuma chamada ao Portal foi feita.", 503, "canva_prepare_not_persisted");
+  const expected = { mode, runId: toolRun.id, step: input.step.step, revision, executionId: input.executionId, count, designIds };
+
+  async function canonicalRun() {
+    const saved = await input.supabase.from("regent_tool_runs").select("status,output")
+      .eq("id", toolRun!.id).eq("task_id", input.taskId).eq("user_id", input.userId).eq("node_id", "F6").maybeSingle();
+    if (saved.error || !saved.data) throw new CanvaBridgeError("Não foi possível verificar o run Canva persistido. Não repita a criação até conferir o efeito externo.", 503, "canva_run_not_verified");
+    return saved.data;
+  }
+  async function closeUnclaimed(message: string) {
+    // CAS with the same token: if Portal has claimed it, preserve its canonical output untouched.
+    const saved = await input.supabase.from("regent_tool_runs").update({
+      status: "failed", token_hash: null, token_expires_at: null, updated_at: new Date().toISOString(),
+      output: { mode, complete: false, designs: [], jobs: [], externalEffect: "none", runId: toolRun!.id,
+        step: input.step.step, revision, executionId: input.executionId, message },
+    }).eq("id", toolRun!.id).eq("task_id", input.taskId).eq("user_id", input.userId).eq("status", "pending")
+      .eq("token_hash", digest).select("id").maybeSingle();
+    if (saved.error) throw new CanvaBridgeError("Não foi possível invalidar a credencial não consumida. Confira o run Canva original antes de retomar.", 503, "canva_pending_not_persisted");
+    return Boolean(saved.data);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(new URL("/api/internal/regente/canva", portal.origin), {
+      method: "POST", cache: "no-store", redirect: "error", signal: AbortSignal.timeout(110_000),
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId: toolRun.id, token }),
+    });
+  } catch {
+    const persisted = await canonicalRun();
+    if (persisted.status === "succeeded" && validCanvaBridgeOutput(persisted.output, expected)) return persisted.output;
+    const unclaimed = await closeUnclaimed("O transporte com o Portal foi interrompido antes de consumir esta credencial.");
+    throw new CanvaBridgeError(unclaimed
+      ? "O Portal não consumiu a chamada Canva; a credencial foi invalidada sem efeito externo. Autorize somente esta fase para retomar."
+      : `O efeito externo Canva não foi confirmado. Confira o run ${toolRun.id}, os jobs e os outputs preservados; não repita a criação.`,
+      503, unclaimed ? "canva_portal_not_claimed" : "canva_external_effect_unknown");
+  }
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const persisted = await canonicalRun();
+    if (persisted.status === "succeeded" && validCanvaBridgeOutput(persisted.output, expected)) return persisted.output;
+    if (persisted.status === "pending") await closeUnclaimed("O Portal recusou a chamada Canva antes de consumir a credencial.");
+    throw new CanvaBridgeError(typeof body?.message === "string" ? body.message.slice(0, 2200) : `O Portal não concluiu a fase Canva (HTTP ${response.status}). Confira o run original.`, response.status);
+  }
+  if (!validCanvaBridgeOutput(body, expected)) {
+    await closeUnclaimed("O Portal retornou HTTP 200 sem confirmar o contrato de output Canva.");
+    throw new CanvaBridgeError(`O Portal retornou um output Canva inválido. Confira o run ${toolRun.id}; um HTTP 200 não autoriza repetir a criação.`, 502, "invalid_canva_bridge_output");
+  }
+  const persisted = await canonicalRun();
+  if (persisted.status !== "succeeded" || !validCanvaBridgeOutput(persisted.output, expected)) {
+    throw new CanvaBridgeError(`O resultado Canva não foi confirmado no banco. Confira o run ${toolRun.id}; outputs parciais não serão sobrescritos.`, 503, "canva_result_not_persisted");
+  }
+  // The Portal is the sole writer of external results. Never overwrite it with a transport response.
+  return persisted.output;
+}
+
+export async function executeCanvaBridge(input: CanvaBridgeContext & {
   spec: z.infer<typeof CanvaDesignSpec>;
   variants: number;
 }) {
-  const token = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
-
-  const { data: toolRun, error } = await input.supabase
-    .from("regent_tool_runs")
-    .insert({
-      task_id: input.taskId,
-      user_id: input.userId,
-      step_number: input.step.step,
-      node_id: "F6",
-      adapter: "canva_portal_bridge",
-      status: "pending",
-      input: { mode: "create", spec: input.spec, variants: input.variants },
-      token_hash: tokenHash(token),
-      token_expires_at: expiresAt,
-    })
-    .select("id")
-    .single();
-
-  if (error || !toolRun) {
-    console.error("regent_canva_run_prepare_failed", {
-      taskId: input.taskId,
-      step: input.step.step,
-      code: error?.code,
-      message: error?.message,
-      details: error?.details,
-      hint: error?.hint,
-    });
-    throw new Error(`Não foi possível preparar a execução do Canva${error?.code ? ` (${error.code})` : ""}.`);
-  }
-
-  const portalOrigin = (process.env.REGENT_PORTAL_ORIGIN || "https://app.optotica.com.br").replace(/\/$/, "");
-  const response = await fetch(`${portalOrigin}/api/internal/regente/canva`, {
-    method: "POST",
-    signal: AbortSignal.timeout(110000),
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ runId: toolRun.id, token }),
+  if (!Number.isInteger(input.variants) || input.variants < 1 || input.variants > 3) throw new CanvaBridgeError("Quantidade de variantes Canva inválida.", 422);
+  const previous = await input.supabase.from("regent_tool_runs").select("id,status,output")
+    .eq("task_id", input.taskId).eq("user_id", input.userId).eq("step_number", input.step.step).eq("adapter", "canva_portal_bridge")
+    .in("status", ["pending", "running", "failed"]);
+  if (previous.error) throw new CanvaBridgeError("Não foi possível conferir criações Canva anteriores. Não iniciar outra importação.");
+  const unsafe = previous.data?.find((run) => {
+    const output = run.output as { externalEffect?: unknown; jobs?: unknown[]; designs?: unknown[] } | null;
+    return run.status !== "failed" || output?.externalEffect !== "none" || Boolean(output.jobs?.length || output.designs?.length);
   });
-  const body = await response.json().catch(() => null) as { message?: string; designs?: unknown[] } | null;
-
-  if (!response.ok) {
-    await input.supabase
-      .from("regent_tool_runs")
-      .update({ status: "failed", output: body || { message: `HTTP ${response.status}` }, updated_at: new Date().toISOString() })
-      .eq("id", toolRun.id)
-      .eq("user_id", input.userId);
-    throw new Error(body?.message || "O Canva não concluiu a execução.");
-  }
-
-  await input.supabase
-    .from("regent_tool_runs")
-    .update({ status: "succeeded", output: body, token_hash: null, token_expires_at: null, updated_at: new Date().toISOString() })
-    .eq("id", toolRun.id)
-    .eq("user_id", input.userId);
-
-  return body;
+  if (unsafe) throw new CanvaBridgeError(`Existe uma criação Canva não reconciliada no run ${unsafe.id}. Confira os designs e jobs preservados antes de autorizar outra importação.`, 409, "canva_external_effect_unknown");
+  return callCanvaPortal(input, "create", { spec: input.spec, variants: input.variants }, input.variants);
 }
 
-export async function executeCanvaInspectBridge(input: {
-  supabase: SupabaseClient;
-  taskId: string;
-  userId: string;
-  step: PipelineStep;
-}) {
+export async function executeCanvaInspectBridge(input: CanvaBridgeContext) {
   const sourceRunIds = [...new Set(input.step.canvaSourceRunIds || [])];
   const designIds = [...new Set(input.step.canvaDesignIds || [])];
   if (!sourceRunIds.length || !designIds.length) {
     throw new Error("A inspeção Canva precisa de referências canônicas aprovadas.");
   }
 
-  const token = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
-  const { data: toolRun, error } = await input.supabase
-    .from("regent_tool_runs")
-    .insert({
-      task_id: input.taskId,
-      user_id: input.userId,
-      step_number: input.step.step,
-      node_id: "F6",
-      adapter: "canva_portal_inspect",
-      status: "pending",
-      input: { mode: "inspect", sourceRunIds, designIds },
-      token_hash: tokenHash(token),
-      token_expires_at: expiresAt,
-    })
-    .select("id")
-    .single();
-
-  if (error || !toolRun) {
-    console.error("regent_canva_inspect_prepare_failed", {
-      taskId: input.taskId,
-      step: input.step.step,
-      code: error?.code,
-      message: error?.message,
-      details: error?.details,
-      hint: error?.hint,
-    });
-    throw new Error(`Não foi possível preparar a inspeção do Canva${error?.code ? ` (${error.code})` : ""}.`);
+  if (sourceRunIds.length > 20 || designIds.length > 10 || designIds.some((id) => !/^[A-Za-z0-9_-]{6,80}$/.test(id))) {
+    throw new CanvaBridgeError("Referências canônicas Canva inválidas.", 422);
   }
-
-  const portalOrigin = (process.env.REGENT_PORTAL_ORIGIN || "https://app.optotica.com.br").replace(/\/$/, "");
-  const response = await fetch(`${portalOrigin}/api/internal/regente/canva`, {
-    method: "POST",
-    signal: AbortSignal.timeout(110000),
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ runId: toolRun.id, token }),
-  });
-  const body = await response.json().catch(() => null) as { message?: string; designs?: unknown[] } | null;
-
-  if (!response.ok) {
-    await input.supabase
-      .from("regent_tool_runs")
-      .update({ status: "failed", output: body || { message: `HTTP ${response.status}` }, updated_at: new Date().toISOString() })
-      .eq("id", toolRun.id)
-      .eq("user_id", input.userId);
-    throw new Error(body?.message || "O Canva não concluiu a inspeção.");
-  }
-
-  await input.supabase
-    .from("regent_tool_runs")
-    .update({ status: "succeeded", output: body, token_hash: null, token_expires_at: null, updated_at: new Date().toISOString() })
-    .eq("id", toolRun.id)
-    .eq("user_id", input.userId);
-  return body;
+  return callCanvaPortal(input, "inspect", { sourceRunIds, designIds }, designIds.length, designIds);
 }
 
 export function isOpenAINode(node: string) {

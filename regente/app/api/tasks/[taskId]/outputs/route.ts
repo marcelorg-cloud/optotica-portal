@@ -1,142 +1,50 @@
 import { NextResponse } from "next/server";
 import { requireMaster } from "../../../../../lib/require-master";
 import { createServerSupabaseClient } from "../../../../../lib/supabase";
+import { buildArtifactOutputs } from "../../../../../lib/artifact-outputs";
 
 export const runtime = "nodejs";
+const HEADERS = { "Cache-Control": "no-store" };
+const MAX_ROWS = 1000;
 
-const MAX_OUTPUT_CHARS = 24_000;
-const MAX_ITEMS = 100;
-
-function outputText(value: unknown) {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    const result = (value as { result?: unknown }).result;
-    if (typeof result === "string" && result.trim()) {
-      return result.length <= MAX_OUTPUT_CHARS
-        ? result
-        : result.slice(0, MAX_OUTPUT_CHARS) + "\n… [conteúdo truncado na visualização]";
-    }
-  }
-  const text = typeof value === "string"
-    ? value
-    : JSON.stringify(value, null, 2) || "";
-  return text.length <= MAX_OUTPUT_CHARS
-    ? text
-    : text.slice(0, MAX_OUTPUT_CHARS) + "\n… [conteúdo truncado na visualização]";
-}
-
-function outputLinks(value: unknown): string[] {
-  const seen = new Set<string>();
-  const visit = (item: unknown, depth = 0) => {
-    if (depth > 6 || seen.size >= 25) return;
-    if (typeof item === "string") {
-      for (const match of item.matchAll(/https?:\/\/[^\s\"'<>]+/g)) {
-        const url = match[0].replace(/[.,;)\]]+$/, "");
-        try {
-          const parsed = new URL(url);
-          if (parsed.protocol === "https:" || parsed.protocol === "http:") seen.add(parsed.href);
-        } catch { /* Ignore invalid URL */ }
-      }
-    } else if (Array.isArray(item)) {
-      item.forEach((entry) => visit(entry, depth + 1));
-    } else if (item && typeof item === "object") {
-      Object.values(item).forEach((entry) => visit(entry, depth + 1));
-    }
-  };
-  visit(value);
-  return [...seen];
-}
-
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ taskId: string }> },
-) {
+export async function GET(request: Request, { params }: { params: Promise<{ taskId: string }> }) {
   const auth = await requireMaster();
-  if (!auth.ok) {
-    return NextResponse.json(
-      { error: auth.status === 401 ? "unauthorized" : "forbidden", message: auth.message },
-      { status: auth.status },
-    );
-  }
-
+  if (!auth.ok) return NextResponse.json({ error: "unauthorized", message: auth.message }, { status: auth.status, headers: HEADERS });
   const { taskId } = await params;
   const supabase = await createServerSupabaseClient();
-  const { data: task, error: taskError } = await supabase
-    .from("regent_tasks")
-    .select("id,title,status")
-    .eq("id", taskId)
-    .eq("user_id", auth.userId)
-    .maybeSingle();
-  if (taskError || !task) {
-    return NextResponse.json({ error: "task_not_found", message: "Tarefa não encontrada." }, { status: 404 });
-  }
-
-  const [{ data: steps, error: stepsError }, { data: runs, error: runsError }] = await Promise.all([
-    supabase
-      .from("regent_task_steps")
-      .select("step_number,role,node_ids,status,artifact,completed_at,updated_at")
-      .eq("task_id", taskId)
-      .eq("user_id", auth.userId)
-      .order("step_number", { ascending: true })
-      .limit(MAX_ITEMS),
-    supabase
-      .from("regent_tool_runs")
-      .select("id,step_number,node_id,adapter,status,output,created_at,updated_at")
-      .eq("task_id", taskId)
-      .eq("user_id", auth.userId)
-      .in("status", ["succeeded"])
-      .order("created_at", { ascending: false })
-      .limit(MAX_ITEMS),
+  const task = await supabase.from("regent_tasks").select("id,title,status,engine_version")
+    .eq("id", taskId).eq("user_id", auth.userId).maybeSingle();
+  if (task.error || !task.data) return NextResponse.json({ error: "task_not_found", message: "Tarefa não encontrada." }, { status: task.error ? 500 : 404, headers: HEADERS });
+  const [steps, runs, reviews] = await Promise.all([
+    supabase.from("regent_task_steps").select("step_number,role,node_ids,status,artifact,revision,validated_at,completed_at,updated_at")
+      .eq("task_id", taskId).eq("user_id", auth.userId).order("step_number").limit(MAX_ROWS),
+    // Failed/running runs can contain confirmed partial external effects; never conceal them.
+    supabase.from("regent_tool_runs").select("id,step_number,node_id,adapter,status,input,output,created_at,updated_at")
+      .eq("task_id", taskId).eq("user_id", auth.userId).not("output", "is", null)
+      .order("created_at", { ascending: false }).limit(MAX_ROWS),
+    supabase.from("regent_phase_reviews").select("id,step_number,revision,decision,output,created_at")
+      .eq("task_id", taskId).eq("user_id", auth.userId).eq("decision", "superseded")
+      .order("created_at", { ascending: false }).limit(MAX_ROWS),
   ]);
-
-  if (stepsError || runsError) {
-    return NextResponse.json({ error: "outputs_failed", message: "Não foi possível listar os outputs." }, { status: 500 });
+  if (steps.error || runs.error || reviews.error) return NextResponse.json({ error: "outputs_failed", message: "Não foi possível ler os outputs preservados. Nenhum arquivo foi alterado." }, { status: 500, headers: HEADERS });
+  const outputs = buildArtifactOutputs({ taskId, steps: steps.data || [], runs: runs.data || [], reviews: reviews.data || [] });
+  const download = new URL(request.url).searchParams.get("download");
+  if (download) {
+    const item = outputs.find((output) => output.id === download);
+    if (!item) return NextResponse.json({ error: "output_not_found" }, { status: 404, headers: HEADERS });
+    return new Response("# " + task.data.title + "\n\nEtapa " + item.step + " · revisão " + item.revision + " · " + item.source + " · estado " + item.status + "\n\n" + item.fullContent, {
+      headers: { ...HEADERS, "Content-Type": "text/markdown; charset=utf-8", "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": 'attachment; filename="' + item.filename + '"' },
+    });
   }
-
-  const items = [
-    ...(steps || []).filter((step) => step.artifact !== null).map((step) => ({
-      id: `step-${step.step_number}`,
-      step: step.step_number,
-      node: (step.node_ids || []).join(", ") || "—",
-      kind: step.role || "etapa",
-      source: "checkpoint",
-      status: step.status,
-      createdAt: step.completed_at || step.updated_at,
-      content: outputText(step.artifact),
-      links: outputLinks(step.artifact),
-      filename: `etapa-${String(step.step_number).padStart(2, "0")}-${(step.node_ids || []).join("-").toLowerCase() || "output"}.md`,
-    })),
-    ...(runs || []).filter((run) =>
-      run.output !== null && !(steps || []).some((step) => step.step_number === run.step_number && step.artifact !== null)
-    ).map((run) => ({
-      id: `run-${run.id}`,
-      step: run.step_number,
-      node: run.node_id || "—",
-      kind: run.adapter || "execução",
-      source: "execução",
-      status: run.status,
-      createdAt: run.updated_at || run.created_at,
-      content: outputText(run.output),
-      links: outputLinks(run.output),
-      filename: `etapa-${String(run.step_number).padStart(2, "0")}-${(run.node_id || "output").toLowerCase()}.md`,
-    })),
-  ].sort((a, b) => a.step - b.step || a.source.localeCompare(b.source));
-
-  const completedSteps = (steps || []).filter((step) => ["succeeded", "skipped"].includes(step.status)).length;
-  const failedSteps = (steps || []).filter((step) => ["failed", "blocked", "review"].includes(step.status)).length;
-
-  return NextResponse.json(
-    {
-      task: {
-        id: task.id,
-        title: task.title,
-        status: task.status,
-        completedSteps,
-        failedSteps,
-        totalSteps: (steps || []).length,
-        outputCount: items.length,
-      },
-      items,
-    },
-    { headers: { "Cache-Control": "no-store" } },
-  );
+  return NextResponse.json({ task: { ...task.data,
+    completedSteps: (steps.data || []).filter((step) => step.status === "succeeded").length,
+    skippedSteps: (steps.data || []).filter((step) => step.status === "skipped").length,
+    validatedSteps: (steps.data || []).filter((step) => step.validated_at != null).length,
+    failedSteps: (steps.data || []).filter((step) => ["failed", "blocked"].includes(step.status)).length,
+    totalSteps: steps.data?.length || 0, outputCount: outputs.length },
+    items: outputs.map(({ fullContent: _full, ...item }) => item),
+    historyLimitReached: [runs.data?.length, reviews.data?.length].some((count) => count === MAX_ROWS),
+    limitations: ["Links de edição Canva não são arquivos exportados; acesso depende da conta e da permissão do design.",
+      "Links em textos generativos não foram verificados como fontes."] }, { headers: HEADERS });
 }

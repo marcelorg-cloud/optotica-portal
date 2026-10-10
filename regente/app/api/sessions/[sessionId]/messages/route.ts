@@ -1,142 +1,45 @@
 import { NextResponse } from "next/server";
 import { requireMaster } from "../../../../../lib/require-master";
 import { createServerSupabaseClient } from "../../../../../lib/supabase";
-import {
-  deriveTaskObservability,
-  type TaskAttention,
-  type TaskRecoverySummary,
-} from "../../../../../lib/task-observability";
+import { taskRuntime } from "../../../../../lib/task-runtime";
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ sessionId: string }> },
-) {
+export async function GET(_request: Request, { params }: { params: Promise<{ sessionId: string }> }) {
   const auth = await requireMaster();
-  if (!auth.ok) {
-    return NextResponse.json(
-      { error: auth.status === 401 ? "unauthorized" : "forbidden", message: auth.message },
-      { status: auth.status },
-    );
-  }
-
+  if (!auth.ok) return NextResponse.json({ error: "unauthorized", message: auth.message }, { status: auth.status });
   const { sessionId } = await params;
   const supabase = await createServerSupabaseClient();
-
-  const { data: session, error: sessionError } = await supabase
-    .from("regent_sessions")
-    .select("id, title, budget_tier")
-    .eq("id", sessionId)
-    .eq("user_id", auth.userId)
-    .maybeSingle();
-
-  if (sessionError || !session) {
-    return NextResponse.json(
-      { error: "session_not_found", message: "Conversa não encontrada." },
-      { status: 404 },
-    );
-  }
-
-  const { data: messages, error } = await supabase
-    .from("regent_messages")
-    .select("id, role, content, payload, created_at")
-    .eq("session_id", sessionId)
-    .eq("user_id", auth.userId)
-    .order("created_at", { ascending: true });
-
-  if (error) {
-    console.error("regente_messages_load_failed", error);
-    return NextResponse.json({ error: "messages_load_failed" }, { status: 500 });
-  }
-
-  const baseMessages = messages || [];
-  const taskIds = [...new Set(
-    baseMessages
-      .map((message) => (message.payload as { taskId?: string } | null)?.taskId)
-      .filter((value): value is string => Boolean(value))
-  )];
-
-  let enrichedMessages = baseMessages;
-  if (taskIds.length) {
-    const [{ data: tasks }, { data: steps }] = await Promise.all([
-      supabase
-        .from("regent_tasks")
-        .select("id,status,current_step,progress_percent,next_action,autonomy_level,blocked_reason,last_error,updated_at")
-        .eq("user_id", auth.userId)
-        .in("id", taskIds),
-      supabase
-        .from("regent_task_steps")
-        .select("task_id,step_number,status,depends_on,attempt_count,last_error,next_action,started_at,completed_at,updated_at")
-        .eq("user_id", auth.userId)
-        .in("task_id", taskIds)
-        .order("step_number", { ascending: true }),
-    ]);
-
-    const taskMap = new Map((tasks || []).map((task) => [task.id, task]));
-    const progressByTask = new Map<string, {
-      percent: number;
-      isStale: boolean;
-      lastActivityAt: string | null;
-      currentStep: number | null;
-      attention: TaskAttention;
-      recovery: TaskRecoverySummary;
-    }>();
-    for (const task of tasks || []) {
-      const ownSteps = (steps || []).filter((step) => step.task_id === task.id);
-      const completed = ownSteps.filter((step) =>
-        ["succeeded", "skipped"].includes(step.status)
-      ).length;
-      const percent = task.status === "succeeded"
-        ? 100
-        : ownSteps.length
-          ? Math.round(completed * 100 / ownSteps.length)
-          : Math.max(0, Math.min(100, Number(task.progress_percent || 0)));
-      const last = Math.max(
-        new Date(task.updated_at || 0).getTime() || 0,
-        ...ownSteps.map((step) => new Date(step.updated_at || 0).getTime() || 0)
-      );
-      const active = ownSteps.find((step) => ["running", "review"].includes(step.status));
-      const isStale = task.status === "executing" && last > 0 && Date.now() - last > 15 * 60 * 1000;
-      const observability = deriveTaskObservability({ task, steps: ownSteps, isStale });
-      progressByTask.set(task.id, {
-        percent,
-        isStale,
-        lastActivityAt: last ? new Date(last).toISOString() : null,
-        currentStep: task.status === "succeeded" ? null : active?.step_number ?? task.current_step,
-        attention: observability.attention,
-        recovery: observability.recovery,
-      });
-    }
-    enrichedMessages = baseMessages.map((message) => {
-      const payload = message.payload as ({ taskId?: string } & Record<string, unknown>) | null;
-      if (!payload?.taskId) return message;
-      const task = taskMap.get(payload.taskId);
-      if (!task) return message;
-      const progress = progressByTask.get(task.id);
-      return {
-        ...message,
-        payload: {
-          ...payload,
-          taskStatus: task.status,
-          runtime: {
-            currentStep: progress?.currentStep ?? task.current_step,
-            progressPercent: progress?.percent ?? task.progress_percent,
-            isStale: progress?.isStale ?? false,
-            lastActivityAt: progress?.lastActivityAt ?? null,
-            nextAction: progress?.isStale
-              ? "Sem atualização há mais de 15 minutos. Verifique a execução antes de retomá-la."
-              : task.next_action,
-            autonomyLevel: task.autonomy_level,
-            blockedReason: task.blocked_reason,
-            lastError: task.last_error,
-            updatedAt: task.updated_at,
-            steps: (steps || []).filter((step) => step.task_id === payload.taskId),
-            attention: progress?.attention || null,
-            recovery: progress?.recovery || null,
-          },
-        },
-      };
-    });
-  }
-
-  return NextResponse.json({ session, messages: enrichedMessages });
+  const [session, messages, tasks] = await Promise.all([
+    supabase.from("regent_sessions").select("id,title,budget_tier").eq("id", sessionId).eq("user_id", auth.userId).maybeSingle(),
+    supabase.from("regent_messages").select("id,role,content,payload,created_at").eq("session_id", sessionId).eq("user_id", auth.userId).order("created_at"),
+    supabase.from("regent_tasks").select("id,title,objective,pipeline,status,current_step,progress_percent,next_action,autonomy_level,blocked_reason,last_error,updated_at,phase_report,validated_steps,control_revision,engine_version,workflow_run_id,execution_lease_until").eq("session_id", sessionId).eq("user_id", auth.userId),
+  ]);
+  if (session.error || !session.data) return NextResponse.json({ error: "session_not_found", message: "Conversa não encontrada." }, { status: session.error ? 500 : 404 });
+  if (messages.error || tasks.error) return NextResponse.json({ error: "messages_load_failed", message: "Não foi possível ler o estado atual. Atualize; o histórico permanece preservado." }, { status: 500 });
+  const taskIds = (tasks.data || []).map((task) => task.id);
+  const steps = taskIds.length ? await supabase.from("regent_task_steps")
+    .select("task_id,step_number,role,node_ids,status,depends_on,attempt_count,last_error,next_action,started_at,completed_at,updated_at,revision,validated_at,recovered_at")
+    .eq("user_id", auth.userId).in("task_id", taskIds) : { data: [], error: null };
+  if (steps.error) return NextResponse.json({ error: "checkpoints_load_failed", message: "Não foi possível ler os checkpoints atuais. Nenhum resultado foi alterado." }, { status: 500 });
+  const byTask = new Map((tasks.data || []).map((task) => [task.id, task]));
+  const enriched = (messages.data || []).map((message) => {
+    const payload = message.payload as ({ taskId?: string; pipeline?: unknown } & Record<string, unknown>) | null;
+    if (!payload?.taskId) return message;
+    const task = byTask.get(payload.taskId);
+    if (!task) return message;
+    const ownSteps = (steps.data || []).filter((step) => step.task_id === task.id);
+    const current = taskRuntime(task, ownSteps);
+    return { ...message, payload: {
+      ...payload, taskTitle: task.title, objective: task.objective,
+      ...(Array.isArray(payload.pipeline) ? { pipeline: task.pipeline } : {}), taskStatus: current.status,
+      runtime: {
+        currentStep: current.current_step, progressPercent: current.progress_percent, nextAction: current.next_action,
+        autonomyLevel: task.autonomy_level, blockedReason: task.blocked_reason, lastError: task.last_error,
+        updatedAt: task.updated_at, steps: ownSteps, isStale: current.is_stale, lastActivityAt: current.last_activity_at,
+        attention: current.attention, recovery: current.recovery,
+        phaseReport: task.phase_report, validatedSteps: task.validated_steps, controlRevision: task.control_revision,
+        engineVersion: task.engine_version, workflowRunId: task.workflow_run_id, executionLeaseUntil: task.execution_lease_until,
+      },
+    } };
+  });
+  return NextResponse.json({ session: session.data, messages: enriched }, { headers: { "Cache-Control": "no-store" } });
 }

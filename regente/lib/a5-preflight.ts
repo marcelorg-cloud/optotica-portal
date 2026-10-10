@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PipelineStep } from "./adapters";
+import { redactSecrets } from "./phase-control.ts";
 
 type PersistedTask = {
   id: string;
@@ -18,6 +19,7 @@ type PersistedStep = {
   node_ids: string[] | null;
   action: string | null;
   next_action: string | null;
+  revision?: number;
 };
 
 type PersistedRun = {
@@ -47,12 +49,17 @@ export type A5PreflightReport = {
     blockedReason: string | null;
     totalSteps: number;
   };
-  reusableSucceededRuns: Array<{
+  /** Reuse eligibility requires revision/input fingerprint checks in the executor. */
+  reusableSucceededRuns: [];
+  historicalSucceededRuns: Array<{
     runId: string;
     step: number;
     node: string;
     adapter: string;
     createdAt: string;
+    currentStepStatus: string | null;
+    currentStepRevision: number | null;
+    reuseVerified: false;
   }>;
   completedSteps: number[];
   pendingDependencies: Array<{
@@ -80,6 +87,7 @@ export type A5PreflightReport = {
     costLimits: "not_verifiable";
     documentInputs: "not_verifiable";
     canvaOAuth: "not_verified";
+    historicalRunReuse: "not_verified";
   };
   executionSafety: {
     scopedByTaskIdAndUserId: true;
@@ -102,6 +110,10 @@ function uniqueSorted(values: number[]) {
   return [...new Set(values)].sort((left, right) => left - right);
 }
 
+function safeText(value: string | null | undefined, limit = 1200) {
+  return typeof value === "string" ? redactSecrets(value).slice(0, limit) : null;
+}
+
 export function buildA5PreflightReport(input: {
   task: PersistedTask;
   steps: PersistedStep[];
@@ -111,15 +123,15 @@ export function buildA5PreflightReport(input: {
   generatedAt?: string;
 }): A5PreflightReport {
   const pipeline = normalizePipeline(input.task.pipeline);
-  const completedSteps = uniqueSorted([
-    ...input.steps.filter((step) => step.status === "succeeded").map((step) => step.step_number),
-    ...input.succeededRuns.map((run) => run.step_number),
-  ]);
+  // A historical run can outlive an invalidated/revised checkpoint. It does not
+  // make that CURRENT phase completed and cannot satisfy its dependencies.
+  const completedSteps = uniqueSorted(input.steps
+    .filter((step) => ["succeeded", "skipped"].includes(step.status)).map((step) => step.step_number));
   const completedSet = new Set(completedSteps);
   const prospectiveCompleted = new Set([...completedSteps, input.a5StepNumber]);
 
   const pendingDependencies = input.steps
-    .filter((step) => step.status !== "succeeded")
+    .filter((step) => !["succeeded", "skipped"].includes(step.status))
     .map((step) => {
       const dependsOn = uniqueSorted(step.depends_on || []);
       return {
@@ -135,15 +147,16 @@ export function buildA5PreflightReport(input: {
     .map((step) => ({
       step: step.step_number,
       status: step.status,
-      nodes: step.node_ids || [],
-      reason: step.next_action || step.action || "Bloqueio persistido sem descrição adicional.",
+      nodes: (step.node_ids || []).map((node) => safeText(node, 120) || "unknown"),
+      reason: safeText(step.next_action || step.action) || "Bloqueio persistido sem descrição adicional.",
     }));
 
-  const nextStep = [...pipeline]
-    .sort((left, right) => left.step - right.step)
+  const nextStep = [...input.steps]
+    .sort((left, right) => left.step_number - right.step_number)
     .find((step) => {
-      if (step.step <= input.a5StepNumber || prospectiveCompleted.has(step.step)) return false;
-      return (step.dependsOn || []).every((dependency) => prospectiveCompleted.has(dependency));
+      if (step.step_number <= input.a5StepNumber || prospectiveCompleted.has(step.step_number)) return false;
+      // Database edges are authoritative, including legacy plans without dependsOn.
+      return (step.depends_on || []).every((dependency) => prospectiveCompleted.has(dependency));
     }) || null;
 
   const openAI = (adapter: string): CapabilityState => ({
@@ -159,24 +172,28 @@ export function buildA5PreflightReport(input: {
       taskStatus: input.task.status,
       currentStep: input.task.current_step,
       progressPercent: Number(input.task.progress_percent || 0),
-      nextAction: input.task.next_action,
-      blockedReason: input.task.blocked_reason,
-      totalSteps: pipeline.length,
+      nextAction: safeText(input.task.next_action),
+      blockedReason: safeText(input.task.blocked_reason),
+      totalSteps: input.steps.length,
     },
-    reusableSucceededRuns: input.succeededRuns.map((run) => ({
+    reusableSucceededRuns: [],
+    historicalSucceededRuns: input.succeededRuns.map((run) => ({
       runId: run.id,
       step: run.step_number,
-      node: run.node_id,
-      adapter: run.adapter,
+      node: safeText(run.node_id, 120) || "unknown",
+      adapter: safeText(run.adapter, 120) || "unknown",
       createdAt: run.created_at,
+      currentStepStatus: input.steps.find((step) => step.step_number === run.step_number)?.status || null,
+      currentStepRevision: input.steps.find((step) => step.step_number === run.step_number)?.revision ?? null,
+      reuseVerified: false,
     })),
     completedSteps,
     pendingDependencies,
     blockers,
     prospectiveContinuation: {
       assumedCompletedStep: input.a5StepNumber,
-      nextStep: nextStep?.step || null,
-      node: nextStep?.nodes?.[0] || null,
+      nextStep: nextStep?.step_number || null,
+      node: safeText(nextStep?.node_ids?.[0] || pipeline.find((step) => step.step === nextStep?.step_number)?.nodes?.[0], 120),
       dependenciesSatisfied: Boolean(nextStep),
     },
     capabilityInventory: {
@@ -202,6 +219,7 @@ export function buildA5PreflightReport(input: {
       costLimits: "not_verifiable",
       documentInputs: "not_verifiable",
       canvaOAuth: "not_verified",
+      historicalRunReuse: "not_verified",
     },
     executionSafety: {
       scopedByTaskIdAndUserId: true,
@@ -210,10 +228,6 @@ export function buildA5PreflightReport(input: {
       additionalAiConsumption: false,
     },
   };
-}
-
-function message(error: unknown) {
-  return error instanceof Error ? error.message : String(error || "Falha desconhecida no preflight A5.");
 }
 
 export async function executeA5LocalPreflight(input: {
@@ -253,7 +267,7 @@ export async function executeA5LocalPreflight(input: {
         .maybeSingle(),
       input.supabase
         .from("regent_task_steps")
-        .select("step_number,status,depends_on,node_ids,action,next_action")
+        .select("step_number,status,depends_on,node_ids,action,next_action,revision")
         .eq("task_id", input.taskId)
         .eq("user_id", input.userId)
         .order("step_number", { ascending: true }),
@@ -267,10 +281,10 @@ export async function executeA5LocalPreflight(input: {
     ]);
 
     if (taskResult.error || !taskResult.data) {
-      throw new Error(taskResult.error?.message || "Estado persistente da tarefa não encontrado.");
+      throw new Error("Não foi possível ler o estado persistente autenticado da tarefa no preflight A5.");
     }
-    if (stepsResult.error) throw new Error(stepsResult.error.message);
-    if (runsResult.error) throw new Error(runsResult.error.message);
+    if (stepsResult.error) throw new Error("Não foi possível ler os checkpoints autenticados no preflight A5.");
+    if (runsResult.error) throw new Error("Não foi possível ler o histórico autenticado de runs no preflight A5.");
 
     const report = buildA5PreflightReport({
       task: taskResult.data as PersistedTask,
@@ -286,20 +300,26 @@ export async function executeA5LocalPreflight(input: {
       .eq("id", runRow.id)
       .eq("task_id", input.taskId)
       .eq("user_id", input.userId);
-    if (updateError) throw new Error(updateError.message);
+    if (updateError) throw new Error("Não foi possível persistir o relatório do preflight A5.");
 
     return report;
   } catch (error) {
-    await input.supabase
-      .from("regent_tool_runs")
-      .update({
-        status: "failed",
-        output: { message: message(error) },
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", runRow.id)
-      .eq("task_id", input.taskId)
-      .eq("user_id", input.userId);
-    throw error;
+    const allowed = [
+      "Não foi possível ler o estado persistente autenticado da tarefa no preflight A5.",
+      "Não foi possível ler os checkpoints autenticados no preflight A5.",
+      "Não foi possível ler o histórico autenticado de runs no preflight A5.",
+      "Não foi possível persistir o relatório do preflight A5.",
+    ];
+    const description = error instanceof Error && allowed.includes(error.message)
+      ? error.message : "O preflight local A5 não pôde confirmar o estado autenticado. Nenhuma continuação foi autorizada.";
+    try {
+      const saved = await input.supabase.from("regent_tool_runs").update({
+        status: "failed", output: { message: description }, updated_at: new Date().toISOString(),
+      }).eq("id", runRow.id).eq("task_id", input.taskId).eq("user_id", input.userId);
+      if (saved.error) console.warn("regente_a5_failure_status_unconfirmed", { taskId: input.taskId, runId: runRow.id });
+    } catch {
+      console.warn("regente_a5_failure_status_unconfirmed", { taskId: input.taskId, runId: runRow.id });
+    }
+    throw new Error(description);
   }
 }
