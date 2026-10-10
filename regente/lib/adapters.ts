@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
 import { Agent, run } from "@openai/agents";
-import type { AgentInputItem } from "@openai/agents";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { guardianSpecialistInstructions } from "./guardian-context";
+import { buildWorkerInput } from "./text-worker-context";
 
 export type PipelineStep = {
   step: number;
@@ -89,6 +89,7 @@ export async function executeOpenAIWorker(input: {
       "Execute somente a etapa recebida. Não replaneje a tarefa inteira.",
       "Execute apenas o nó recebido; referências a outras ferramentas não comprovam execução dessas ferramentas.",
       "Não invente fontes, consultas jurídicas, vigência de normas, autorizações, documentos, gastos nem resultados externos. Sem fonte verificável, declare a limitação.",
+      ...(input.node === "A2" ? ["Esta fase A2 consome evidências textuais. Não afirme que imagens remotas foram abertas ou auditadas nesta execução; a conferência visual é uma pendência separada."] : []),
       "Use o contexto anterior quando ele melhorar a consistência.",
       "Entregue conteúdo específico, aplicável e detalhado; evite prompts genéricos.",
       "Se estiver revisando, critique e devolva uma versão melhorada.",
@@ -108,16 +109,8 @@ export async function executeOpenAIWorker(input: {
     contextFromArtifacts(input.priorArtifacts),
   ].join("\n");
 
-  const visualUrls = visualUrlsFromArtifacts(input.priorArtifacts);
-  const agentInput: string | AgentInputItem[] = visualUrls.length
-    ? [{
-        role: "user",
-        content: [
-          { type: "input_text", text: prompt },
-          ...visualUrls.map((image) => ({ type: "input_image" as const, image, detail: "high" })),
-        ],
-      }]
-    : prompt;
+  const visualUrls = input.node === "A2" ? [] : visualUrlsFromArtifacts(input.priorArtifacts);
+  const agentInput = buildWorkerInput(input.node, prompt, visualUrls);
   const result = await run(agent, agentInput, { maxTurns: 2, signal: AbortSignal.timeout(120_000) });
   if (!result.finalOutput) throw new Error("O executor OpenAI retornou saída vazia.");
   return result.finalOutput;

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
 import ts from "typescript";
+import { buildWorkerInput } from "../lib/text-worker-context.ts";
 
 const require = createRequire(import.meta.url);
 const module = { exports: {} };
@@ -11,6 +12,7 @@ const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.Modu
 const mocks = {
   "@openai/agents": { Agent: class {}, run: () => { throw new Error("AI must not be called by bridge tests"); } },
   "./guardian-context": { guardianSpecialistInstructions: () => "" },
+  "./text-worker-context": { buildWorkerInput },
 };
 new Function("require", "module", "exports", compiled)((name) => name in mocks ? mocks[name] : require(name), module, module.exports);
 const { validCanvaBridgeOutput, executeCanvaBridge } = module.exports;

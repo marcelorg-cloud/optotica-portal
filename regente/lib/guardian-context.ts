@@ -32,6 +32,7 @@ export const GUARDIAN_SOURCE_MANIFEST = [
   { path: "regente/lib/phase-executor.ts", purpose: "Execução supervisionada de uma fase" },
   { path: "regente/lib/a5-preflight.ts", purpose: "Preflight local sem geração" },
   { path: "regente/lib/adapters.ts", purpose: "Adapters disponíveis e bridge Canva" },
+  { path: "regente/lib/text-worker-context.ts", purpose: "Contexto textual A2 sem anexos remotos ou referências de mídia assinadas" },
   { path: "regente/lib/recovery.ts", purpose: "Guardião OpenAI de recovery" },
   { path: "regente/lib/orchestra-health.ts", purpose: "Afinamento e diferenças entre evidência e presunção" },
   { path: "regente/app/api/tasks/[taskId]/decision/route.ts", purpose: "Gates humanos e retomada autorizada" },
