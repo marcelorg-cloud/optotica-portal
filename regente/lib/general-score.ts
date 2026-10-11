@@ -142,7 +142,7 @@ export const ORGANIZER_INSTRUMENTAL_PARTS: ActorSpec[] = COORDINATOR_ROLES.map(r
 export const GENERAL_SCORE_DRAFT: GeneralScore = {
   id:"goraieb-instituto-visao",version:"0.1.0",status:"draft",
   institution:"Goraieb Instituto da Visão",
-  intent:"Proposta: coordenar obras, missões e instrumentos de modo cooperativo, coerente e rastreável.",
+  intent:"Proposta: contribuir para a transformação da óptica e da optometria no Brasil integrando pesquisa científica, educação, tecnologia de ponta, empreendedorismo e cooperação multidisciplinar.",
   rules:[
     {id:"purpose",text:"Contornos preservam resultados indispensáveis e o propósito aprovado da obra.",required:true,status:"draft"},
     {id:"cooperation",text:"Organizadores independentes coordenam; somente executores autorizados geram outputs.",required:true,status:"draft"},
@@ -151,9 +151,9 @@ export const GENERAL_SCORE_DRAFT: GeneralScore = {
     {id:"safe_detours",text:"Não contornar segurança, Auth, RLS, limites e gates humanos.",required:true,status:"draft"},
   ],
   works:[
-    {id:"optotica",name:"Optótica",purpose:"Plataforma tecnológica de serviços ópticos e optométricos.",
+    {id:"optotica",name:"Optótica",purpose:"Plataforma de integração do setor óptico-optométrico, com foco em inovação tecnológica e empreendedorismo.",
       audience:["all"],dataClass:"public",status:"draft",sourceId:"v0.8-partitura-geral.md"},
-    {id:"ensavim",name:"ENSAVIM",purpose:"Encontro multidisciplinar de saúde visual em Maringá.",
+    {id:"ensavim",name:"ENSAVIM",purpose:"Encontro multidisciplinar de saúde visual, com foco educacional, teórico, científico e de integração profissional.",
       audience:["all"],dataClass:"public",status:"draft",sourceId:"v0.8-partitura-geral.md"},
   ],
   actors:[...ORGANIZER_INSTRUMENTAL_PARTS,...NETWORK_INSTRUMENTAL_PARTS],
