@@ -9,6 +9,8 @@ on:
       - 'regente/lib/general-score.ts'
       - 'regente/tests/resolution-library.test.mjs'
       - 'regente/tests/general-score.test.mjs'
+      - 'regente/lib/cooperative-governance.ts'
+      - 'regente/tests/cooperative-governance.test.mjs'
       - 'regente/docs/v0.8-*.md'
       - '.github/workflows/regente-cooperative.yml'
   workflow_dispatch:
@@ -24,4 +26,4 @@ jobs:
         with:
           node-version: '22'
       - name: Cooperative DAG and coordination contracts
-        run: node --experimental-strip-types --test regente/tests/cooperative-orchestra.test.mjs regente/tests/resolution-library.test.mjs regente/tests/general-score.test.mjs
+        run: node --experimental-strip-types --test regente/tests/cooperative-orchestra.test.mjs regente/tests/resolution-library.test.mjs regente/tests/general-score.test.mjs regente/tests/cooperative-governance.test.mjs
