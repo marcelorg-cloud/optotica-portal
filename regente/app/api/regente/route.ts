@@ -140,7 +140,7 @@ export async function POST(request: Request) {
     }
 
     // The model suggests a plan; only deterministic normalization defines executable stages.
-    const output = { ...planned, pipeline: normalizeNewPipeline(planned.pipeline), approvalRequired: true };
+    const output = { ...planned, pipeline: normalizeNewPipeline(planned.pipeline, { risk: planned.risk, objective: planned.objective }), approvalRequired: true };
     const taskStatus = "awaiting_approval";
     const { data: task, error: taskError } = await supabase
       .from("regent_tasks")

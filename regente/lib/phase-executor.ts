@@ -9,12 +9,12 @@ import { buildPhaseReport, dependencyArtifacts, failureDisposition, redactSecret
 import { analyzeRecovery, reviewRecoveryWithOpenAI } from "./recovery";
 import { collectOrchestraHealth } from "./orchestra-health";
 import { executeCatalogBridge } from "./catalog-bridge";
-import { buildPhaseContext } from "./orchestra-context";
+import { buildPhaseContext, effectiveReviewRequirement } from "./orchestra-context";
 
 type Artifact = { step: number; node: string; output: unknown };
 export type PhaseTask = {
   id: string; session_id: string; title: string; objective: string; pipeline: unknown; picker: unknown;
-  human_decision: unknown; execution_id: string; execution_invocation_id: string; engine_version?: string;
+  human_decision: unknown; execution_id: string; execution_invocation_id: string; engine_version?: string; risk?: string;
 };
 
 function message(error: unknown) {
@@ -25,6 +25,11 @@ function stepRunReusable(step: PipelineStep, revision: number, run: { adapter: s
   if (revision > 1 && input?.stepRevision !== revision) return false;
   if (input?.step && artifactFingerprint(input.step) !== artifactFingerprint(step)) return false;
   const node = step.nodes[0];
+  if (node === "A4") {
+    const evidence = (run.output as { reviewEvidence?: { modelDiversity?: boolean } } | null)?.reviewEvidence;
+    if (step.reviewRequirement === "external_human" ||
+      (step.reviewRequirement === "different_model" && evidence?.modelDiversity !== true)) return false;
+  }
   if (isOpenAINode(node) || node === "A4") return input?.priorArtifactFingerprint === artifactFingerprint(artifacts);
   if (node === "F4") return run.adapter === "catalog_portal_standardize" && input?.stepRevision === revision && Boolean(input?.step);
   if (node !== "F6") return node === "A5";
@@ -52,9 +57,11 @@ export async function executePhase(input: { supabase: SupabaseClient; userId: st
   }
   const originalStep = pipeline.find((step) => step.step === target.step_number);
   if (!originalStep) throw new Error("A etapa autorizada não corresponde à pipeline persistente.");
-  const step = target.revision_guidance
+  const guidedStep = target.revision_guidance
     ? { ...originalStep, input: originalStep.input + "\n\nNOVA ORIENTAÇÃO HUMANA PARA ESTA VERSÃO:\n" + target.revision_guidance }
     : originalStep;
+  const step = guidedStep.nodes[0] === "A4" ? { ...guidedStep,
+    reviewRequirement: effectiveReviewRequirement({ step: guidedStep, risk: task.risk, objective: task.objective }) } : guidedStep;
   const node = step.nodes[0] || "unknown";
   const artifacts: Artifact[] = dependencyArtifacts(states, step.step);
   let revision = Number(target.revision || 1);

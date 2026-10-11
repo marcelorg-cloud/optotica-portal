@@ -88,6 +88,8 @@ export function buildPhaseContext(input: { step: ContextStep; objective: string;
   return { text, metadata };
 }
 
+export { effectiveReviewRequirement } from "./review-policy.ts";
+
 export function reviewProvenance(env: Record<string, string | undefined> = process.env, requirement = "separate_context") {
   const safeModel = (value: string) => {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}$/.test(value) || /^(sk[-_]|gh[pousr]_)/i.test(value)) throw new Error("review_configuration_invalid: identificador de modelo inválido; nenhum segredo deve ser usado como modelo.");

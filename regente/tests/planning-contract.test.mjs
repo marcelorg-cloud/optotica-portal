@@ -71,3 +71,19 @@ test('planning failure is persisted and the front restores the server conversati
   assert.match(route, /sessionId: failureSessionId, userMessageSaved, createdTaskId/);
   assert.match(front, /data.sessionId && data.userMessageSaved[\s\S]*await openSession\(data.sessionId\)/);
 });
+
+test('critical review cannot reuse a prior run without model diversity evidence', () => {
+  const source = readFileSync(new URL('../lib/phase-executor.ts', import.meta.url), 'utf8');
+  const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+  const exports = {};
+  vm.runInNewContext(code + '\nexports.reuseForTest = stepRunReusable;', { exports,
+    require: () => ({ isOpenAINode: node => ['A1','A2','A3'].includes(node), artifactFingerprint: value => JSON.stringify(value) }) });
+  const step = { step: 2, nodes: ['A4'], reviewRequirement: 'different_model' };
+  const run = { adapter: 'openai_agents_independent_review', input: { stepRevision: 1, step, priorArtifactFingerprint: '[]' }, output: {} };
+  assert.equal(exports.reuseForTest(step, 1, run, []), false);
+  assert.equal(exports.reuseForTest(step, 1, { ...run, output: { reviewEvidence: { modelDiversity: false } } }, []), false);
+  assert.equal(exports.reuseForTest(step, 1, { ...run, output: { reviewEvidence: { modelDiversity: true } } }, []), true);
+  const route = readFileSync(new URL('../app/api/tasks/[taskId]/execute/route.ts', import.meta.url), 'utf8');
+  assert.match(route, /title,objective,risk,status/);
+  assert.match(source, /effectiveReviewRequirement\(\{ step: guidedStep, risk: task.risk, objective: task.objective \}\)/);
+});

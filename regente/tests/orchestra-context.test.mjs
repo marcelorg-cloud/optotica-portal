@@ -1,11 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPhaseContext, reviewProvenance, INSTITUTIONAL_CONTEXT } from '../lib/orchestra-context.ts';
+import { buildPhaseContext, reviewProvenance, effectiveReviewRequirement, INSTITUTIONAL_CONTEXT } from '../lib/orchestra-context.ts';
+import { normalizeNewPipeline } from '../lib/phase-control.ts';
 import { deliveryAcceptance } from '../lib/delivery-acceptance.ts';
 import { failureDisposition } from '../lib/phase-control.ts';
 import { buildOrchestraHealth } from '../lib/orchestra-health.ts';
 import { loadGuardianSourceSnapshot } from '../lib/guardian-context.ts';
 const step = { step: 2, nodes: ['A4'], role: 'revisão', input: 'Fonte', action: 'Revisar', expectedOutput: 'Parecer' };
+
+test('contraponto crítico é obrigatório mesmo quando o planejador sugere revisão fraca', () => {
+  assert.equal(effectiveReviewRequirement({ step: { reviewRequirement: 'separate_context' }, risk: 'high' }), 'different_model');
+  assert.equal(effectiveReviewRequirement({ step: {}, objective: 'Segurança jurídica e dados do paciente' }), 'different_model');
+  assert.equal(effectiveReviewRequirement({ step: { reviewRequirement: 'external_human' }, risk: 'high' }), 'external_human');
+  assert.equal(effectiveReviewRequirement({ step: {}, risk: 'low', objective: 'Revisar composição visual' }), 'separate_context');
+  const pipeline = normalizeNewPipeline([{ ...step, role: 'critic', reviewRequirement: 'separate_context', dependsOn: [] }], { risk: 'high' });
+  assert.equal(pipeline[1].reviewRequirement, 'different_model');
+  assert.throws(() => reviewProvenance({}, pipeline[1].reviewRequirement), /review_diversity_required/);
+});
 
 test('partitura limita contexto total, preserva originais e não inventa fontes carregadas', () => {
   const artifacts = Array.from({ length: 10 }, (_, i) => ({ step: i, node: 'A1', output: 'x'.repeat(10000) }));
