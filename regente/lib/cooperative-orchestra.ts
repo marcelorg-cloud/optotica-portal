@@ -15,7 +15,8 @@ export const COOPERATION_CHARTER = [
 ] as const;
 
 export const COORDINATOR_ROLES = [
-  { id: "direcao_musical", name: "Direção Musical", responsibility: "Propósito e alinhamento institucional", specialty: "governance" },
+  // Stable legacy ID preserves peer references; the display name is not a new agent or permission.
+  { id: "direcao_musical", name: "Orientação de Coerência", responsibility: "Propósito e alinhamento institucional", specialty: "governance" },
   { id: "regente", name: "Regente", responsibility: "Coerência do conjunto e condução cooperativa", specialty: "coherence" },
   { id: "compositor", name: "Compositor", responsibility: "Concepção da solução, sem implementá-la", specialty: "design" },
   { id: "orquestrador", name: "Orquestrador", responsibility: "Dependências, concorrência e alternativas", specialty: "scheduling" },
