@@ -22,6 +22,9 @@ export const GUARDIAN_CONSTITUTION = [
 ] as const;
 
 export const GUARDIAN_SOURCE_MANIFEST = [
+  { path: "regente/lib/regente.ts", purpose: "Contrato real do planejamento e contexto institucional" },
+  { path: "regente/lib/planning-failure.ts", purpose: "Diagnósticos seguros e acionáveis do planejamento" },
+  { path: "regente/app/api/regente/route.ts", purpose: "Persistência do planejamento e falhas visíveis na conversa" },
   { path: "regente/lib/orchestra-context.ts", purpose: "Propósito institucional e contexto limitado por fase" },
   { path: "regente/lib/delivery-acceptance.ts", purpose: "Aceite técnico separado de entrega e validação humana" },
   { path: "regente/lib/catalog-bridge.ts", purpose: "Ponte F4 vinculada à autorização e ao arquivo persistido" },
