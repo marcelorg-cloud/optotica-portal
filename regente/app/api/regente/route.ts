@@ -4,6 +4,7 @@ import { requireMaster } from "../../../lib/require-master";
 import { createServerSupabaseClient } from "../../../lib/supabase";
 import { initializeTaskSteps, syncTaskProgress } from "../../../lib/task-state";
 import { normalizeNewPipeline, REGENT_VERSION } from "../../../lib/phase-control";
+import { planningFailure } from "../../../lib/planning-failure";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -33,6 +34,10 @@ export async function POST(request: Request) {
     );
   }
 
+  let failureSessionId: string | null = null;
+  let failureSupabase: Awaited<ReturnType<typeof createServerSupabaseClient>> | null = null;
+  let userMessageSaved = false;
+  let createdTaskId: string | null = null;
   try {
     const body = await request.json();
     const message = typeof body.message === "string" ? body.message.trim() : "";
@@ -46,6 +51,7 @@ export async function POST(request: Request) {
     }
 
     const supabase = await createServerSupabaseClient();
+    failureSupabase = supabase;
     let sessionId = requestedSessionId;
     let isNewSession = false;
 
@@ -81,6 +87,7 @@ export async function POST(request: Request) {
       sessionId = session.id;
       isNewSession = true;
     }
+    failureSessionId = sessionId;
 
     const { data: previousMessages, error: historyError } = await supabase
       .from("regent_messages")
@@ -114,6 +121,7 @@ export async function POST(request: Request) {
       );
     }
 
+    userMessageSaved = true;
     const planned = await askRegent({ message, history, budgetTier });
 
     if (!planned) {
@@ -161,6 +169,7 @@ export async function POST(request: Request) {
       );
     }
 
+    createdTaskId = task.id;
     await initializeTaskSteps({
       supabase,
       taskId: task.id,
@@ -225,10 +234,22 @@ export async function POST(request: Request) {
       output: persistedPayload,
     });
   } catch (error) {
-    console.error("regente_planning_failed", { code: (error as { code?: unknown })?.code || "planning_error" });
+    const diagnostic = planningFailure(error);
+    const message = `${diagnostic.message} ${createdTaskId ? "Uma missão já foi registrada; confira seu estado antes de criar outra. " : ""}${diagnostic.action}`;
+    console.error("regente_planning_failed", { code: diagnostic.code, sessionId: failureSessionId, taskId: createdTaskId });
+    let diagnosticPersisted = false;
+    if (failureSupabase && failureSessionId && userMessageSaved) {
+      try {
+        const saved = await failureSupabase.from("regent_messages").insert({ session_id: failureSessionId,
+          user_id: auth.userId, role: "assistant", content: message,
+          payload: { planningFailure: diagnostic, createdTaskId, version: REGENT_VERSION } });
+        diagnosticPersisted = !saved.error;
+      } catch { /* The response still reports the failure when persistence fails. */ }
+    }
     return NextResponse.json(
-      { error: "regent_failed", message: "Falha ao consultar o Regente." },
-      { status: 500 },
+      { error: "regent_failed", message, diagnostic, diagnosticPersisted,
+        sessionId: failureSessionId, userMessageSaved, createdTaskId },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }
 }

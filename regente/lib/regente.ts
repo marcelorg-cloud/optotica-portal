@@ -15,15 +15,16 @@ const PipelineStep = z.object({
   requiresApproval: z.boolean(),
   dependsOn: z.array(z.number().int().positive()).default([]),
   checkpoint: z.boolean().default(false),
-  canvaMode: z.enum(["inspect", "create"]).optional(),
-  canvaSourceRunIds: z.array(z.string().uuid()).max(20).optional(),
-  canvaDesignIds: z.array(z.string().min(6).max(80)).max(10).optional(),
-  onUnavailable: z.enum(["block", "skip"]).optional(),
-  project: z.enum(["Optótica", "ENSAVIM"]).optional(),
-  reviewRequirement: z.enum(["separate_context", "different_model", "external_human"]).optional(),
-  catalogMode: z.literal("standardize").optional(),
-  catalogProductId: z.string().uuid().optional(),
-  catalogColorImageId: z.string().uuid().optional(),
+  // The SDK emits required wire properties; non-applicable fields must accept null.
+  canvaMode: z.enum(["inspect", "create"]).nullable().optional(),
+  canvaSourceRunIds: z.array(z.string().uuid()).max(20).nullable().optional(),
+  canvaDesignIds: z.array(z.string().min(6).max(80)).max(10).nullable().optional(),
+  onUnavailable: z.enum(["block", "skip"]).nullable().optional(),
+  project: z.enum(["Optótica", "ENSAVIM"]).nullable().optional(),
+  reviewRequirement: z.enum(["separate_context", "different_model", "external_human"]).nullable().optional(),
+  catalogMode: z.literal("standardize").nullable().optional(),
+  catalogProductId: z.string().uuid().nullable().optional(),
+  catalogColorImageId: z.string().uuid().nullable().optional(),
 });
 
 export const RegentOutput = z.object({
@@ -69,6 +70,17 @@ export type RegentConversationMessage = {
   role: "user" | "assistant";
   content: string;
 };
+
+// Null means not applicable, never an instruction to replace configured values.
+export function normalizePlannerOutput(output: z.infer<typeof RegentOutput>) {
+  return { ...output, pipeline: output.pipeline.map(step => ({ ...step,
+    canvaMode: step.canvaMode ?? undefined, canvaSourceRunIds: step.canvaSourceRunIds ?? undefined,
+    canvaDesignIds: step.canvaDesignIds ?? undefined, onUnavailable: step.onUnavailable ?? undefined,
+    project: step.project ?? undefined, reviewRequirement: step.reviewRequirement ?? undefined,
+    catalogMode: step.catalogMode ?? undefined, catalogProductId: step.catalogProductId ?? undefined,
+    catalogColorImageId: step.catalogColorImageId ?? undefined,
+  })) };
+}
 
 const instructions = `
 Você é o REGENTE v0.7 da rede de agentes e ferramentas Optótica + ENSAVIM.
@@ -218,5 +230,5 @@ export async function askRegent(input: {
   ].join("\n");
 
   const result = await run(regentAgent, prompt, { maxTurns: 2, signal: AbortSignal.timeout(120_000) });
-  return result.finalOutput;
+  return result.finalOutput ? normalizePlannerOutput(result.finalOutput) : undefined;
 }

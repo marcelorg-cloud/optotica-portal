@@ -578,7 +578,18 @@ export function RegenteClient() {
         body: JSON.stringify({ sessionId: originSession, message: text, budgetTier }),
       });
       const data = await readApiResponse(response);
-      if (!response.ok) throw new Error(data.message || "Falha ao consultar o Regente.");
+      if (!response.ok) {
+        if (activeSessionRef.current !== originSession) return;
+        // The server may already have stored the new conversation. Preserve it
+        // and its diagnostic instead of hiding the user message after a failure.
+        if (data.sessionId && data.userMessageSaved) {
+          await openSession(data.sessionId);
+          void loadSessions(false);
+          setError(data.message || "Não foi possível confirmar o planejamento.");
+          return;
+        }
+        throw new Error(data.message || "Falha ao consultar o Regente.");
+      }
       if (activeSessionRef.current !== originSession) return;
       activeSessionRef.current = data.sessionId;
       setSessionId(data.sessionId);
