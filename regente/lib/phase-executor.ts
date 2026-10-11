@@ -8,6 +8,8 @@ import { artifactFingerprint } from "./artifact-fingerprint";
 import { buildPhaseReport, dependencyArtifacts, failureDisposition, redactSecrets, type PhaseState } from "./phase-control";
 import { analyzeRecovery, reviewRecoveryWithOpenAI } from "./recovery";
 import { collectOrchestraHealth } from "./orchestra-health";
+import { executeCatalogBridge } from "./catalog-bridge";
+import { buildPhaseContext } from "./orchestra-context";
 
 type Artifact = { step: number; node: string; output: unknown };
 export type PhaseTask = {
@@ -24,6 +26,7 @@ function stepRunReusable(step: PipelineStep, revision: number, run: { adapter: s
   if (input?.step && artifactFingerprint(input.step) !== artifactFingerprint(step)) return false;
   const node = step.nodes[0];
   if (isOpenAINode(node) || node === "A4") return input?.priorArtifactFingerprint === artifactFingerprint(artifacts);
+  if (node === "F4") return run.adapter === "catalog_portal_standardize" && input?.stepRevision === revision && Boolean(input?.step);
   if (node !== "F6") return node === "A5";
   // A legacy successful external effect must be reused, never recreated just because metadata was older.
   if (step.canvaMode === "create") return run.adapter === "canva_portal_bridge" && (Boolean(input?.step) || revision === 1);
@@ -83,12 +86,14 @@ export async function executePhase(input: { supabase: SupabaseClient; userId: st
       content: report
         ? `Fase ${step.step} concluída e persistida. Revise os outputs para continuar ou refazer. A missão ainda não foi finalizada.`
         : `Fase ${step.step} pausada: ${(error as { action?: string } | null)?.action || "Confira o diagnóstico no monitor."}`,
-      payload: { taskId: task.id, notification: true, phase: step.step, engineVersion: "0.7.0" },
+      payload: { taskId: task.id, notification: true, phase: step.step, engineVersion: "0.7.1" },
     }); } catch { console.error("regente_phase_notification_unavailable", { taskId: task.id, step: step.step }); }
     return { ...result.data, phaseReport: report, artifacts: output == null ? [] : [{ step: step.step, node, output }], recoveryEscalated: !report };
   }
 
   async function run() {
+    const context = buildPhaseContext({ step, objective: task.objective, artifacts, review: node === "A4" });
+    await event("phase_context", context.metadata);
     if (node === "A5") {
       const preflight = await executeA5LocalPreflight({ supabase, taskId: task.id, userId, step });
       const health = await collectOrchestraHealth({ supabase, userId, depth: "basic", taskId: task.id, requiredNodes: pipeline.flatMap((stage) => stage.nodes.slice(0, 1)) });
@@ -116,6 +121,7 @@ export async function executePhase(input: { supabase: SupabaseClient; userId: st
         throw error;
       }
     }
+    if (node === "F4") return executeCatalogBridge({ supabase, taskId: task.id, userId, step, revision, executionId: task.execution_id, executionInvocationId: task.execution_invocation_id });
     if (node === "F6") {
       if (step.canvaMode === "inspect") return executeCanvaInspectBridge({ supabase, taskId: task.id, userId, step, revision, executionId: task.execution_id, executionInvocationId: task.execution_invocation_id });
       if (step.canvaMode !== "create") throw new Error("F6 precisa declarar canvaMode inspect/create e referências canônicas. Revise a etapa sem inventar IDs.");

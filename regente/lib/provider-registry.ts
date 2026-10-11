@@ -18,7 +18,7 @@ export type GuardianProvider = {
   operational: boolean | null;
   financial: "not_verified";
   requiredConfiguration: string[];
-  sourceVersion: "0.7.0";
+  sourceVersion: "0.7.1";
   release: "v0.7";
 };
 
@@ -44,7 +44,7 @@ export function guardianProviders(env: ProviderEnvironment = process.env): Guard
     {
       id: "openai",
       label: "Guardião OpenAI / ChatGPT",
-      roles: ["programação", "revisão independente", "recovery"],
+      roles: ["programação", "revisão em chamada separada", "recovery"],
       state: openAIConfigured ? "configured" : "requires_configuration",
       route: "openai_agents_sdk",
       requestedRoute: null,
@@ -61,7 +61,7 @@ export function guardianProviders(env: ProviderEnvironment = process.env): Guard
         ...(!openAIConfigured ? ["Configurar OPENAI_API_KEY no runtime do Regente."] : []),
         ...(model === null ? ["Conferir o identificador do modelo do guardião; valor inválido ou sensível omitido do relatório."] : []),
       ],
-      sourceVersion: "0.7.0",
+      sourceVersion: "0.7.1",
       release: "v0.7",
     },
     {
@@ -86,7 +86,7 @@ export function guardianProviders(env: ProviderEnvironment = process.env): Guard
           ? ["A rota programática solicitada ainda não possui adapter validado nesta versão; não é ativada pela presença de uma chave."]
           : []),
       ],
-      sourceVersion: "0.7.0",
+      sourceVersion: "0.7.1",
       release: "v0.7",
     },
   ];

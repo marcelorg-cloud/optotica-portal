@@ -1,4 +1,4 @@
-# Regente Optótica — v0.7.0
+# Regente Optótica — v0.7.1
 
 Orquestrador supervisionado Optótica + ENSAVIM em produção via GitHub → Vercel.
 
@@ -12,6 +12,9 @@ Orquestrador supervisionado Optótica + ENSAVIM em produção via GitHub → Ver
 - download completo e histórico dos checkpoints, runs e versões substituídas;
 - afinamento básico local gratuito e profundo solicitado, apenas com leituras;
 - guardiões especialistas externos com constituição e snapshot de código do deployment.
+- partitura institucional e técnica limitada por fase, com origem e hash de evidências;
+- revisão com modelo/origem declarados, sem chamar contexto separado de outro provedor;
+- F4 via Portal para padronização determinística e download autenticado do JPEG separado.
 
 ## Arquitetura existente, sem credenciais inventadas
 
@@ -19,6 +22,23 @@ A1/A2/A3 e A4 usam OpenAI API; A4 é revisão separada, não outro provedor.
 A5 é preflight local determinístico Supabase, não um worker generativo.
 A6 usa parecer Claude manual por pacote/importação, sem presumir Anthropic API.
 DeepSeek está deliberadamente reservado para a 0.8.
+
+Para exigir diversidade em A4, a fase usa `reviewRequirement="different_model"`
+e `REGENT_REVIEW_MODEL` deve diferir do modelo executor. Não se exige Anthropic.
+Parecer profissional jurídico/clínico e revisão externa não são simulados por A4.
+
+F4 usa `catalogMode="standardize"`, `catalogProductId` e `catalogColorImageId`
+de uma foto original realmente cadastrada. O operador aprova a fase e baixa
+o JPEG de 1040×320, até 200 KB. Original e foto vigente não são substituídos.
+Geração paga Replicate, reconstrução de ângulo e certificação absoluta de cor
+não estão habilitadas. É obrigatória a conferência humana antes de aplicar a imagem.
+O contrato é testado com arquivos reais e fronteiras simuladas; isso não comprova
+por si só a abertura de um arquivo de produção pelo destinatário.
+
+Ofertas e segundo par não possuem condições comerciais aprovadas. Nenhum envio
+comercial é liberado por esses textos. A identidade jurídica não foi inferida.
+As funções transacionais existentes continuam compatíveis com o engine-base 0.7;
+seus registros históricos não são renomeados retrospectivamente.
 
 F6 chama o bridge autenticado do Portal em `https://app.optotica.com.br`.
 Client ID, Client Secret e OAuth Canva ficam exclusivamente no Portal. Reconectar

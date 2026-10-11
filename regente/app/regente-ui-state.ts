@@ -42,6 +42,7 @@ export type PhaseReport = {
   final?: boolean;
   output?: unknown;
   limitations?: string[];
+  acceptance?: { technicalAccepted: boolean; deliveredToRecipient: boolean; humanAccepted: boolean; checks: { id: string; state: string; evidence: string }[] };
 };
 
 export type TaskRuntime = {

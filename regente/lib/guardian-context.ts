@@ -3,8 +3,9 @@ import { CONSTITUTION_TEXT } from "./constitution.ts";
 import { NETWORK_NODES } from "./nodes.ts";
 import { guardianProviders, type GuardianProviderId, type ProviderEnvironment } from "./provider-registry.ts";
 import { GUARDIAN_BUNDLED_SOURCES } from "./guardian-source-bundle.ts";
+import { INSTITUTIONAL_CONTEXT, ORCHESTRA_ROLES } from "./orchestra-context.ts";
 
-export const GUARDIAN_CONTEXT_VERSION = "0.7.0";
+export const GUARDIAN_CONTEXT_VERSION = "0.7.1";
 export const GUARDIAN_CONSTITUTION = [
   "Você é um especialista na programação, sanidade e afinamento do Regente Optótica; não é um executor de publicidade ou um nó produtivo da missão.",
   "Objetivo: missões rastreáveis, outputs duráveis e execução de uma fase de cada vez com validação humana antes da próxima.",
@@ -21,6 +22,13 @@ export const GUARDIAN_CONSTITUTION = [
 ] as const;
 
 export const GUARDIAN_SOURCE_MANIFEST = [
+  { path: "regente/lib/orchestra-context.ts", purpose: "Propósito institucional e contexto limitado por fase" },
+  { path: "regente/lib/delivery-acceptance.ts", purpose: "Aceite técnico separado de entrega e validação humana" },
+  { path: "regente/lib/catalog-bridge.ts", purpose: "Ponte F4 vinculada à autorização e ao arquivo persistido" },
+  { path: "lib/catalog/regent-catalog.ts", purpose: "Padronização determinística e limites de fidelidade" },
+  { path: "lib/catalog/display-photo-standard.ts", purpose: "Contrato de enquadramento e codificação" },
+  { path: "app/api/internal/regente/catalog/route.ts", purpose: "Validação de fase F4, original e efeito separado" },
+  { path: "app/api/internal/regente/catalog/file/route.ts", purpose: "Download autenticado com conferência do arquivo" },
   { path: "regente/lib/constitution.ts", purpose: "Critérios de sanidade" },
   { path: "regente/lib/nodes.ts", purpose: "Mapa arquitetural de nós" },
   { path: "regente/lib/provider-registry.ts", purpose: "Provedores, roles e transportes reais" },
@@ -55,6 +63,8 @@ export function guardianSpecialistInstructions(provider: GuardianProviderId = "o
   return [
     `GUARDIÃO ${provider === "claude" ? "CLAUDE" : "OPENAI"} — CONTEXTO REGENTE ${GUARDIAN_CONTEXT_VERSION}`,
     ...GUARDIAN_CONSTITUTION,
+    "CONTEXTO INSTITUCIONAL:", JSON.stringify(INSTITUTIONAL_CONTEXT),
+    "PAPÉIS E LIMITES:", JSON.stringify(ORCHESTRA_ROLES),
     "CRITÉRIOS DE SANIDADE EXISTENTES:", CONSTITUTION_TEXT,
     "ROTEIRO DE REVISÃO: estado canônico → autorização → dependências → adapter/configuração → evidência do runtime → efeito externo → output preservado → ação humana necessária.",
     "FORMATO DO PARECER: veredito; evidências com origem/horário; bloqueios necessários versus opcionais; divergências de conta; hipótese; correção mínima; testes; risco; rollback; itens não verificáveis.",
@@ -112,12 +122,14 @@ export async function loadGuardianSourceSnapshot(input: {
   env?: ProviderEnvironment;
   fetchImpl?: typeof fetch;
   bundledSources?: ReadonlyArray<{ path: string; content: string; sha256: string }>;
+  paths?: readonly string[];
 } = {}): Promise<GuardianSource[]> {
   const env = input.env || process.env;
   const commit = guardianSourceCommit(env);
   const bundledSources = input.bundledSources || GUARDIAN_BUNDLED_SOURCES;
   const fetchImpl = input.fetchImpl || fetch;
-  const sources = await Promise.all(GUARDIAN_SOURCE_MANIFEST.map(async (source): Promise<GuardianSource> => {
+  const manifest = input.paths ? GUARDIAN_SOURCE_MANIFEST.filter((source) => input.paths!.includes(source.path)) : GUARDIAN_SOURCE_MANIFEST;
+  const sources = await Promise.all(manifest.map(async (source): Promise<GuardianSource> => {
     const bundled = bundledSources.find((item) => item.path === source.path);
     if (bundled) {
       const hash = createHash("sha256").update(bundled.content).digest("hex");
@@ -172,7 +184,7 @@ export function buildGuardianPacket(input: {
     sanityCriteria: CONSTITUTION_TEXT,
     architecture: {
       execution: "Uma fase por autorização; resultado persistido seguido de validação humana. Execução durável com sessão Master, lock e lease.",
-      activeAdapters: ["A1/A2/A3: OpenAI Agents SDK", "A4: contexto OpenAI independente", "A5: preflight local", "A6: parecer Claude humano de revisão correspondente", "F6: bridge Canva do Portal"],
+      activeAdapters: ["A1/A2/A3: OpenAI Agents SDK", "A4: chamada OpenAI separada; diversidade declarada", "A5: preflight local", "A6: parecer Claude humano de revisão correspondente", "F4: padronização determinística pelo Portal", "F6: bridge Canva do Portal"],
       externalGuardians: "Especialistas fora da execução produtiva. OpenAI com contexto separado; Claude via revisão externa humana até integração API comprovada.",
       outputDurability: "Tool-runs e artifacts são preservados e versionados. Um link de edição Canva não é um arquivo exportado durável.",
       accountOwnership: "Regente e Portal compartilham a conexão Canva por user_id do operador. Client ID não é o ID de usuário Canva; conta/equipe devem ser confirmadas por evidência OAuth.",
