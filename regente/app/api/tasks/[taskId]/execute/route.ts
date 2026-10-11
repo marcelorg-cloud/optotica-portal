@@ -26,7 +26,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tas
   const userId = auth.userId;
   const supabase = internal ? createBearerSupabaseClient(bearer) : await createServerSupabaseClient();
   const read = await supabase.from("regent_tasks")
-    .select("id,session_id,title,objective,status,pipeline,picker,human_decision,control_revision,execution_id,execution_invocation_id,execution_lease_until,engine_version")
+    .select("id,session_id,title,objective,risk,status,pipeline,picker,human_decision,control_revision,execution_id,execution_invocation_id,execution_lease_until,engine_version")
     .eq("id", taskId).eq("user_id", userId).maybeSingle();
   if (read.error || !read.data) return NextResponse.json({ error: "task_not_found", message: "Tarefa não encontrada." }, { status: read.error ? 500 : 404, headers: NO_STORE });
   const task = read.data;

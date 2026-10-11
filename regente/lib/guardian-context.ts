@@ -22,6 +22,7 @@ export const GUARDIAN_CONSTITUTION = [
 ] as const;
 
 export const GUARDIAN_SOURCE_MANIFEST = [
+  { path: "regente/lib/review-policy.ts", purpose: "Contraponto crítico obrigatório, independente de sugestões do planejador" },
   { path: "regente/lib/regente.ts", purpose: "Contrato real do planejamento e contexto institucional" },
   { path: "regente/lib/planning-failure.ts", purpose: "Diagnósticos seguros e acionáveis do planejamento" },
   { path: "regente/app/api/regente/route.ts", purpose: "Persistência do planejamento e falhas visíveis na conversa" },

@@ -43,6 +43,10 @@ test("A5 calcula a primeira continuação liberada sem executar provedor", () =>
   assert.equal(report.executionSafety.additionalAiConsumption, false);
   assert.equal(report.capabilityInventory.supabaseRls.operationalVerification, "verified_by_scoped_reads");
   assert.equal(report.capabilityInventory.F6.operationalVerification, "not_verified");
+  assert.equal(report.capabilityInventory.F4.adapter, "catalog_portal_standardize");
+  assert.equal(report.capabilityInventory.F4.operationalVerification, "not_verified");
+  assert.equal(report.capabilityInventory.A4.adapter, "openai_agents_separate_review");
+  assert.equal(report.capabilityInventory.A4.reviewIndependence, "not_verified_by_preflight");
 });
 
 test("A5 mantém runs succeeded como histórico sem alegar reaproveitamento verificado", () => {

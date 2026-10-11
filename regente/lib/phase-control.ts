@@ -1,5 +1,6 @@
 import type { PipelineStep } from "./adapters";
 import { deliveryAcceptance } from "./delivery-acceptance.ts";
+import { effectiveReviewRequirement } from "./review-policy.ts";
 
 export const REGENT_VERSION = "0.7.1";
 
@@ -36,7 +37,7 @@ export function dependencyArtifacts(steps: Array<PhaseState & { node_ids?: strin
 }
 
 /** Every new mission has a deterministic local preflight; never rewrite existing missions' IDs. */
-export function normalizeNewPipeline(pipeline: PipelineStep[]): PipelineStep[] {
+export function normalizeNewPipeline(pipeline: PipelineStep[], reviewContext: { risk?: string; objective?: string } = {}): PipelineStep[] {
   if (!pipeline.length) return [];
   const ordered = [...pipeline].sort((a, b) => a.step - b.step);
   const ids = ordered.map((step) => step.step);
@@ -49,7 +50,8 @@ export function normalizeNewPipeline(pipeline: PipelineStep[]): PipelineStep[] {
       throw new Error("Dependência inexistente ou cíclica no plano. Revise a pipeline antes de executar.");
     }
     const dependencies = declared.map((dep) => mapping.get(dep)!);
-    return { ...step, step: mapping.get(step.step)!, dependsOn: !hasPreflight && !dependencies.length ? [1] : dependencies, checkpoint: true, requiresApproval: true };
+    return { ...step, ...(step.nodes[0] === "A4" ? { reviewRequirement: effectiveReviewRequirement({ step, ...reviewContext }) } : {}),
+      step: mapping.get(step.step)!, dependsOn: !hasPreflight && !dependencies.length ? [1] : dependencies, checkpoint: true, requiresApproval: true };
   });
   const preflight: PipelineStep = {
     step: 1, role: "reference", nodes: ["A5"],

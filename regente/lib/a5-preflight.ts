@@ -35,6 +35,7 @@ type CapabilityState = {
   adapter: string;
   connected: boolean;
   credentialConfigured?: boolean;
+  reviewIndependence?: "not_verified_by_preflight";
   operationalVerification?: "verified_by_scoped_reads" | "not_verified";
 };
 
@@ -80,7 +81,7 @@ export type A5PreflightReport = {
     dependenciesSatisfied: boolean;
   };
   capabilityInventory: Record<
-    "supabaseRls" | "A1" | "A2" | "A3" | "A4" | "A5" | "F6" | "F12" | "F13",
+    "supabaseRls" | "A1" | "A2" | "A3" | "A4" | "A5" | "F4" | "F6" | "F12" | "F13",
     CapabilityState
   >;
   verificationLimits: {
@@ -205,8 +206,9 @@ export function buildA5PreflightReport(input: {
       A1: openAI("openai_agents"),
       A2: openAI("openai_agents"),
       A3: openAI("openai_agents"),
-      A4: openAI("openai_agents_independent_review"),
+      A4: { ...openAI("openai_agents_separate_review"), reviewIndependence: "not_verified_by_preflight" },
       A5: { adapter: "local_recovery_preflight", connected: true },
+      F4: { adapter: "catalog_portal_standardize", connected: true, operationalVerification: "not_verified" },
       F6: {
         adapter: "canva_portal_bridge",
         connected: true,
