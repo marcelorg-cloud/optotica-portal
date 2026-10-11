@@ -5,7 +5,7 @@
  * A score is a versioned source of instructions, not a runtime permission grant.
  * Runtime Auth/Master/RLS, policy and adapter-state checks remain mandatory.
  */
-import { COORDINATOR_ROLES, type CoordinatorId } from "./cooperative-orchestra";
+import { COORDINATOR_ROLES } from "./cooperative-orchestra.ts";
 
 export type ScoreStatus = "draft" | "approved" | "superseded";
 export type DataClassification = "public" | "internal_redacted" | "restricted";
