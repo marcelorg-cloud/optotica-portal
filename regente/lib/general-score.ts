@@ -120,6 +120,13 @@ export function extractInstrumentalPart(
   };
 }
 
+export const NETWORK_INSTRUMENTAL_PARTS: ActorSpec[] = [
+  { id:"A1",plane:"network",role:"Engenharia Optótica",responsibilities:["Produzir output de engenharia somente mediante adapter e autorização."],readsFrom:["general_score","work_score","mission_score"],communicatesWith:["orquestrador","regente","auditor_harmonia"],knowledgeAccess:"internal_redacted" },
+  { id:"A2",plane:"network",role:"Produto Optótica",responsibilities:["Produzir output de produto somente mediante adapter e autorização."],readsFrom:["general_score","work_score","mission_score"],communicatesWith:["orquestrador","regente","auditor_harmonia"],knowledgeAccess:"internal_redacted" },
+  { id:"A3",plane:"network",role:"Conteúdo ENSAVIM",responsibilities:["Produzir conteúdo autorizado conforme a obra e sua missão."],readsFrom:["general_score","work_score","mission_score"],communicatesWith:["orquestrador","regente","auditor_harmonia"],knowledgeAccess:"internal_redacted" },
+  { id:"A4",plane:"network",role:"Revisor OpenAI",responsibilities:["Produzir revisão independente sem conceder aprovação."],readsFrom:["general_score","work_score","mission_score"],communicatesWith:["regente","auditor_harmonia"],knowledgeAccess:"internal_redacted" },
+  { id:"A6",plane:"network",role:"Parecer Claude manual",responsibilities:["Importar parecer humano externo; sem API Claude automática comprovada."],readsFrom:["general_score","work_score","mission_score"],communicatesWith:["regente","auditor_harmonia"],knowledgeAccess:"internal_redacted" },
+];
 export const ORGANIZER_INSTRUMENTAL_PARTS: ActorSpec[] = COORDINATOR_ROLES.map(role=>({
   id:role.id,plane:"coordination",role:role.name,
   responsibilities:[role.responsibility],
@@ -149,7 +156,7 @@ export const GENERAL_SCORE_DRAFT: GeneralScore = {
     {id:"ensavim",name:"ENSAVIM",purpose:"Encontro multidisciplinar de saúde visual em Maringá.",
       audience:["all"],dataClass:"public",status:"draft",sourceId:"v0.8-partitura-geral.md"},
   ],
-  actors:ORGANIZER_INSTRUMENTAL_PARTS,
+  actors:[...ORGANIZER_INSTRUMENTAL_PARTS,...NETWORK_INSTRUMENTAL_PARTS],
   instruments:[
     {id:"A1",service:"OpenAI Agents SDK",purpose:"Engenharia Optótica",adapter:"implemented"},
     {id:"A2",service:"OpenAI Agents SDK",purpose:"Produto Optótica",adapter:"implemented"},
@@ -157,6 +164,19 @@ export const GENERAL_SCORE_DRAFT: GeneralScore = {
     {id:"A4",service:"OpenAI Agents SDK",purpose:"Revisão independente",adapter:"implemented"},
     {id:"A5",service:"Local / Supabase",purpose:"Preflight determinístico",adapter:"implemented"},
     {id:"A6",service:"Claude revisão humana",purpose:"Parecer externo manual",adapter:"proposed"},
+    {id:"F1",service:"GitHub",purpose:"Repositório e commits; executor direto no Regente não comprovado",adapter:"not_verified"},
+    {id:"F2",service:"Vercel",purpose:"Deployments e runtime; executor de fases não comprovado",adapter:"not_verified"},
+    {id:"F3",service:"Supabase",purpose:"Estado, autenticação e preflight local",adapter:"implemented"},
+    {id:"F4",service:"Replicate",purpose:"Tratamento de imagens",adapter:"not_verified"},
+    {id:"F5",service:"Canva",purpose:"Prova virtual; adapter próprio não comprovado",adapter:"not_verified"},
     {id:"F6",service:"Canva via Portal",purpose:"Criativos e inspeção",adapter:"implemented"},
+    {id:"F7",service:"HeyGen",purpose:"Produção de vídeo",adapter:"not_verified"},
+    {id:"F8",service:"RapidAPI",purpose:"Catálogo e consultas",adapter:"not_verified"},
+    {id:"F9",service:"Meta / WhatsApp",purpose:"Mensagens e anúncios; adapter não comprovado",adapter:"not_verified"},
+    {id:"F10",service:"Resend",purpose:"E-mail",adapter:"not_verified"},
+    {id:"F11",service:"Cloudflare",purpose:"Rede, domínio e DNS",adapter:"not_verified"},
+    {id:"F12",service:"Google Drive",purpose:"Biblioteca de arquivos; OAuth Regente indisponível",adapter:"not_verified"},
+    {id:"F13",service:"Google Docs",purpose:"Documentação; OAuth Regente indisponível",adapter:"not_verified"},
+    {id:"F14",service:"Google Planilhas",purpose:"Matriz da rede",adapter:"not_verified"},
   ],
 };
