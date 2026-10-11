@@ -5,6 +5,11 @@ on:
       - 'regente/lib/cooperative-*.ts'
       - 'regente/app/api/orchestra/cooperative/**'
       - 'regente/tests/cooperative-orchestra.test.mjs'
+      - 'regente/lib/resolution-library.ts'
+      - 'regente/lib/general-score.ts'
+      - 'regente/tests/resolution-library.test.mjs'
+      - 'regente/tests/general-score.test.mjs'
+      - 'regente/docs/v0.8-*.md'
       - '.github/workflows/regente-cooperative.yml'
   workflow_dispatch:
 permissions:
@@ -19,4 +24,4 @@ jobs:
         with:
           node-version: '22'
       - name: Cooperative DAG and coordination contracts
-        run: node --experimental-strip-types --test regente/tests/cooperative-orchestra.test.mjs
+        run: node --experimental-strip-types --test regente/tests/cooperative-orchestra.test.mjs regente/tests/resolution-library.test.mjs regente/tests/general-score.test.mjs
