@@ -2,6 +2,7 @@ import { Agent, run } from "@openai/agents";
 import { z } from "zod";
 import type { PipelineStep } from "./adapters";
 import { guardianSpecialistInstructions, loadGuardianSourceSnapshot } from "./guardian-context";
+import { reviewProvenance } from "./orchestra-context";
 import { redactSecrets } from "./phase-control";
 
 export type RecoveryArtifact = { step: number; node: string; output: unknown };
@@ -49,12 +50,13 @@ function artifactsText(artifacts: RecoveryArtifact[]) {
   ).join("\n\n")).slice(0, 12000);
 }
 async function sourceContext(node: string) {
-  const sources = await loadGuardianSourceSnapshot();
   const required = new Set([
     "regente/lib/phase-control.ts", "regente/lib/phase-executor.ts", "regente/lib/orchestra-health.ts",
     "regente/app/api/tasks/[taskId]/execute/route.ts", "regente/app/api/tasks/[taskId]/decision/route.ts",
-    "regente/lib/adapters.ts", ...(node === "F6" ? ["app/api/internal/regente/canva/route.ts"] : []),
+    "regente/lib/adapters.ts", "regente/lib/orchestra-context.ts", ...(node === "F6" ? ["app/api/internal/regente/canva/route.ts"] : []),
+    ...(node === "F4" ? ["regente/lib/catalog-bridge.ts", "lib/catalog/regent-catalog.ts", "app/api/internal/regente/catalog/route.ts"] : []),
   ]);
+  const sources = await loadGuardianSourceSnapshot({ paths: [...required] });
   return sources.filter((source) => required.has(source.path)).map((source) =>
     `### ${source.path} @ ${source.commit || "commit não comprovado"} / ${source.state}\n${source.content || "Fonte indisponível: não presumir seu conteúdo."}`,
   ).join("\n\n").slice(0, 62000);
@@ -88,7 +90,7 @@ export async function analyzeRecovery(input: {
       "Não repita uma estratégia que já falhou sem uma razão concreta.",
       "O runtime classifica erros determinísticos localmente e só repete falhas transitórias em operações seguras. Não invente três tentativas nem recomende repetir configuração ausente.",
       "Seu diagnóstico é único e pode ser revisto pelo segundo guardião em contexto separado. Uma proposta de patch não significa código aplicado.",
-      "Quando houver revisão independente do A4, trate-a como contraponto: compare hipóteses, resolva divergências e produza uma decisão consolidada.",
+      "Quando houver contraponto do A4, compare hipóteses e resolva divergências. Uma chamada separada não comprova independência de modelo ou provedor.",
     ].join("\n"),
     outputType: RecoveryDecision,
   });
@@ -131,18 +133,14 @@ export async function reviewRecoveryWithOpenAI(input: {
 }) {
   const code = await sourceContext(input.node);
   const agent = new Agent({
-    name: "A4 — Revisor independente de recovery",
-    model:
-      process.env.REGENT_REVIEW_MODEL ||
-      process.env.REGENT_RECOVERY_MODEL ||
-      process.env.REGENT_MODEL ||
-      "gpt-5.6-sol",
+    name: "A4 — Contraponto de recovery em chamada separada",
+    model: reviewProvenance().reviewModel,
     modelSettings: {
       reasoning: { effort: "high" },
       text: { verbosity: "medium" },
     },
     instructions: [
-      "Você é o revisor independente A4 do mecanismo de recuperação do Regente.",
+      "Você é o revisor A4 do mecanismo de recuperação em chamada separada, não necessariamente em outro modelo ou provedor.",
       guardianSpecialistInstructions("openai"),
       "Você executa com contexto separado do A5 e deve produzir um contraponto real.",
       "Analise o erro, a hipótese mais recente do Recovery Engineer e o código real.",
@@ -166,9 +164,9 @@ export async function reviewRecoveryWithOpenAI(input: {
 
   const result = await run(agent, prompt, { maxTurns: 2, signal: AbortSignal.timeout(90_000) });
   if (!result.finalOutput) {
-    throw new Error("O revisor independente A4 retornou saída vazia.");
+    throw new Error("O revisor A4 retornou saída vazia.");
   }
-  return { available: true as const, review: result.finalOutput.review };
+  return { available: true as const, review: result.finalOutput.review, reviewEvidence: { ...reviewProvenance(), authorNotesOmitted: false, fullyBlind: false } };
 }
 
 export function applyRecoveryDecision(step: PipelineStep, decision: RecoveryDecisionOutput) {

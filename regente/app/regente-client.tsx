@@ -30,6 +30,7 @@ type OutputItem = {
   links: string[];
   filename?: string;
   downloadUrl?: string;
+  binaryDownloadUrl?: string | null;
   truncated?: boolean;
 };
 
@@ -59,6 +60,7 @@ type HealthCheck = {
 };
 
 type HealthReport = {
+  governance?: { version: string; institution: { purpose: string; rules: string[] }; roles: { id: string; name: string; authority: string }[]; review: { reviewModel: string; executorModel: string; independence: string; providerDiversity: boolean }; delivery: string; evidenceValidity: string };
   id?: string;
   version?: string;
   depth: string;
@@ -675,6 +677,12 @@ export function RegenteClient() {
         {!!report.limitations?.length && (
           <details><summary>Limitações e itens não verificados ({report.limitations.length})</summary><ul>{report.limitations.map((limit, index) => <li key={index}>{limit}</li>)}</ul></details>
         )}
+        {report.acceptance && (
+          <details><summary>Aceite técnico e limites da entrega</summary>
+            <p>Contrato técnico: {report.acceptance.technicalAccepted ? "verificado" : "pendente ou bloqueado"}. Acesso do destinatário e aceite humano não são presumidos.</p>
+            <ul>{report.acceptance.checks.map(check => <li key={check.id}><b>{check.id}</b> · {check.state} — {check.evidence}</li>)}</ul>
+          </details>
+        )}
         {renderPhaseControls(plan, compact)}
       </section>
     );
@@ -686,7 +694,7 @@ export function RegenteClient() {
         <div>
           <span className="eyebrow">REDE OPTÓTICA + ENSAVIM</span>
           <h1>Regente</h1>
-          <p>v0.7.0 · execução fase a fase · validação humana · orquestra verificável</p>
+          <p>v0.7.1 · contexto institucional · execução fase a fase · entrega verificável</p>
           <small>Servidor: {release?.version || "verificação pendente"}{(release?.commit || release?.gitCommit) ? ` · ${(release.commit || release.gitCommit)!.slice(0, 7)}` : ""}</small>
         </div>
         <div className="header-controls">
@@ -871,6 +879,7 @@ export function RegenteClient() {
           {output.id.startsWith("run-") && <small>ID canônico do run: <code>{output.id.slice(4)}</code></small>}
           <p className="outputs-preview">{output.content.slice(0, 420)}{output.content.length > 420 ? "…" : ""}</p>
           <div className="outputs-item-actions">
+            {output.binaryDownloadUrl && <a href={output.binaryDownloadUrl}>Baixar imagem final autenticada ↓</a>}
             {output.downloadUrl?.startsWith("/api/tasks/") ? <a className="button-link" href={output.downloadUrl} download>Baixar arquivo completo ↓</a> : <button type="button" onClick={() => downloadText(`# Etapa ${output.step} · ${output.node} · revisão ${output.revision ?? 1}\n\nGerado em: ${taskUpdatedLabel(output.createdAt)}\n\n${output.content}`, output.filename || `etapa-${output.step}-revisao-${output.revision ?? 1}.md`)}>Baixar conteúdo disponível (.md) ↓</button>}
           </div>
           {output.truncated && <small className="task-stale-warning">A prévia foi abreviada. Use o download completo para obter todo o conteúdo.</small>}
@@ -891,7 +900,7 @@ export function RegenteClient() {
               <p>Você autoriza a troca desta fase para um único executor. Os outros nós não serão executados automaticamente; explique os limites e as fontes necessárias na orientação. Outputs e configurações anteriores ficam no histórico.</p>
               <label htmlFor="phase-executor">Executor<select id="phase-executor" value={phasePatchNode} onChange={(event) => setPhasePatchNode(event.target.value)}>
                 {!PHASE_EXECUTORS.includes(phasePatchNode) && <option value={phasePatchNode}>{phasePatchNode} · configuração anterior (selecione um executor conectado)</option>}
-                {PHASE_EXECUTORS.map((node) => <option key={node} value={node}>{node}{node === "A4" ? " · revisor independente OpenAI" : node === "A5" ? " · verificação local" : node === "A6" ? " · parecer Claude manual" : node === "F6" ? " · Canva via Portal" : node === "F9" ? " · Meta WhatsApp (configuração pode estar pendente)" : " · executor OpenAI"}</option>)}
+                {PHASE_EXECUTORS.map((node) => <option key={node} value={node}>{node}{node === "A4" ? " · revisão OpenAI em chamada separada" : node === "A5" ? " · verificação local" : node === "A6" ? " · parecer Claude manual" : node === "F6" ? " · Canva via Portal" : node === "F9" ? " · Meta WhatsApp (configuração pode estar pendente)" : " · executor OpenAI"}</option>)}
               </select></label>
               {phasePatchNode === "A6" && <p>A6 exige importar um parecer externo desta fase e revisão; não comprova uma conexão automática com Anthropic.</p>}
               {phasePatchNode === "F9" && <p>Escolher F9 não configura credenciais nem autoriza envio WhatsApp. Se indisponível, o diagnóstico pedirá conexão ou adiamento explícito.</p>}
@@ -919,6 +928,13 @@ export function RegenteClient() {
         {healthError && <p className="task-stale-warning" role="alert">{healthError}</p>}
         {!healthLoading && !healthReport && !healthError && <p>Nenhum afinamento registrado. Inicie uma verificação básica.</p>}
         {healthReport && <>
+          {healthReport.governance && <details open><summary>Propósito, responsabilidades e critérios de entrega · {healthReport.governance.version}</summary>
+            <p>{healthReport.governance.institution.purpose}</p>
+            <ul>{healthReport.governance.institution.rules.map((rule) => <li key={rule}>{rule}</li>)}</ul>
+            <dl>{healthReport.governance.roles.map((role) => <div key={role.id}><dt>{role.name}</dt><dd>{role.authority}</dd></div>)}</dl>
+            <p>Revisão A4: {healthReport.governance.review.reviewModel}; executor: {healthReport.governance.review.executorModel}. Independência: {healthReport.governance.review.independence}. Provedor distinto: {healthReport.governance.review.providerDiversity ? "Sim" : "Não"}.</p>
+            <p>{healthReport.governance.delivery}</p><p>{healthReport.governance.evidenceValidity}</p>
+          </details>}
           <div className="health-summary"><strong>{healthReport.depth === "deep" ? "Afinamento aprofundado" : "Verificação básica"}</strong><small>Gerado: {taskUpdatedLabel(healthReport.generatedAt)} · Persistido: {taskUpdatedLabel(healthReport.persistedAt)}</small><p>{healthReport.summary?.healthy ?? 0} verificados · {healthReport.summary?.attention ?? 0} precisam de ação · {healthReport.summary?.unknown ?? 0} não verificados</p></div>
           <div className="health-check-list">{healthReport.checks?.map((check) => <article key={check.id} className={`health-check health-${check.state}`}><div className="pipeline-step-head"><strong>{check.label}</strong><span className="pipeline-tag">{healthStateLabel(check.state)}</span></div>{check.blocking && <small className="health-blocking">Bloqueia as etapas que dependem deste nó.</small>}<p>{check.detail}</p><dl><div><dt>Adapter conectado</dt><dd>{checkedBoolean(check.adapterConnected)}</dd></div><div><dt>Configuração presente</dt><dd>{checkedBoolean(check.configured)}</dd></div><div><dt>Autenticação verificada</dt><dd>{checkedBoolean(check.authenticated)}</dd></div><div><dt>Permissões verificadas</dt><dd>{checkedBoolean(check.authorized)}</dd></div><div><dt>Operação verificada</dt><dd>{checkedBoolean(check.operational)}</dd></div><div><dt>Identidade da conta</dt><dd>{check.account || "Não verificada"}</dd></div><div><dt>Créditos / faturamento</dt><dd>Não verificados</dd></div></dl>{check.action && <div className="health-next-action"><b>Ação necessária:</b> {check.action}</div>}</article>)}</div>
           {!!healthReport.nodes?.length && <details className="health-node-inventory"><summary>Inventário dos atores e nós ({healthReport.nodes.length})</summary><p>O cadastro de um nó não comprova que seu adapter, credencial ou operação estejam disponíveis. Confira os testes de conexão acima.</p><div className="health-table-scroll"><table><thead><tr><th scope="col">Nó</th><th scope="col">Ator / ferramenta</th><th scope="col">Papel</th><th scope="col">Adapter conectado</th></tr></thead><tbody>{healthReport.nodes.map((node) => <tr key={node.id}><th scope="row">{node.id}</th><td>{node.label || node.name || node.technology || "Não informado"}</td><td>{node.role || "Não informado"}</td><td>{node.adapter || checkedBoolean(node.adapterConnected)}</td></tr>)}</tbody></table></div></details>}
@@ -946,7 +962,7 @@ export function RegenteClient() {
         </section>
       </ModalFrame>}
 
-      <footer>v0.7.0 — fases produzidas e validadas separadamente · outputs versionados · retomada auditável · sem reinício automático do zero.</footer>
+      <footer>v0.7.1 — fases produzidas e validadas separadamente · outputs versionados · contexto institucional · entrega e fidelidade não presumidas.</footer>
     </main>
   );
 }

@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { guardianSpecialistInstructions } from "./guardian-context";
 import { buildWorkerInput } from "./text-worker-context";
+import { buildPhaseContext, reviewProvenance } from "./orchestra-context";
 
 export type PipelineStep = {
   step: number;
@@ -20,6 +21,11 @@ export type PipelineStep = {
   canvaSourceRunIds?: string[];
   canvaDesignIds?: string[];
   onUnavailable?: "block" | "skip";
+  project?: "Optótica" | "ENSAVIM";
+  reviewRequirement?: "separate_context" | "different_model" | "external_human";
+  catalogMode?: "standardize";
+  catalogProductId?: string;
+  catalogColorImageId?: string;
 };
 
 type PriorArtifact = {
@@ -47,14 +53,6 @@ const CanvaDesignSpec = z.object({
   })).min(1).max(6),
 });
 
-function contextFromArtifacts(artifacts: PriorArtifact[]) {
-  if (!artifacts.length) return "Nenhum artefato anterior.";
-  return artifacts
-    .slice(-8)
-    .map((item) => `ETAPA ${item.step} / ${item.node}:\n${typeof item.output === "string" ? item.output : JSON.stringify(item.output)}`)
-    .join("\n\n");
-}
-
 function visualUrlsFromArtifacts(artifacts: PriorArtifact[]) {
   const values: string[] = [];
   const visit = (value: unknown) => {
@@ -81,6 +79,7 @@ export async function executeOpenAIWorker(input: {
   objective: string;
   priorArtifacts: PriorArtifact[];
 }) {
+  const context = buildPhaseContext({ step: input.step, objective: input.objective, artifacts: input.priorArtifacts });
   const agent = new Agent({
     name: `Executor ${input.node}`,
     model: process.env.REGENT_WORKER_MODEL || process.env.REGENT_MODEL || "gpt-5.6-sol",
@@ -97,23 +96,13 @@ export async function executeOpenAIWorker(input: {
     outputType: TextWorkerOutput,
   });
 
-  const prompt = [
-    `OBJETIVO GERAL: ${input.objective}`,
-    `NÓ: ${input.node}`,
-    `FUNÇÃO DA ETAPA: ${input.step.role}`,
-    `AÇÃO: ${input.step.action}`,
-    `ENTRADA: ${input.step.input}`,
-    `SAÍDA ESPERADA: ${input.step.expectedOutput}`,
-    "",
-    "ARTEFATOS ANTERIORES:",
-    contextFromArtifacts(input.priorArtifacts),
-  ].join("\n");
+  const prompt = context.text;
 
   const visualUrls = input.node === "A2" ? [] : visualUrlsFromArtifacts(input.priorArtifacts);
   const agentInput = buildWorkerInput(input.node, prompt, visualUrls);
   const result = await run(agent, agentInput, { maxTurns: 2, signal: AbortSignal.timeout(120_000) });
   if (!result.finalOutput) throw new Error("O executor OpenAI retornou saída vazia.");
-  return result.finalOutput;
+  return { ...result.finalOutput, contextEvidence: context.metadata };
 }
 
 export async function executeIndependentOpenAIReviewer(input: {
@@ -121,6 +110,8 @@ export async function executeIndependentOpenAIReviewer(input: {
   objective: string;
   priorArtifacts: PriorArtifact[];
 }) {
+  const reviewEvidence = reviewProvenance(process.env, input.step.reviewRequirement);
+  const context = buildPhaseContext({ step: input.step, objective: input.objective, artifacts: input.priorArtifacts, review: true });
   if (!process.env.OPENAI_API_KEY?.trim()) {
     return {
       blocked: true as const,
@@ -129,15 +120,10 @@ export async function executeIndependentOpenAIReviewer(input: {
   }
 
   const agent = new Agent({
-    name: "Revisor independente A4",
-    model:
-      process.env.REGENT_REVIEW_MODEL ||
-      process.env.REGENT_RECOVERY_MODEL ||
-      process.env.REGENT_WORKER_MODEL ||
-      process.env.REGENT_MODEL ||
-      "gpt-5.6-sol",
+    name: "Revisor A4 — execução separada, diversidade declarada",
+    model: reviewEvidence.reviewModel,
     instructions: [
-      "Você é o revisor independente A4 da rede Optótica + ENSAVIM.",
+      "Você é o revisor A4 da rede Optótica + ENSAVIM. Execução separada não garante independência de modelo ou provedor.",
       guardianSpecialistInstructions("openai"),
       "Trabalhe em uma execução separada dos demais nós e faça uma crítica genuína.",
       "Não apenas confirme o material anterior: identifique falhas, riscos, lacunas e alternativas.",
@@ -147,27 +133,18 @@ export async function executeIndependentOpenAIReviewer(input: {
     outputType: TextWorkerOutput,
   });
 
-  const prompt = [
-    `OBJETIVO GERAL: ${input.objective}`,
-    `FUNÇÃO DA ETAPA: ${input.step.role}`,
-    `AÇÃO: ${input.step.action}`,
-    `ENTRADA: ${input.step.input}`,
-    `SAÍDA ESPERADA: ${input.step.expectedOutput}`,
-    "",
-    "ARTEFATOS ANTERIORES:",
-    contextFromArtifacts(input.priorArtifacts),
-    "",
-    "Faça uma revisão crítica independente e devolva a melhor versão possível.",
-  ].join("\n");
+  const prompt = context.text;
 
   const result = await run(agent, prompt, { maxTurns: 2, signal: AbortSignal.timeout(120_000) });
   if (!result.finalOutput) {
-    throw new Error("O revisor independente A4 retornou saída vazia.");
+    throw new Error("O revisor A4 retornou saída vazia.");
   }
   return {
     blocked: false as const,
     result: result.finalOutput.result,
     notes: result.finalOutput.notes,
+    reviewEvidence,
+    contextEvidence: context.metadata,
   };
 }
 
@@ -192,15 +169,10 @@ export async function buildCanvaSpec(input: {
   });
 
   const prompt = [
-    `TAREFA: ${input.title}`,
-    `OBJETIVO: ${input.objective}`,
-    `AÇÃO CANVA: ${input.step.action}`,
-    `ENTRADA: ${input.step.input}`,
-    `SAÍDA ESPERADA: ${input.step.expectedOutput}`,
+    buildPhaseContext({ step: input.step, objective: input.objective, artifacts: input.priorArtifacts }).text,
     `VARIANTES SOLICITADAS: ${Math.max(1, Math.min(3, input.variants))}`,
     "",
-    "ARTEFATOS ANTERIORES:",
-    contextFromArtifacts(input.priorArtifacts),
+    "Design é rascunho, não publicação nem autorização de oferta. Não prometa segundo par, gratuidade ou condições comerciais ainda indefinidas.",
   ].join("\n");
 
   const result = await run(agent, prompt, { maxTurns: 2, signal: AbortSignal.timeout(120_000) });

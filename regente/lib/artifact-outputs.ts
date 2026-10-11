@@ -60,6 +60,8 @@ export function buildArtifactOutputs(input: { taskId: string; steps: EvidenceRow
     const fullContent = artifactDocument(output);
     const filename = `etapa-${String(entry.step).padStart(2, "0")}-revisao-${entry.revision}-${entry.id.replace(/[^a-z0-9-]/gi, "")}.md`;
     return { ...entry, filename, fullContent,
+      binaryDownloadUrl: entry.node === "F4" && entry.kind === "catalog_portal_standardize" && entry.id.startsWith("run-") && entry.status === "succeeded"
+        ? `/api/tasks/${input.taskId}/outputs?fileRun=${encodeURIComponent(entry.id.slice(4))}` : null,
       content: fullContent.length > OUTPUT_PREVIEW_CHARS ? fullContent.slice(0, OUTPUT_PREVIEW_CHARS) + "\n… [baixe o arquivo completo]" : fullContent,
       truncated: fullContent.length > OUTPUT_PREVIEW_CHARS, links: artifactLinks(fullContent), linksVerified: false,
       downloadUrl: `/api/tasks/${input.taskId}/outputs?download=${encodeURIComponent(entry.id)}`,

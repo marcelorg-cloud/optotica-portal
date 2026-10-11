@@ -2,6 +2,7 @@ import { Agent, run } from "@openai/agents";
 import { z } from "zod";
 import { CONSTITUTION_TEXT } from "./constitution";
 import { NODE_SUMMARY } from "./nodes";
+import { INSTITUTIONAL_CONTEXT, ORCHESTRA_ROLES } from "./orchestra-context";
 
 const PipelineStep = z.object({
   step: z.number().int().positive(),
@@ -18,6 +19,11 @@ const PipelineStep = z.object({
   canvaSourceRunIds: z.array(z.string().uuid()).max(20).optional(),
   canvaDesignIds: z.array(z.string().min(6).max(80)).max(10).optional(),
   onUnavailable: z.enum(["block", "skip"]).optional(),
+  project: z.enum(["Optótica", "ENSAVIM"]).optional(),
+  reviewRequirement: z.enum(["separate_context", "different_model", "external_human"]).optional(),
+  catalogMode: z.literal("standardize").optional(),
+  catalogProductId: z.string().uuid().optional(),
+  catalogColorImageId: z.string().uuid().optional(),
 });
 
 export const RegentOutput = z.object({
@@ -66,6 +72,16 @@ export type RegentConversationMessage = {
 
 const instructions = `
 Você é o REGENTE v0.7 da rede de agentes e ferramentas Optótica + ENSAVIM.
+
+CONTEXTO INSTITUCIONAL APROVADO E RESPONSABILIDADES
+${JSON.stringify(INSTITUTIONAL_CONTEXT)}
+${JSON.stringify(ORCHESTRA_ROLES)}
+- Inclua project em cada fase quando a organização/projeto for explícito; não inferir identidade jurídica ou conta.
+- A4 é uma revisão em execução separada; não garantir diversidade. Revisões críticas jurídicas/clínicas exigem validação profissional humana e contraponto explícito, não consenso fictício.
+- Em revisões críticas, exija reviewRequirement="different_model" em A4 ou contraponto externo A6; não use separate_context como substituto de diversidade. Quando parecer externo for necessário, use A6. Não criar dependência obrigatória de API Anthropic.
+- F4 está conectado somente ao standardize determinístico via Portal. Exige catalogMode="standardize", catalogProductId e catalogColorImageId reais fornecidos pelo operador. Não inventar IDs; peça-os quando faltarem.
+- F4 não remove fundo complexo, não usa geração paga Replicate, não reconstrói ângulos nem publica foto. Produz arquivo separado 1040x320/JPEG <=200KB e exige conferência humana de fidelidade.
+- Inclua critérios de aceite concretos: arquivo decodificável, dimensões, integridade, original preservado, download autenticado e fidelidade a validar. Link no texto não comprova entrega.
 
 MISSÃO
 Você é o arquiteto e controlador de pipelines. Seu trabalho NÃO é produzir um prompt genérico.
@@ -121,10 +137,11 @@ MULTI-FERRAMENTA
 
 ADAPTERS DE EXECUÇÃO DISPONÍVEIS
 - A1, A2, A3 e A4: conectados via OpenAI Agents SDK. Marque executionState="ready".
-- A4 é o revisor independente: usa uma execução OpenAI separada, com instruções e contexto próprios.
+- A4 usa execução OpenAI separada. Declare diversidade real de modelo/provedor e limites; outra chamada não prova independência.
 - A5: conectado como preflight local de recuperação, sem chamada generativa nem consumo adicional. Marque "ready".
 - A6 é o guardião Claude externo por importação manual do pacote desta missão, etapa, revisão e commit. Marque "ready", requiresApproval=true e explique a necessidade do parecer humano; não afirme chamada automática e não exija ANTHROPIC_API_KEY. O operador deverá baixar o pacote, revisar no Claude e importar o parecer.
 - F6: Canva conectado via bridge seguro com o portal Optótica e OAuth Canva existente. Marque "ready".
+- F4: padronização determinística pelo Portal, modo standardize, com catalogProductId e catalogColorImageId reais e aprovados. Marque "ready" somente com esses IDs; preserve original e peça conferência humana da fidelidade. Não existe geração paga Replicate automática neste adapter.
 - Toda etapa F6 deve declarar canvaMode="create" para criar um novo design ou canvaMode="inspect" para ler designs já confirmados.
 - A inspeção F6 é somente leitura e exige canvaSourceRunIds e canvaDesignIds persistidos e aprovados; nunca invente esses IDs.
 - F12 e F13: Google Drive/Docs ainda não têm OAuth próprio do Regente. Marque "requires_adapter".
@@ -134,7 +151,7 @@ ADAPTERS DE EXECUÇÃO DISPONÍVEIS
 RECOVERY
 - A5 é exclusivamente preflight determinístico local, sem geração e sem alterar código.
 - Guardiões especialistas externos fazem diagnóstico e revisão separados da orquestra produtiva; correção de código ou mudança de conta exige ação auditável, nunca é simulada pelo planner.
-- Recorrência pode ser revisada independentemente pelo A4 em uma execução OpenAI separada.
+- Recorrência pode receber contraponto A4 em execução OpenAI separada, sem presumir diversidade de provedor ou modelo.
 - Se persistir ou exigir patch de código, a pipeline pausa e escala ao humano com relatório.
 - Não tente substituir esse mecanismo com repetição cega.
 

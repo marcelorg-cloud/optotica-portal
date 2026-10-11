@@ -1,6 +1,7 @@
 import type { PipelineStep } from "./adapters";
+import { deliveryAcceptance } from "./delivery-acceptance.ts";
 
-export const REGENT_VERSION = "0.7.0";
+export const REGENT_VERSION = "0.7.1";
 
 export type PhaseState = {
   step_number: number;
@@ -76,6 +77,7 @@ export function buildPhaseReport(input: {
     step: input.step.step, revision: input.revision, title: input.step.action,
     summary: output?.deferred ? "Fase adiada explicitamente, sem execução externa." : result ? result.slice(0, 1600) : "Output persistido. Revise o conteúdo e os limites antes de continuar.",
     output: input.output,
+    acceptance: deliveryAcceptance(input.output, input.step.nodes[0]),
     completedAt: input.completedAt || new Date().toISOString(),
     nextStep: next.step?.step_number ?? null,
     unresolvedDependencies: next.unresolved,
@@ -103,6 +105,8 @@ export function redactSecrets(value: string, env: Record<string, string | undefi
 
 export function failureDisposition(error: unknown, node: string, mode?: string) {
   const raw = error instanceof Error ? error.message : String(error || "Falha sem detalhes.");
+  if (/^review_(?:(?:external|diversity)_required|configuration_invalid):/.test(raw)) return { message: redactSecrets(raw), kind: "review_configuration", retry: false, action: "Configure revisão com modelo distinto ou parecer externo correspondente. Não repetir a mesma chamada nem abrir conta Anthropic obrigatoriamente." };
+  if (node === "F4") return { message: redactSecrets(raw), kind: "catalog_delivery", retry: false, action: "Confira produto, foto original, run e arquivo salvo. Autorize apenas uma nova versão após resolver o diagnóstico; não substituir originais nem repetir automaticamente." };
   const message = redactSecrets(raw).slice(0, 2200);
   const status = Number((error as { status?: unknown } | null)?.status || 0);
   const code = String((error as { code?: unknown } | null)?.code || "");

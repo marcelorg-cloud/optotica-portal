@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { NETWORK_NODES } from "./nodes.ts";
 import { credentialPresent, guardianProviders, type ProviderEnvironment } from "./provider-registry.ts";
+import { INSTITUTIONAL_CONTEXT, ORCHESTRA_ROLES, ORCHESTRA_POLICY_VERSION, reviewProvenance } from "./orchestra-context.ts";
 
 export type HealthState = "healthy" | "attention" | "unknown" | "unavailable" | "manual";
 export type OrchestraCheck = {
@@ -57,7 +58,7 @@ type TaskEvidence = {
   execution_lease_until?: string | null;
 };
 
-const AUTOMATIC_NODES = new Set(["A1", "A2", "A3", "A4", "A5", "F6"]);
+const AUTOMATIC_NODES = new Set(["A1", "A2", "A3", "A4", "A5", "F4", "F6"]);
 const OPENAI_NODES = new Set(["A1", "A2", "A3", "A4"]);
 const DEFAULT_PORTAL_ORIGIN = "https://app.optotica.com.br";
 
@@ -94,6 +95,10 @@ export function buildOrchestraHealth(input: {
   const openAIConfigured = credentialPresent("OPENAI_API_KEY", env);
   const workflowConfigured = credentialPresent("REGENT_WORKFLOW_SECRET", env);
   const generatedAt = input.generatedAt || new Date().toISOString();
+  const review = (() => {
+    try { return { ...reviewProvenance(env), configurationValid: true }; }
+    catch { return { configurationValid: false, provider: "openai", executorModel: null, reviewModel: null, independence: "configuration_invalid", modelDiversity: false, providerDiversity: false }; }
+  })();
   const recentSuccess = (node: string) => (input.recentRuns || [])
     .filter((run) => run.node_id === node && run.status === "succeeded")
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0]?.updated_at || null;
@@ -161,6 +166,13 @@ export function buildOrchestraHealth(input: {
         operational: input.databaseOperational, account: null,
         detail: "Preflight determinístico por leituras autenticadas, sem geração e sem segredo de provedor.", action: null,
         observedSuccessAt: recentSuccess(node.id) }));
+    } else if (node.id === "F4") {
+      const configured = Boolean(portalOrigin(env));
+      checks.push(check({ id: "node:F4", label: "F4 — padronização fiel do catálogo via Portal", category: "tool",
+        state: configured ? "unknown" : "attention", required, adapterConnected: true, configured,
+        authenticated: null, authorized: null, operational: null, account: null,
+        detail: "Bridge standardize conectado. Gera arquivo separado pelo processamento determinístico do Portal; não remove fundo complexo, não reconstrói ângulos e não comprova Replicate pago. Operação e fidelidade só são confirmadas por execução e conferência específicas.",
+        action: "Informe IDs reais do produto e da foto original em uma nova missão. Revise o arquivo e baixe pelo endpoint autenticado antes de aplicar ao catálogo.", observedSuccessAt: recentSuccess(node.id) }));
     } else if (node.id === "F6") {
       const evidence = input.canvaEvidence;
       const configured = evidence?.configured ?? Boolean(portalOrigin(env));
@@ -204,7 +216,7 @@ export function buildOrchestraHealth(input: {
     const evidence = checks.find((item) => item.id === `node:${node.id}`)!;
     const adapter = OPENAI_NODES.has(node.id) ? node.id === "A4" ? "openai_agents_independent_review" : "openai_agents"
       : node.id === "A5" ? "local_recovery_preflight" : node.id === "A6" ? "human_import"
-        : node.id === "F6" ? "canva_portal_bridge" : "not_implemented";
+        : node.id === "F4" ? "catalog_portal_standardize" : node.id === "F6" ? "canva_portal_bridge" : "not_implemented";
     return { ...node, label: node.technology, adapter, architecturalStatus: node.status, status: evidence.state,
       adapterConnected: evidence.adapterConnected, configured: evidence.configured,
       operational: evidence.operational, required: evidence.required, blocking: evidence.blocking,
@@ -219,6 +231,7 @@ export function buildOrchestraHealth(input: {
     { id: "regente-preflight", from: "Regente", to: "A5", transport: "local_authenticated_reads", adapterConnected: true, accountSource: "sessão Supabase do Master", state: checks[0].state },
     { id: "preflight-database", from: "A5", to: "F3", transport: "supabase_rls", adapterConnected: true, accountSource: "sessão Supabase do Master", state: checks[0].state },
     { id: "canva-bridge", from: "Regente", to: "F6", transport: "single_use_tool_run", adapterConnected: true, accountSource: "Canva OAuth@Portal", state: checks.find((item) => item.id === "node:F6")!.state },
+    { id: "catalog-bridge", from: "Regente", to: "F4", transport: "single_use_tool_run", adapterConnected: true, accountSource: "Master + run autorizado; sem chave Replicate no Regente", state: checks.find((item) => item.id === "node:F4")!.state },
     { id: "canva-shared-account", from: "F6", to: "F5", transport: "shared_portal_connection", adapterConnected: true, accountSource: "canva_connections.user_id", state: checks.find((item) => item.id === "node:F6")!.state },
     { id: "durable-workflow", from: "Regente", to: "Vercel Workflow", transport: "sealed_session_and_execution_lease", adapterConnected: true, accountSource: "sessão Master + segredo do workflow", state: workflowConfigured ? "unknown" : "attention" },
     { id: "github-deployment", from: "F1", to: "F2", transport: "git_push_deployment", adapterConnected: true, accountSource: "configuração Git/Vercel não consultada", state: "unknown" },
@@ -231,7 +244,7 @@ export function buildOrchestraHealth(input: {
     leaseExpired: task.status === "executing" && Boolean(task.execution_lease_until) &&
       new Date(task.execution_lease_until!).getTime() < new Date(generatedAt).getTime() }));
   return {
-    version: "0.7.0", sourceCommit: currentCommit(env), depth: input.depth, generatedAt,
+    version: "0.7.1", sourceCommit: currentCommit(env), depth: input.depth, generatedAt,
     taskId: input.taskId || null, requiredNodes: [...requiredNodes],
     summary: { nodes: nodes.length, links: links.length, checks: checks.length,
       attention: checks.filter((item) => item.state === "attention" || (item.required && item.state === "unavailable")).length,
@@ -241,6 +254,9 @@ export function buildOrchestraHealth(input: {
       blockingCount: checks.filter((item) => item.blocking).length,
       expiredExecutions: tasks.filter((task) => task.leaseExpired).length },
     checks, nodes, links, providers, tasks, canva: input.canvaEvidence || null,
+    governance: { version: ORCHESTRA_POLICY_VERSION, institution: INSTITUTIONAL_CONTEXT, roles: ORCHESTRA_ROLES,
+      review, delivery: "Produção, verificação técnica, acesso pelo destinatário e aprovação humana são estados distintos.",
+      evidenceValidity: "Cada relatório vale apenas para o horário, versão e alcance registrados. Sucesso histórico não prova disponibilidade atual." },
     safety: { secretValuesIncluded: false, generativeCallsPerformed: false, paidProbesPerformed: false, automaticCredentialChanges: false },
     limitations: [
       "Créditos, faturamento, plano Pro e bloqueios financeiros são não verificáveis sem fonte própria; chave presente não significa saldo ou modelo autorizado.",
