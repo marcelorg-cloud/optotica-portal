@@ -55,6 +55,10 @@ module.exports=async(req,res)=>{
  if(req.method==="GET")return out(res,200,{runs});
  const node=String(req.body?.node||"");
  if(runs.some(x=>x.node_id===node))return out(res,409,{error:"Já existe um run deste instrumento; não repetir."});
+ if(!/^A[1-6]$/.test(node))return out(res,400,{error:"Participante inválido."});
+ const scope=await db(token,"regente10_participants?select=project_scopes,lifecycle&id=eq."+node+"&limit=1");
+ const allowed=scope?.[0];
+ if(!allowed||allowed.lifecycle!=="active"||!(allowed.project_scopes||[]).some(p=>p==="*"||p===m.project))return out(res,403,{error:"Executor não autorizado para este projeto (E14a)."});
  const flags=await db(token,"regente10_controls?select=emergency_stop&owner_id=eq."+uid+"&limit=1");
  if(flags?.[0]?.emergency_stop||m.paused)return out(res,423,{error:"Parada de emergência ou pausa ativada."});
  if(node==="A5"){
@@ -78,7 +82,8 @@ module.exports=async(req,res)=>{
  let job;
  try{job=await db(token,"rpc/regente10_reserve_ai_call",{method:"POST",body:JSON.stringify({p_mission_id:id,p_kind:"executor",p_slot:["A1","A2","A3","A4"].indexOf(node)})})}catch{return out(res,409,{error:"Reserva não permitida ou operação anterior incerta."})}
  try{
-  const result=await generate(node,JSON.stringify({project:m.project,prompt:m.prompt_affinado,previous:node==="A4"?previous:[]}).slice(0,9500));
+  const promptContext=node==="A1"&&m.project==="born-robot"?"Engenharia do projeto Born Robot / Regente. Este contexto é independente da Optótica; não consultar, inferir nem importar dados ou documentos de outro projeto. Gere apenas proposta textual.":null;
+  const result=await generate(node,JSON.stringify({project:m.project,projectScope:promptContext,prompt:m.prompt_affinado,previous:node==="A4"?previous:[]}).slice(0,9500));
   const flags2=await db(token,"regente10_controls?select=emergency_stop&owner_id=eq."+uid+"&limit=1");
   if(flags2?.[0]?.emergency_stop)throw Error("Parada ocorreu durante a chamada; resultado não aplicado.");
   const saved=await db(token,"regente10_network_runs",{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify({owner_id:uid,mission_id:id,node_id:node,operation:node==="A4"?"review":"draft",status:"confirmado",verified_provider:true,output:{type:"markdown",text:result}})});

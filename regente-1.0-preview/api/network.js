@@ -19,7 +19,7 @@ async function master(req){
  if(!adm?.length)throw Error("Acesso Master necessário.");
  return {token,uid:me.id};
 }
-const IDS=new Set(Array.from({length:14},(_,i)=>"F"+(i+1)));
+const IDS=new Set(Array.from({length:15},(_,i)=>"F"+(i+1)));
 async function probe(id,t){
  if(id==="F3"){
   await db(t,"regente10_controls?select=owner_id&limit=1");

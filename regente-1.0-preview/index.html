@@ -21,9 +21,9 @@ button{border-radius:10px;padding:10px 14px}.small{font-size:12px}.muted{color:v
  <div class="sec">Projetos</div><nav id="projectMenu">
  <button data-project="optotica" class="selected">◎ Optótica</button>
  <button data-project="ensavim">◌ ENSAVIM</button>
- <button data-project="born-robot">◈ Regente / Born Robot</button></nav>
+ <button data-project="born-robot">◈ Born Robot · Engenharia</button><button data-project="instituto-governanca">◇ Instituto · Governança</button></nav>
  <div class="sec">Missões</div><div id="sideCount" class="small" style="padding:2px 12px;color:#aecabc">Carregando...</div><div style="flex:1"></div>
- <a href="/network.html" style="display:block;color:#dbeee2;padding:10px 12px;border:1px solid #3a6252;border-radius:9px;margin-bottom:10px">⚙ Instrumentos e conexões</a><button id="showNew">＋ Nova missão</button><button id="signOut">Sair da conta</button></aside>
+ <a href="/governance.html" style="display:block;color:#dbeee2;padding:10px 12px;border:1px solid #3a6252;border-radius:9px;margin-bottom:10px">◇ Projetos, recursos e S00</a><a href="/network.html" style="display:block;color:#dbeee2;padding:10px 12px;border:1px solid #3a6252;border-radius:9px;margin-bottom:10px">⚙ Instrumentos e conexões</a><button id="showNew">＋ Nova missão</button><button id="signOut">Sair da conta</button></aside>
  <div class="main"><header class="top"><h1 id="pageTitle">Missões · Optótica</h1><div class="tright"><span id="serverStatus" class="tag">Verificando</span><button id="stopAll" class="danger" title="Impede novas chamadas de IA no Regente 1.0">Parar tudo</button><button id="resumeAll" class="light hidden">Reativar 1.0</button><button id="reload" class="light small">Atualizar</button></div></header>
  <div class="content">
  <div class="cols"><section>
@@ -43,14 +43,14 @@ button{border-radius:10px;padding:10px 14px}.small{font-size:12px}.muted{color:v
  <div class="box"><div class="row spread"><h3>Missões do projeto</h3><span id="missionCount" class="tag">0</span></div><div id="missionList" class="list"><p class="small muted">Entre para consultar.</p></div></div>
  <div class="box"><h3>Estado do sistema</h3><div id="healthBox" class="small muted">Verificando a API...</div></div>
  <div class="box"><h3>Limites deste piloto</h3>
- <p class="small muted">Autenticação Master e armazenamento com RLS. Afinamento por uma chamada de IA seguindo responsabilidades C01–C08. Até 3 entregáveis textuais por missão, com aceite individual. C01/C03/C08 com IA independente; outros papéis de orientação ainda determinísticos. Sem execução de GitHub, Vercel, Canva, anúncios ou dados clínicos.</p>
- <p class="note warning">A Camada de Orientação ainda não possui os oito agentes generativos independentes; os instrumentos externos ainda não executam neste piloto. Não confunda relatórios produzidos pela IA com testes ou operações realizados.</p>
+ <p class="small muted">Autenticação Master e armazenamento com RLS. C01/C03/C08 executam chamadas independentes de IA, sujeitas à reserva de consumo; demais papéis ainda em apoio determinístico. Até 3 entregáveis textuais por missão, com aceite individual. S00 institucional disponível para planejamento e simulação, sem portão operacional de escrita externa.</p>
+ <p class="note warning">O S00 completo, o isolamento DM6 e os instrumentos externos de escrita ainda não estão habilitados. Não confunda relatórios produzidos pela IA com testes ou operações realizados.</p>
  </div>
- </aside></div><footer>Regente 1.0 · Piloto operacional isolado. Sem efeitos externos além de IA e registros de missão. Uso exclusivo do Master autorizado.</footer>
+ </aside></div><footer>Regente 1.0 · Missões textuais e simulações S00. Sem execução de efeitos externos de escrita. Uso exclusivo do Master autorizado.</footer>
  </div></div></div><div id="toast" role="status"></div>
 <script>
 const URL_SB="https://xepkdqcbjrictowriccb.supabase.co", PK="sb_publishable_F-DN3Z4GZbX5j2IeXtq5cw_rJHP6mfw";
-const projects={optotica:"Optótica",ensavim:"ENSAVIM","born-robot":"Regente / Born Robot"};
+const projects={optotica:"Optótica",ensavim:"ENSAVIM","born-robot":"Born Robot — Engenharia","instituto-governanca":"Instituto — Governança"};
 const state={project:"optotica",token:sessionStorage.getItem("regente10_token")||"",refresh:sessionStorage.getItem("regente10_refresh")||"",current:null,items:[],phase:"afinamento",details:null,health:null,orientation:null,controls:null};
 const $=id=>document.getElementById(id);
 const escape=s=>String(s??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
