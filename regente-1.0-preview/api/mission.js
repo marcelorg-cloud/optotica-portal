@@ -76,7 +76,7 @@ module.exports=async function handler(req,res){
   const latest=snapshots?.[0];
   const observed=latest?.report||{};
   const checks=Array.isArray(observed.checks)?observed.checks:[];
-  const clean=(x,n=110)=>String(x??"").replace(/[\\r\\n]/g," ").slice(0,n);
+  const clean=(x,n=110)=>String(x??"").replace(/[\r\n]/g," ").slice(0,n);
   const allowed=new Set(["healthy","attention","unknown","unavailable","manual","ready","limited","blocked"]);
   const nodes=checks.slice(0,50).map(c=>{
     const status=clean(c?.state||"unknown",25).toLowerCase();
