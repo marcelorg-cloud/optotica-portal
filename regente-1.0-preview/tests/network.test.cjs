@@ -20,6 +20,8 @@ function mock({emergency=false,approved=true}={}){
   else if(uri.pathname.endsWith("/regente10_network_runs"))value=method==="POST"?[{id:"run-1"}]:[];
   else if(uri.pathname.endsWith("/regente10_adapter_checks"))value=method==="POST"?null:[];
   else if(uri.pathname.endsWith("/regente10_ai_calls"))value=null;
+  else if(uri.pathname.endsWith("/rpc/regente10_reserve_ai_budget"))value="33333333-3333-4333-8333-333333333333";
+  else if(uri.pathname.endsWith("/rpc/regente10_settle_ai_budget"))value={state:"not_metered_or_prebudget"};
   else if(uri.pathname.endsWith("/rpc/regente10_reserve_ai_call"))value="33333333-3333-4333-8333-333333333333";
   else if(uri.hostname==="api.github.com")value={full_name:"marcelorg-cloud/optotica-portal"};
   else if(uri.hostname==="api.openai.com")value={choices:[{message:{content:"## Relatório real de texto; nenhuma publicação efetuada."}}]};
@@ -78,7 +80,7 @@ test("agents: approval needed before A1",async()=>{
 test("agents: A1 invokes real agent and persists document with reserved budget",async()=>{
  const calls=mock(),r=res();await agents(req("POST",{missionId:ID,node:"A1"}),r);
  assert.equal(r.statusCode,200);
- assert(calls.some(x=>x.url.includes("reserve_ai_call")));
+ assert(calls.some(x=>x.url.includes("reserve_ai_budget")));
  assert(calls.some(x=>x.url.includes("api.openai.com")));
  assert(calls.some(x=>x.url.includes("regente10_network_runs")&&x.method==="POST"));
 });
