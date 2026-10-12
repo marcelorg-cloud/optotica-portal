@@ -3,7 +3,7 @@
 // This function cannot access ChatGPT plugins. A separate trusted operator must fulfill requests.
 const SB=process.env.SUPABASE_URL||"https://xepkdqcbjrictowriccb.supabase.co";
 const KEY=process.env.SUPABASE_PUBLISHABLE_KEY||"sb_publishable_F-DN3Z4GZbX5j2IeXtq5cw_rJHP6mfw";
-const TOOLS=new Set(["github","vercel","supabase","canva","heygen","google_drive","windsor_meta"]);
+const TOOLS=new Set(["github","vercel","supabase","canva","heygen","google_drive","google_docs","google_sheets","gmail","windsor_meta"]);
 const reply=(r,n,v)=>r.status(n).json(v),headers=t=>({apikey:KEY,Authorization:"Bearer "+t,"Content-Type":"application/json"});
 async function read(token,path,opt={}){
  const r=await fetch(SB+"/rest/v1/"+path,{...opt,headers:{...headers(token),...(opt.headers||{})}});
