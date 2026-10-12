@@ -32,14 +32,15 @@ async function mission(token,uid,id){
  return rows[0];
 }
 async function catalog(token){
- const [projects,participants,resources,routes,checks]=await Promise.all([
+ const [projects,participants,resources,routes,checks,relations]=await Promise.all([
  db(token,"regente10_projects?select=id,label,status,scope&order=id"),
  db(token,"regente10_participants?select=id,name,kind,project_scopes,lifecycle,notes&order=id"),
  db(token,"regente10_resources?select=alias,resource_kind,parent_alias,owner_kind,owner_project,share_category,data_class,shared_projects,allowed_operations,lifecycle,policy_decision_ref,policy_version,description&order=alias"),
  db(token,"regente10_routes?select=id,participant_id,resource_alias,operation,route_type,availability,project_scopes,data_class_max,failure_domains,cost_known,unit_cost,write_enabled,notes&order=id"),
- db(token,"regente10_adapter_checks?select=node_id,operation,state,checked_at&order=checked_at.desc&limit=50")
+ db(token,"regente10_adapter_checks?select=node_id,operation,state,checked_at&order=checked_at.desc&limit=50"),
+ db(token,"regente10_relation_edges?select=source_id,target_id,status,relation_kind&order=source_id.asc&limit=200")
  ]);
- return {projects,participants,resources,routes,checks};
+ return {projects,participants,resources,routes,checks,relations};
 }
 async function assertNotStopped(token,uid){
  const controls=await db(token,"regente10_controls?select=emergency_stop&owner_id=eq."+uid+"&limit=1");
