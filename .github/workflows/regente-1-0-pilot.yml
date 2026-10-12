@@ -2,7 +2,7 @@ name: Regente 1.0 pilot syntax and guard checks
 
 on:
   push:
-    branches: [feat/regente-1-0-standalone]
+    branches: [feat/regente-1-0-standalone, feat/regente10-s00-resource-gates-20261012]
   pull_request:
     paths:
       - 'regente-1.0-preview/**'
@@ -22,6 +22,8 @@ jobs:
           node --check regente-1.0-preview/api/orientation.js
           node --check regente-1.0-preview/api/network.js
           node --check regente-1.0-preview/api/bridges.js
+          node --check regente-1.0-preview/api/governance.js
+          node --check regente-1.0-preview/lib/s00-policy.js
           node --check regente-1.0-preview/api/agents.js
       - name: Pilot authenticated route behavior (mocked network)
         run: node --test regente-1.0-preview/tests/pilot.test.cjs
@@ -29,6 +31,10 @@ jobs:
         run: node --test regente-1.0-preview/tests/network.test.cjs
       - name: Read-only hub bridge authorization tests
         run: node --test regente-1.0-preview/tests/bridges.test.cjs
+      - name: S00 resource and governance policy tests
+        run: |
+          node --test regente-1.0-preview/tests/s00-policy.test.cjs
+          node --test regente-1.0-preview/tests/governance.test.cjs
       - name: Check browser script syntax and architecture
         run: |
           node - <<'NODE'
@@ -44,6 +50,10 @@ jobs:
           const networkJs=network.match(/<script>([\s\S]*?)<\/script>/);
           assert(networkJs,'Network admin script absent');
           new vm.Script(networkJs[1],{filename:'network.html:script'});
+          const gov=fs.readFileSync(dir+'governance.html','utf8');
+          const govJs=gov.match(/<script>([\s\S]*?)<\/script>/);
+          assert(govJs,'Governance script absent');
+          new vm.Script(govJs[1],{filename:'governance.html:script'});
           const mission=fs.readFileSync(dir+'api/mission.js','utf8');
           const orientation=fs.readFileSync(dir+'api/orientation.js','utf8');
           assert(mission.includes('regente10_reserve_ai_call'),'Missing atomic reservation');
