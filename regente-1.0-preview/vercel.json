@@ -21,6 +21,12 @@
     },
     "api/mission.js": {
       "maxDuration": 60
+    },
+    "api/agents.js": {
+      "maxDuration": 60
+    },
+    "api/network.js": {
+      "maxDuration": 20
     }
   }
 }
