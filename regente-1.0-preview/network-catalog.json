@@ -1,0 +1,166 @@
+{
+  "version": "1.0-draft",
+  "policy": "listado não significa conectado",
+  "nodes": [
+    {
+      "id": "A1",
+      "name": "Engenharia Optótica",
+      "type": "agent",
+      "provider": "OpenAI",
+      "contract": "text_generator",
+      "writeEnabled": false
+    },
+    {
+      "id": "A2",
+      "name": "Produto e Fluxos Optótica",
+      "type": "agent",
+      "provider": "OpenAI",
+      "contract": "text_generator",
+      "writeEnabled": false
+    },
+    {
+      "id": "A3",
+      "name": "Conteúdo ENSAVIM",
+      "type": "agent",
+      "provider": "OpenAI",
+      "contract": "text_generator",
+      "writeEnabled": false
+    },
+    {
+      "id": "A4",
+      "name": "Revisor independente OpenAI",
+      "type": "agent",
+      "provider": "OpenAI",
+      "contract": "text_reviewer",
+      "writeEnabled": false
+    },
+    {
+      "id": "A5",
+      "name": "Preflight local",
+      "type": "service",
+      "provider": "Supabase",
+      "contract": "local_preflight",
+      "writeEnabled": false
+    },
+    {
+      "id": "A6",
+      "name": "Revisor externo Claude",
+      "type": "agent",
+      "provider": "Claude",
+      "contract": "manual_review",
+      "writeEnabled": false
+    },
+    {
+      "id": "F1",
+      "name": "GitHub",
+      "type": "tool",
+      "provider": "GitHub",
+      "contract": "read_only_proposed",
+      "writeEnabled": false
+    },
+    {
+      "id": "F2",
+      "name": "Vercel",
+      "type": "tool",
+      "provider": "Vercel",
+      "contract": "read_only_proposed",
+      "writeEnabled": false
+    },
+    {
+      "id": "F3",
+      "name": "Supabase",
+      "type": "tool",
+      "provider": "Supabase",
+      "contract": "authenticated_local_read",
+      "writeEnabled": false
+    },
+    {
+      "id": "F4",
+      "name": "Replicate / Catálogo",
+      "type": "tool",
+      "provider": "Replicate",
+      "contract": "legacy_adapter_only",
+      "writeEnabled": false
+    },
+    {
+      "id": "F5",
+      "name": "Canva Prova Online",
+      "type": "tool",
+      "provider": "Canva",
+      "contract": "not_connected",
+      "writeEnabled": false
+    },
+    {
+      "id": "F6",
+      "name": "Canva Criativos",
+      "type": "tool",
+      "provider": "Canva",
+      "contract": "legacy_adapter_only",
+      "writeEnabled": false
+    },
+    {
+      "id": "F7",
+      "name": "HeyGen",
+      "type": "tool",
+      "provider": "HeyGen",
+      "contract": "not_connected",
+      "writeEnabled": false
+    },
+    {
+      "id": "F8",
+      "name": "RapidAPI",
+      "type": "tool",
+      "provider": "RapidAPI",
+      "contract": "not_connected",
+      "writeEnabled": false
+    },
+    {
+      "id": "F9",
+      "name": "Meta e WhatsApp",
+      "type": "tool",
+      "provider": "Meta",
+      "contract": "not_connected",
+      "writeEnabled": false
+    },
+    {
+      "id": "F10",
+      "name": "Resend",
+      "type": "tool",
+      "provider": "Resend",
+      "contract": "not_connected",
+      "writeEnabled": false
+    },
+    {
+      "id": "F11",
+      "name": "Cloudflare",
+      "type": "tool",
+      "provider": "Cloudflare",
+      "contract": "not_connected",
+      "writeEnabled": false
+    },
+    {
+      "id": "F12",
+      "name": "Google Drive",
+      "type": "tool",
+      "provider": "Google",
+      "contract": "not_connected",
+      "writeEnabled": false
+    },
+    {
+      "id": "F13",
+      "name": "Google Docs",
+      "type": "tool",
+      "provider": "Google",
+      "contract": "not_connected",
+      "writeEnabled": false
+    },
+    {
+      "id": "F14",
+      "name": "Google Planilhas",
+      "type": "tool",
+      "provider": "Google",
+      "contract": "not_connected",
+      "writeEnabled": false
+    }
+  ]
+}
