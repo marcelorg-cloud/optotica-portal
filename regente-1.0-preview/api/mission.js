@@ -74,7 +74,7 @@ module.exports=async function handler(req,res){
  res.setHeader("X-Content-Type-Options","nosniff");
  if(req.method==="OPTIONS")return error(res,405,"Método não permitido.");
  const action=String(req.query?.action||req.body?.action||"");
- if(req.method==="GET"&&action==="health")return j(res,200,{service:"regente10",mode:"pilot_real",databaseConfigured:true,aiConfigured:Boolean(process.env.OPENAI_API_KEY),model:MODEL,externalActionsEnabled:false});
+ if(req.method==="GET"&&action==="health")return j(res,200,{service:"regente10",mode:"pilot_real",databaseConfigured:true,aiConfigured:Boolean(process.env.OPENAI_API_KEY),model:MODEL,externalActionsEnabled:false,s00Mode:"simulation_only",institutionalCatalog:true});
  const incoming=req.headers.origin;const host=req.headers.host;
  if(req.method!=="GET"&&incoming){let originHost="";try{originHost=new URL(incoming).host}catch{}if(originHost!==host)return error(res,403,"Origem não autorizada.");}
  try{
@@ -112,7 +112,9 @@ module.exports=async function handler(req,res){
  if(action==="create"){
   await assertRunning(token,uid);
   const project=String(body.project||"");const prompt=String(body.request||"").trim();
-  if(!["optotica","ensavim","born-robot"].includes(project)||prompt.length<8||prompt.length>4000)return error(res,400,"Defina projeto e descrição entre 8 e 4000 caracteres.");
+  if(prompt.length<8||prompt.length>4000||!/^[a-z][a-z0-9-]{2,60}$/.test(project))return error(res,400,"Defina projeto e descrição entre 8 e 4000 caracteres.");
+  const projects=await sb(token,"regente10_projects?select=id,status&id=eq."+encodeURIComponent(project)+"&limit=1");
+  if(!projects?.length||projects[0].status!=="active")return error(res,403,"Projeto inexistente ou não ativado pelo Maestro.");
   if(sensitive(prompt))return error(res,400,"Para este piloto, remova identificadores pessoais, clínicos, telefone ou e-mail antes de enviar à IA.");
   const title=String(body.title||prompt.slice(0,70)).trim().slice(0,120);
   const a=await sb(token,TABLE,{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify({owner_id:uid,project,title,original_request:prompt})});
