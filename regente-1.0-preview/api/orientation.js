@@ -4,6 +4,7 @@
 const SB=process.env.SUPABASE_URL||"https://xepkdqcbjrictowriccb.supabase.co";
 const PK=process.env.SUPABASE_PUBLISHABLE_KEY||"sb_publishable_F-DN3Z4GZbX5j2IeXtq5cw_rJHP6mfw";
 const MODEL=process.env.REGENTE10_MODEL||"gpt-4.1-mini";
+const aiBudget=require("../lib/ai-budget.js");
 const ROLES=["C01","C03","C08"];
 const respond=(res,status,body)=>res.status(status).json(body);
 const idOk=v=>/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(String(v||""));
@@ -62,7 +63,7 @@ async function ai(spec,body){
  if(!txt||txt.length>24000)throw new Error("Resposta ausente ou excessiva.");
  const data=JSON.parse(txt);
  if(!data||typeof data!=="object"||Array.isArray(data))throw new Error("Parecer inválido.");
- return data;
+ return {data,usage:payload?.usage||null};
  }finally{clearTimeout(tm)}
 }
 function finalize(steps,m){
@@ -108,9 +109,16 @@ module.exports=async function handler(req,res){
   if(stage!==steps.length)return respond(res,409,{error:"Etapas fora de sequência ou já executadas. Consulte o histórico antes de repetir."});
   const spec=SPECS[stage];
   if(!process.env.OPENAI_API_KEY)return respond(res,503,{error:"IA indisponível; chave ausente."});
-  const job=await reserve(token,m.id,stage);
+  let job;
   try{
-   const result=await ai(spec,spec.inputs(m,steps));
+   const input=spec.inputs(m,steps);
+   job=await aiBudget.reserve(request,token,{
+    missionId:m.id,kind:"orientacao",slot:stage,model:MODEL,
+    system:BASE+"\n"+spec.instructions,user:JSON.stringify(input).slice(0,10000),maxOutput:1250
+   });
+   const response=await ai(spec,input);
+   await aiBudget.settle(request,token,job,response.usage);
+   const result=response.data;
    // Um pedido de parada durante uma chamada não pode recuperar custos já incorridos.
    await checkControls(token,uid,await mission(token,uid,id));
    const row=await request(token,"regente10_orientation_steps",{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify({owner_id:uid,mission_id:id,role_id:spec.role,step_index:stage,output:result})});
@@ -123,6 +131,6 @@ module.exports=async function handler(req,res){
     if(!updated?.length)throw new Error("Prompt Afinado não persistido.");
    }
    return respond(res,200,{role:spec.role,step:stage,complete:stage===2,output:result});
-  }catch(e){await mark(token,uid,job,"incerto",e.message);throw e}
+  }catch(e){if(job)await mark(token,uid,job,"incerto",e.message);throw e}
  }catch(e){return respond(res,e.status||500,{error:e.status?String(e.message):"Não foi possível concluir o agente. Se a chamada estava em andamento, consulte o registro antes de tentar novamente."})}
 };
