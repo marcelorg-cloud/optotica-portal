@@ -1,0 +1,73 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Orçamento da missão — Regente 1.0</title>
+<style>:root{--forest:#174b3d;--bg:#f4f6f4;--line:#dfe7e2;--muted:#64746a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#172921;font:14px/1.5 system-ui,-apple-system,Segoe UI,Arial}
+header{background:#102b25;color:white;padding:20px;display:flex;justify-content:space-between;gap:12px;align-items:center}
+a{color:inherit}main{max-width:900px;margin:auto;padding:22px}.box{background:white;border:1px solid var(--line);border-radius:12px;padding:21px;margin:14px 0}
+h1{font-size:22px;margin:0}h2{font-size:18px;margin:0}.muted{font-size:12px;color:var(--muted)}
+.note{padding:12px;border:1px solid #d7e7d7;border-radius:9px;background:#ecf5ee;margin:10px 0}.warning{background:#fff6e7;border-color:#f1d5a5}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
+label{display:flex;flex-direction:column;gap:5px;font-weight:600}input{width:100%;padding:10px 12px;border:1px solid #bed1c4;border-radius:8px;font:inherit}
+button{border:1px solid var(--forest);border-radius:9px;padding:10px 14px;color:white;background:var(--forest);cursor:pointer;font:inherit}button:disabled{opacity:.55;cursor:not-allowed}.secondary{background:white;color:var(--forest)}
+.cost{font-size:23px;font-weight:750}.row{display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap;align-items:center}.sep{border-top:1px solid var(--line);margin:15px 0}
+</style></head><body>
+<header><div><h1>Fase 1 · Orçamento da missão</h1><div style="font-size:12px;color:#bbd7c6">Regente 1.0 · Maestro / Master</div></div><a href="/">← Voltar às missões</a></header>
+<main>
+<div class="box"><h2>Estado do orçamento</h2><p id="status">Consultando orçamento...</p><div id="overview"></div></div>
+<div class="box"><h2>Previsão financeira</h2>
+<p class="muted">A previsão automática cobre somente IA textual no modelo configurado, a partir da tabela pública de preços OpenAI. Taxa USD→BRL é uma hipótese informada pelo Maestro, e não uma cotação em tempo real. Serviços não conectados têm custo desconhecido.</p>
+<form id="budgetForm" class="grid">
+<label>Taxa orçamentária de USD para BRL<input name="fx" id="fx" type="number" step="0.0001" min="1" max="20" required placeholder="Informe a taxa"/></label>
+<label>Custos adicionais estimados (R$)<input name="otherEstimate" id="otherEstimate" type="number" min="0" max="9999" step="0.01" value="0" required/></label>
+<label>Margem acima do previsto (%)<input name="marginPct" id="marginPct" type="number" min="0" max="300" step="0.01" value="50" required/></label>
+<div style="align-self:end"><button id="calculate" type="submit">Calcular e salvar previsão</button></div>
+</form>
+<div id="estimate" class="note warning">Aguarde a composição do Afinamento para aprovar uma previsão.</div>
+<button id="approve" disabled>Aprovar teto da missão</button>
+<p class="muted">Aprovação exige confirmação e fica vinculada à missão. Não autoriza envio de Gmail, publicações, alterações em GitHub/Vercel ou acesso a outros projetos.</p>
+</div>
+<div class="box"><h2>Controle de consumo</h2><div id="usage">Sem orçamento aprovado.</div>
+<p class="muted">“Medido” significa estimativa calculada pelos tokens reportados pela API, aplicando o preço público e a taxa orçamentária. Não é uma fatura do provedor. Reservas incertas continuam retidas até conciliação.</p>
+</div></main>
+<script>
+"use strict";
+const $=id=>document.getElementById(id),id=new URLSearchParams(location.search).get("missionId");
+const escape=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const brl=v=>Number(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:2,maximumFractionDigits:4});
+let state={budget:null,policy:null};
+async function api(action,body){
+ const token=sessionStorage.getItem("regente10_token");
+ if(!token)throw Error("Entre primeiro no Regente 1.0 com a conta Master.");
+ const url="/api/budget"+(action?"":"?missionId="+encodeURIComponent(id));
+ const r=await fetch(url,{method:action?"POST":"GET",headers:{"Content-Type":"application/json",Authorization:"Bearer "+token},...(action?{body:JSON.stringify({missionId:id,action,...body})}:{})});
+ let result={};try{result=await r.json()}catch{}
+ if(!r.ok)throw Error(result.error||"Orçamento indisponível");return result;
+}
+function render(){
+ const b=state.budget;
+ $("overview").textContent=state.policy==="budget_v1"?"Esta missão usa o orçamento monetário da Fase 1.":"Missão anterior à política orçamentária; regras antigas preservadas.";
+ $("budgetForm").style.display=state.policy==="budget_v1"&&b?.state!=="approved"?"grid":"none";
+ $("calculate").disabled=state.policy!=="budget_v1";
+ $("approve").disabled=state.policy!=="budget_v1"||b?.state!=="draft";
+ if(b){
+  $("fx").value=b.fx_brl_per_usd;$("otherEstimate").value=b.estimated_other_brl;$("marginPct").value=b.margin_pct;
+  $("estimate").innerHTML='<div class="grid"><div>Estimativa IA textual<div class="cost">'+brl(b.estimated_text_brl)+'</div></div><div>Adicionais informados<div class="cost">'+brl(b.estimated_other_brl)+'</div></div><div>Previsto total<div class="cost">'+brl(b.estimated_total_brl)+'</div></div><div><b>Teto com margem</b><div class="cost">'+brl(b.cap_brl)+'</div></div></div><div class="muted">Taxa assumida: '+escape(b.fx_brl_per_usd)+' BRL/USD · margem: '+escape(b.margin_pct)+'% · estado: '+escape(b.state)+'</div>';
+  $("usage").innerHTML='<div class="grid"><div>Teto<div class="cost">'+brl(b.cap_brl)+'</div></div><div>Reservado<div class="cost">'+brl(b.reserved_brl)+'</div></div><div>Uso por tokens<div class="cost">'+brl(b.metered_brl)+'</div></div><div>Saldo disponível<div class="cost">'+brl(Number(b.cap_brl)-Number(b.reserved_brl)-Number(b.metered_brl))+'</div></div></div>';
+  $("status").textContent=b.state==="approved"?"Aprovado pelo Maestro/Master em "+new Date(b.approved_at).toLocaleString("pt-BR"):"Previsão salva. Revise o teto e aprove explicitamente.";
+ }else{
+  $("status").textContent=state.policy==="budget_v1"?"Aguardando orçamento do Afinamento.":"Sem política orçamentária retroativa.";
+ }
+}
+async function load(){if(!id)throw Error("Abra esta página a partir de uma missão.");const data=await api();state.budget=data.budget;state.policy=data.missionBudgetPolicy;render()}
+$("budgetForm").addEventListener("submit",async e=>{
+ e.preventDefault();$("calculate").disabled=true;
+ try{const x=await api("draft",{fx:Number($("fx").value),otherEstimate:Number($("otherEstimate").value),marginPct:Number($("marginPct").value)});await load();$("status").textContent="Previsão salva. Confirme o teto antes de executar."}catch(err){$("status").textContent=err.message}finally{$("calculate").disabled=false}
+});
+$("approve").onclick=async()=>{
+ const b=state.budget;if(b?.state!=="draft")return;
+ if(!confirm("Aprovar teto de "+brl(b.cap_brl)+" nesta missão? A estimativa adicional e a taxa USD→BRL são hipóteses, não preços de provedores externos. Não autoriza outras ferramentas nem publicação."))return;
+ $("approve").disabled=true;
+ try{await api("approve",{confirm:true});await load()}catch(err){$("status").textContent=err.message;$("approve").disabled=false}
+};
+load().catch(e=>{$("status").textContent=e.message});
+</script></body></html>
