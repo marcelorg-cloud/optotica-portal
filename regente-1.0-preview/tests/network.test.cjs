@@ -15,6 +15,7 @@ function mock({emergency=false,approved=true}={}){
   if(uri.pathname==="/auth/v1/user")value={id:USER};
   else if(uri.pathname.endsWith("/system_admins"))value=[{user_id:USER}];
   else if(uri.pathname.endsWith("/regente10_controls"))value=[{emergency_stop:emergency}];
+  else if(uri.pathname.endsWith("/regente10_participants"))value=[{project_scopes:["*"],lifecycle:"active"}];
   else if(uri.pathname.endsWith("/regente10_missions"))value=[{id:ID,owner_id:USER,original_request:"Plano institucional sem pessoas",prompt_affinado:"Plano textual",envelope_approved_at:approved?new Date().toISOString():null,status:"em_execucao",paused:false}];
   else if(uri.pathname.endsWith("/regente10_network_runs"))value=method==="POST"?[{id:"run-1"}]:[];
   else if(uri.pathname.endsWith("/regente10_adapter_checks"))value=method==="POST"?null:[];
@@ -57,6 +58,17 @@ test("network: stop blocks new probes",async()=>{
 test("agents: GET lists no outputs, no paid calls",async()=>{
  const calls=mock();const r=res();await agents(req("GET",{}, {missionId:ID}),r);
  assert.equal(r.statusCode,200);assert.deepEqual(r.value.runs,[]);
+ assert(!calls.some(x=>x.url.includes("api.openai.com")));
+});
+test("agents: E14a rejects participant outside mission project",async()=>{
+ const calls=mock(),r=res();
+ const originalFetch=global.fetch;
+ global.fetch=async(url,opt)=>{
+  if(String(url).includes("/regente10_participants"))return new Response(JSON.stringify([{project_scopes:["optotica"],lifecycle:"active"}]),{status:200,headers:{"Content-Type":"application/json"}});
+  return originalFetch(url,opt);
+ };
+ await agents(req("POST",{missionId:ID,node:"A1"}),r);
+ assert.equal(r.statusCode,403);
  assert(!calls.some(x=>x.url.includes("api.openai.com")));
 });
 test("agents: approval needed before A1",async()=>{
