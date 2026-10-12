@@ -44,6 +44,11 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:410px;overflow:auto;b
 <div style="overflow-x:auto"><table><thead><tr><th>Recurso</th><th>Proprietário</th><th>Categoria</th><th>Classe</th><th>Estado</th></tr></thead><tbody id="resourceRows"></tbody></table></div>
 </section>
 <section class="panel">
+<h2>Contratos de capacidade entre projetos</h2>
+<p class="muted">Um projeto fornecedor não se transforma em ferramenta F. O contrato define consumidor, operação e recurso efetivo; status proposto não concede execução.</p>
+<div id="contracts" class="grid"></div>
+</section>
+<section class="panel">
 <h2>Fase 1 — Mapa de Conexões da Missão</h2>
 <p class="muted">A Fase 1 seleciona candidatos e contingências disponíveis, mas não ativa rotas. Falta de evidência ou de teto financeiro significa vínculo sem rota operacional certificada.</p>
 <label>Missão <select id="missionSelect"><option value="">Selecione uma missão</option></select></label>
@@ -83,6 +88,7 @@ async function api(url,data){
 }
 function render(){
  $("projects").innerHTML=catalog.projects.map(x=>'<article class="card"><b>'+escape(x.label)+'</b><div class="muted">'+escape(x.id)+'</div><span class="state">'+escape(x.status)+'</span></article>').join("");
+ $("contracts").innerHTML=(catalog.contracts||[]).map(x=>'<article class="card"><b>'+escape(x.id+" v"+x.version)+'</b><div>Fornecedor: '+escape(x.supplier_project)+'</div><div>Consumidor: '+escape((x.consumer_projects||[]).join(", "))+'</div><div>Recurso: '+escape(x.resource_alias)+'</div><div class="muted">'+escape((x.operations||[]).join(", "))+' · '+escape(x.status)+' · custo: '+(x.rate_known?"conhecido":"desconhecido")+'</div></article>').join("")||"<p>Sem contratos cadastrados.</p>";
  $("resourceRows").innerHTML=catalog.resources.map(x=>'<tr><td><b>'+escape(x.alias)+'</b>'+(x.parent_alias?'<div class="muted">em '+escape(x.parent_alias)+'</div>':'')+'</td><td>'+escape(x.owner_kind==="project"?x.owner_project:x.owner_kind)+'</td><td>'+escape(x.share_category)+'</td><td>'+escape(x.data_class)+'</td><td>'+escape(x.lifecycle)+'</td></tr>').join("");
  const rp=$("relationParticipant"),rpVal=rp.value;
  rp.innerHTML=catalog.participants.map(x=>'<option value="'+escape(x.id)+'">'+escape(x.id+" · "+x.name)+'</option>').join("");
@@ -114,7 +120,7 @@ async function load(){
  try{
   const [c,m]=await Promise.all([api("/api/governance?action=catalog"),api("/api/mission?action=list")]);
   catalog=c;missions=m.missions||[];render();
-  $("status").textContent=c.projects.length+" projetos · "+c.participants.length+" participantes · "+c.resources.length+" recursos · "+c.routes.length+" rotas · "+(c.relations||[]).length+" relações propostas. Escrita externa desabilitada.";
+  $("status").textContent=c.projects.length+" projetos · "+c.participants.length+" participantes · "+c.resources.length+" recursos · "+c.routes.length+" rotas · "+(c.relations||[]).length+" relações propostas · "+(c.contracts||[]).length+" contratos ainda não ativados. Escrita externa desabilitada.";
  }catch(e){$("status").textContent=e.message}
 }
 function showMap(map){
