@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Instituto · Governança e S00 — Regente 1.0</title>
+<style>
+:root{color-scheme:light;--bg:#f5f7f4;--green:#123a31;--ink:#213d32;--muted:#60776b;--line:#d9e6dc}
+*{box-sizing:border-box}body{font:14px/1.55 system-ui,-apple-system,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+header{background:var(--green);padding:18px 24px;color:white;display:flex;gap:12px;justify-content:space-between;align-items:center}
+header a{color:#e1f0e5}main{max-width:1200px;padding:22px;margin:0 auto}
+h1{font-size:22px;margin:0}h2{font-size:18px;margin:0 0 10px}h3{font-size:15px;margin:4px 0}
+.panel{background:white;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid var(--line)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.card{border:1px solid var(--line);border-radius:10px;padding:13px}
+.info{padding:12px 16px;border-left:3px solid #679e86;background:#edf6ef;margin:12px 0}
+.warn{border-left-color:#aa8047;background:#faf4e8}.muted{color:var(--muted);font-size:12px}
+label{display:flex;flex-direction:column;gap:6px;font-weight:600;margin:12px 0}
+select{padding:10px;border:1px solid #b9d0c1;border-radius:8px;background:white;width:100%;min-height:38px}
+button{cursor:pointer;border:0;background:#205946;color:white;border-radius:8px;padding:10px 13px}
+button:disabled{opacity:.5}.buttonSecondary{background:#e8f1e8;color:#205946}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+.state{background:#edf3ee;border-radius:10px;padding:4px 8px;font-size:11px}
+code{background:#edf4ed;border-radius:4px;padding:2px 4px}
+table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+td{font-size:12px}th{font-size:12px}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:410px;overflow:auto;background:#f4f8f4;padding:12px;border-radius:8px;font-size:12px}
+@media(max-width:700px){main{padding:10px}header{padding:13px}.panel{padding:13px}}
+</style></head>
+<body>
+<header><div><h1>Instituto · Administração e S00</h1><div style="font-size:12px;color:#b9d8c5">Projetos, recursos e Mapa de Conexões — Regente 1.0</div></div><a href="/">← Missões</a></header>
+<main>
+<section class="panel">
+<div class="row"><h2>Estado de governança</h2><button id="reload" class="buttonSecondary">Atualizar</button></div>
+<div class="info"><b>Modo seguro — planejamento e simulação.</b> A base inclui as decisões DM1–DM10, mas o Autorizador e o Portão de Execução completos ainda dependem de isolamento de infraestrutura, orçamento e testes. Nenhuma operação externa é autorizada por este painel.</div>
+<p id="status" role="status">Carregando o catálogo institucional…</p>
+<div id="projects" class="grid"></div>
+</section>
+<section class="panel">
+<div class="row"><h2>Recursos e permissões</h2><span class="muted">Conta ≠ instrumento · elegível ≠ autorizado</span></div>
+<p class="muted">Somente aliases são exibidos. Recursos propostos não dão acesso à conta real. Uso de dados pessoais ou sensíveis permanece bloqueado até a política aplicável.</p>
+<div style="overflow-x:auto"><table><thead><tr><th>Recurso</th><th>Proprietário</th><th>Categoria</th><th>Classe</th><th>Estado</th></tr></thead><tbody id="resourceRows"></tbody></table></div>
+</section>
+<section class="panel">
+<h2>Fase 1 — Mapa de Conexões da Missão</h2>
+<p class="muted">A Fase 1 seleciona candidatos e contingências disponíveis, mas não ativa rotas. Falta de evidência ou de teto financeiro significa vínculo sem rota operacional certificada.</p>
+<label>Missão <select id="missionSelect"><option value="">Selecione uma missão</option></select></label>
+<div class="row"><button id="prepare">Preparar mapa em rascunho</button><button class="buttonSecondary" id="loadMap">Ler mapa armazenado</button></div>
+<div id="mapResult" class="info warn">Selecione uma missão para consultar seu mapa.</div>
+<div id="mapLinks" class="grid"></div>
+</section>
+<section class="panel">
+<h2>Autorizador S00 — simulador determinístico</h2>
+<p class="muted">Esta ferramenta explica por que uma operação seria permitida ou negada. A simulação <b>não</b> cria autorização, não emite token e não executa o instrumento.</p>
+<div class="grid">
+<label>Participante <select id="participant"></select></label>
+<label>Recurso efetivo <select id="resource"></select></label>
+<label>Operação <select id="operation"></select></label>
+<label>Rota cadastrada <select id="route"><option value="">Nenhuma rota</option></select></label>
+</div>
+<button id="simulate">Simular autorização (sem executar)</button>
+<div id="simResult" class="info">O resultado aparecerá aqui.</div>
+</section>
+<section class="panel">
+<h2>Integrações restantes</h2>
+<p>A arquitetura aprovada requer infraestrutura separada para o Regente, identidade Maestro distinta do Master, política CE14, limites financeiros e credenciais sob custódia exclusiva do Portão. Até essas condições estarem satisfeitas, o gateway permanece fechado para escritas externas.</p>
+<p class="muted">Esta tela utiliza somente consultas Supabase autenticadas da sua sessão Master. Nenhum e-mail, arquivo ou token de outro provedor é consultado.</p>
+</section>
+</main>
+<script>
+"use strict";
+let catalog={projects:[],participants:[],resources:[],routes:[]},missions=[];
+const $=id=>document.getElementById(id);
+const escape=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const token=()=>sessionStorage.getItem("regente10_token")||"";
+async function api(url,data){
+ if(!token())throw Error("Entre primeiro com a sessão Master na tela de Missões.");
+ const r=await fetch(url,{method:data?"POST":"GET",headers:{Authorization:"Bearer "+token(),"Content-Type":"application/json"},...(data?{body:JSON.stringify(data)}:{})});
+ let v={};try{v=await r.json()}catch{}
+ if(!r.ok)throw Error(v.error||"Serviço indisponível");return v;
+}
+function render(){
+ $("projects").innerHTML=catalog.projects.map(x=>'<article class="card"><b>'+escape(x.label)+'</b><div class="muted">'+escape(x.id)+'</div><span class="state">'+escape(x.status)+'</span></article>').join("");
+ $("resourceRows").innerHTML=catalog.resources.map(x=>'<tr><td><b>'+escape(x.alias)+'</b>'+(x.parent_alias?'<div class="muted">em '+escape(x.parent_alias)+'</div>':'')+'</td><td>'+escape(x.owner_kind==="project"?x.owner_project:x.owner_kind)+'</td><td>'+escape(x.share_category)+'</td><td>'+escape(x.data_class)+'</td><td>'+escape(x.lifecycle)+'</td></tr>').join("");
+ const selected=$("missionSelect").value;
+ $("missionSelect").innerHTML='<option value="">Selecione uma missão</option>'+missions.map(m=>'<option value="'+escape(m.id)+'">'+escape(m.project+" · "+m.title)+'</option>').join("");
+ if(missions.some(m=>m.id===selected))$("missionSelect").value=selected;
+ $("participant").innerHTML=catalog.participants.map(x=>'<option value="'+escape(x.id)+'">'+escape(x.id+" · "+x.name)+'</option>').join("");
+ $("resource").innerHTML=catalog.resources.map(x=>'<option value="'+escape(x.alias)+'">'+escape(x.alias+" ("+x.lifecycle+")")+'</option>').join("");
+ adjustOperation();
+}
+function adjustOperation(){
+ const node=$("participant").value,alias=$("resource").value,resource=catalog.resources.find(x=>x.alias===alias);
+ const ops=[...new Set([...(resource?.allowed_operations||[]),...catalog.routes.filter(x=>x.participant_id===node&&x.resource_alias===alias).map(x=>x.operation)])];
+ $("operation").innerHTML=(ops.length?ops:["status.read"]).map(x=>'<option value="'+escape(x)+'">'+escape(x)+'</option>').join("");
+ adjustRoute();
+}
+function adjustRoute(){
+ const routes=catalog.routes.filter(x=>x.participant_id===$("participant").value&&x.resource_alias===$("resource").value&&x.operation===$("operation").value);
+ $("route").innerHTML='<option value="">Nenhuma rota</option>'+routes.map(x=>'<option value="'+escape(x.id)+'">'+escape(x.id+" · "+x.availability)+'</option>').join("");
+}
+async function load(){
+ $("status").textContent="Consultando registros institucionais...";
+ try{
+  const [c,m]=await Promise.all([api("/api/governance?action=catalog"),api("/api/mission?action=list")]);
+  catalog=c;missions=m.missions||[];render();
+  $("status").textContent=c.projects.length+" projetos · "+c.participants.length+" participantes · "+c.resources.length+" recursos · "+c.routes.length+" rotas. Escrita externa desabilitada.";
+ }catch(e){$("status").textContent=e.message}
+}
+function showMap(map){
+ if(!map){$("mapResult").textContent="Ainda não há mapa para esta missão. Prepare um rascunho."; $("mapLinks").innerHTML="";return;}
+ $("mapResult").textContent="Mapa "+map.policy+" · hash "+map.selectionHash?.slice(0,18)+"… · estado: rascunho. Nenhuma rota executiva ativada.";
+ $("mapLinks").innerHTML=(map.links||[]).map(x=>'<article class="card"><h3>'+escape(x.operator+" → "+x.operation)+'</h3><div class="muted">Candidato: '+escape(x.proposedRoute||"nenhum")+'</div><div>Estado: <b>'+escape(x.status)+'</b></div>'+x.alternatives.map(a=>'<div class="muted">'+escape(a.routeId+" · "+a.availability+" · "+a.reasons.join(", "))+'</div>').join("")+'</article>').join("");
+}
+$("prepare").onclick=async()=>{
+ const id=$("missionSelect").value;if(!id)return alert("Selecione uma missão.");
+ $("prepare").disabled=true;try{const r=await api("/api/governance?action=prepare_map",{missionId:id});showMap(r.map)}catch(e){$("mapResult").textContent=e.message}finally{$("prepare").disabled=false}
+};
+$("loadMap").onclick=async()=>{const id=$("missionSelect").value;if(!id)return;try{const r=await api("/api/governance?action=map&missionId="+encodeURIComponent(id));showMap(r.map?.selection||null)}catch(e){$("mapResult").textContent=e.message}};
+$("simulate").onclick=async()=>{
+ const id=$("missionSelect").value;if(!id)return alert("Selecione uma missão.");
+ $("simulate").disabled=true;
+ try{
+  const v=await api("/api/governance?action=simulate",{missionId:id,participantId:$("participant").value,resourceAlias:$("resource").value,operation:$("operation").value,routeId:$("route").value});
+  $("simResult").textContent=(v.scenario==="would_allow"?"ELEGÍVEL NO CENÁRIO":"NEGADO NO CENÁRIO")+" · Motivos: "+(v.reasons.join(", ")||"nenhum")+". NÃO É autorização real.";
+ }catch(e){$("simResult").textContent=e.message}finally{$("simulate").disabled=false}
+};
+$("participant").onchange=adjustOperation;$("resource").onchange=adjustOperation;$("operation").onchange=adjustRoute;
+$("reload").onclick=load;load();
+</script></body></html>
