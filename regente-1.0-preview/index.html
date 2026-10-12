@@ -51,7 +51,7 @@ button{border-radius:10px;padding:10px 14px}.small{font-size:12px}.muted{color:v
 <script>
 const URL_SB="https://xepkdqcbjrictowriccb.supabase.co", PK="sb_publishable_F-DN3Z4GZbX5j2IeXtq5cw_rJHP6mfw";
 const projects={optotica:"Optótica",ensavim:"ENSAVIM","born-robot":"Born Robot — Engenharia","instituto-governanca":"Instituto — Governança"};
-const state={project:"optotica",token:sessionStorage.getItem("regente10_token")||"",refresh:sessionStorage.getItem("regente10_refresh")||"",current:null,items:[],phase:"afinamento",details:null,health:null,orientation:null,controls:null};
+const state={project:"optotica",token:sessionStorage.getItem("regente10_token")||"",refresh:sessionStorage.getItem("regente10_refresh")||"",current:null,items:[],phase:"afinamento",details:null,health:null,orientation:null,controls:null,budget:null};
 const $=id=>document.getElementById(id);
 const escape=s=>String(s??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 const notify=(text)=>{const t=$("toast");t.textContent=text;t.style.display="block";clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>t.style.display="none",6500)};
@@ -69,6 +69,15 @@ async function api(action,payload=null,params={}) {
  let r=await fetch(url,opt);if(r.status===401&&state.refresh&&action!=="health"){await refresh();opt.headers.Authorization="Bearer "+state.token;r=await fetch(url,opt);}
  let v;try{v=await r.json()}catch{v={error:"Resposta inválida da API."}}
  if(!r.ok)throw Error(v.error||"Erro "+r.status);return v;
+}
+async function budgetApi(id){
+ const opt={headers:{"Content-Type":"application/json","Authorization":"Bearer "+state.token}};
+ const url="/api/budget?missionId="+encodeURIComponent(id);
+ let r=await fetch(url,opt);
+ if(r.status===401&&state.refresh){await refresh();opt.headers.Authorization="Bearer "+state.token;r=await fetch(url,opt)}
+ let v={};try{v=await r.json()}catch{}
+ if(!r.ok)throw Error(v.error||"Orçamento indisponível");
+ return v;
 }
 async function orientationApi(id,stage){
  const opt={method:stage===undefined?"GET":"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+state.token},...(stage===undefined?{}:{body:JSON.stringify({id,stage})})};
@@ -135,8 +144,17 @@ async function list(){
  const current=state.items.filter(m=>m.project===state.project);$("missionCount").textContent=current.length;$("sideCount").textContent=state.items.length+" missões no Instituto";
  $("missionList").innerHTML=current.length?current.map(m=>'<button class="mission '+(m.id===state.current?"active":"")+'" data-id="'+escape(m.id)+'"><b>'+escape(m.title)+'</b><small>'+escape(m.status.replaceAll("_"," "))+' · '+new Date(m.created_at).toLocaleDateString("pt-BR")+'</small></button>').join(""):'<p class="small muted">Nenhuma missão ainda neste projeto.</p>';
 }
-async function openMission(id){const r=await api("detail",null,{id});try{state.orientation=await orientationApi(id)}catch{state.orientation=null}state.current=id;state.details=r;state.phase="afinamento";$("newPanel").classList.add("hidden");$("missionPanel").classList.remove("hidden");$("currentTitle").textContent=r.mission.title;$("currentStatus").textContent=r.mission.status.replaceAll("_"," ");renderPhase();await list()}
+async function openMission(id){const r=await api("detail",null,{id});try{state.orientation=await orientationApi(id)}catch{state.orientation=null}try{state.budget=await budgetApi(id)}catch(e){state.budget={error:e.message,budget:null}}state.current=id;state.details=r;state.phase="afinamento";$("newPanel").classList.add("hidden");$("missionPanel").classList.remove("hidden");$("currentTitle").textContent=r.mission.title;$("currentStatus").textContent=r.mission.status.replaceAll("_"," ");renderPhase();await list()}
 function content(text){return '<pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:480px;overflow:auto;border:1px solid var(--line);border-radius:10px;background:#f6f8f6;padding:14px;font-size:13px;line-height:1.6">'+escape(text)+'</pre>'}
+const currencyBRL=x=>Number(x||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:2,maximumFractionDigits:4});
+function budgetNote(m){
+ if(m.budget_policy!=="budget_v1")return '<div class="note small">Missão legada: limite quantitativo de IA; orçamento monetário não alterado retroativamente.</div>';
+ const b=state.budget?.budget;
+ if(state.budget?.error)return '<div class="note warning">Orçamento indisponível: '+escape(state.budget.error)+'. Confirme o estado antes de executar.</div>';
+ const url="/budget.html?missionId="+encodeURIComponent(m.id);
+ return '<div class="result"><div class="row spread"><div><h3>Orçamento previsto e teto — Fase 1</h3><p class="small muted">Previsão textual por tokens + custos adicionais informados; margem aprovada pelo Maestro.</p></div><a class="light" style="display:inline-block;padding:10px;border:1px solid #c6d8cc;border-radius:10px;text-decoration:none;color:var(--green)" href="'+url+'">Abrir orçamento</a></div>'+
+ (b?'<div class="statusLine">Estimado: '+currencyBRL(b.estimated_total_brl)+' · teto: <b>'+currencyBRL(b.cap_brl)+'</b> · estado: <b>'+escape(b.state)+'</b> · reservado: '+currencyBRL(b.reserved_brl)+' · medido: '+currencyBRL(b.metered_brl)+'</div>':'<p class="small muted">Aguardando preparação e aprovação do orçamento.</p>')+'</div>';
+}
 function renderPhase(){
  const m=state.details?.mission;if(!m)return;
  document.querySelectorAll("[data-phase]").forEach(b=>b.classList.toggle("on",b.dataset.phase===state.phase));
@@ -148,7 +166,7 @@ function renderPhase(){
  pan.innerHTML='<h3>Prompt Afinado da missão</h3>'+(m.prompt_affinado?content(m.prompt_affinado):'<p class="muted">A missão foi salva no banco. Execute o Afinamento para gerar o plano de trabalho por IA.</p>')+
  '<div class="note">Afinamento progressivo: <b>C01, C03 e C08 executam chamadas independentes de IA</b>, com saídas persistidas. C02, C04, C05, C06 e C07 participam por regras e apoio determinístico, sem chamadas generativas independentes. Nenhuma conexão externa é simulada como verificada.</div><div id="orientationProgress" class="small muted" style="margin-top:12px">'+roles.length+' de 3 pareceres independentes concluídos</div>'+roles.map(x=>'<details class="result"><summary>'+escape(x.role_id)+' · parecer persistido</summary>'+content(JSON.stringify(x.output,null,2))+'</details>').join('')+
  (m.prompt_affinado?'<h3 style="margin-top:20px">Diagnóstico crítico</h3>'+content(JSON.stringify(r,null,2))+'<h3>Entregáveis previstos</h3>'+ (m.result_plan||[]).map((x,i)=>'<div class="statusLine"><b>'+ (i+1)+'. '+escape(x.titulo)+'</b><div class="small muted">'+escape(x.criterio)+'</div></div>').join(""):'')+
- '<div class="row" style="margin-top:17px">'+(!m.prompt_affinado?'<button class="primary" data-op="run_orientation" '+(!state.health?.aiConfigured?"disabled":"")+'>Iniciar / continuar Afinamento por agentes</button>':'')+(m.status==="aguardando_autorizacao"?'<button class="primary" data-op="authorize" '+(r.bloqueio_critico?'disabled title="Revisão crítica pendente"':'')+'>Autorizar execução textual</button>':'')+'</div>';
+ budgetNote(m)+'<div class="row" style="margin-top:17px">'+(!m.prompt_affinado?'<button class="primary" data-op="run_orientation" '+(!state.health?.aiConfigured?"disabled":"")+'>Iniciar / continuar Afinamento por agentes</button>':'')+(m.status==="aguardando_autorizacao"?'<button class="primary" data-op="authorize" '+(r.bloqueio_critico?'disabled title="Revisão crítica pendente"':(m.budget_policy==="budget_v1"&&state.budget?.budget?.state!=="approved"?'disabled title="Aprovação de orçamento pendente"':''))+'>Autorizar execução textual</button>':'')+'</div>';
  }
  if(state.phase==="execucao"){
  pan.innerHTML='<h3>Execução autorizada</h3><p class="muted">Os resultados são gerados por IA individualmente. Uma falha não impede que os demais sejam produzidos. Não há execução de código, publicações ou alterações externas.</p>'+

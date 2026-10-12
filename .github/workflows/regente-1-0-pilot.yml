@@ -2,7 +2,7 @@ name: Regente 1.0 pilot syntax and guard checks
 
 on:
   push:
-    branches: [feat/regente-1-0-standalone, feat/regente10-s00-resource-gates-20261012]
+    branches: [feat/regente-1-0-standalone, feat/regente10-s00-resource-gates-20261012, feat/regente10-phase1-budget-20261012]
   pull_request:
     paths:
       - 'regente-1.0-preview/**'
@@ -23,6 +23,8 @@ jobs:
           node --check regente-1.0-preview/api/network.js
           node --check regente-1.0-preview/api/bridges.js
           node --check regente-1.0-preview/api/governance.js
+          node --check regente-1.0-preview/api/budget.js
+          node --check regente-1.0-preview/lib/ai-budget.js
           node --check regente-1.0-preview/lib/s00-policy.js
           node --check regente-1.0-preview/api/agents.js
       - name: Pilot authenticated route behavior (mocked network)
@@ -35,6 +37,10 @@ jobs:
         run: |
           node --test regente-1.0-preview/tests/s00-policy.test.cjs
           node --test regente-1.0-preview/tests/governance.test.cjs
+      - name: Phase-1 monetary budget authorization tests
+        run: |
+          node --test regente-1.0-preview/tests/budget.test.cjs
+          node --test regente-1.0-preview/tests/ai-budget.test.cjs
       - name: Check browser script syntax and architecture
         run: |
           node - <<'NODE'
@@ -54,9 +60,14 @@ jobs:
           const govJs=gov.match(/<script>([\s\S]*?)<\/script>/);
           assert(govJs,'Governance script absent');
           new vm.Script(govJs[1],{filename:'governance.html:script'});
+          const budgetHtml=fs.readFileSync(dir+'budget.html','utf8');
+          const budgetJs=budgetHtml.match(/<script>([\s\S]*?)<\/script>/);
+          assert(budgetJs,'Phase-1 budget script absent');
+          new vm.Script(budgetJs[1],{filename:'budget.html:script'});
           const mission=fs.readFileSync(dir+'api/mission.js','utf8');
           const orientation=fs.readFileSync(dir+'api/orientation.js','utf8');
-          assert(mission.includes('regente10_reserve_ai_call'),'Missing atomic reservation');
+          assert(mission.includes('regente10_mission_budgets'),'Budget approval gate absent');
+          assert(mission.includes('aiBudget.reserve'),'Missing atomic monetary reservation');
           assert(mission.includes('stop_all') && mission.includes('resume_all'),'Missing emergency controls');
           assert(orientation.includes('regente10_orientation_steps'),'Missing persisted orientation');
           for(const role of ['C01','C03','C08']) assert(orientation.includes('role:"'+role+'"'),'Missing real role '+role);
