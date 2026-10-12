@@ -27,6 +27,9 @@
     },
     "api/network.js": {
       "maxDuration": 20
+    },
+    "api/bridges.js": {
+      "maxDuration": 20
     }
   }
 }
