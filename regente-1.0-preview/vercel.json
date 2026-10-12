@@ -33,6 +33,9 @@
     },
     "api/governance.js": {
       "maxDuration": 30
+    },
+    "api/budget.js": {
+      "maxDuration": 20
     }
   }
 }
