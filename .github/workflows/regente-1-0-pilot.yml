@@ -20,6 +20,8 @@ jobs:
         run: |
           node --check regente-1.0-preview/api/mission.js
           node --check regente-1.0-preview/api/orientation.js
+      - name: Pilot authenticated route behavior (mocked network)
+        run: node --test regente-1.0-preview/tests/pilot.test.cjs
       - name: Check browser script syntax and architecture
         run: |
           node - <<'NODE'
