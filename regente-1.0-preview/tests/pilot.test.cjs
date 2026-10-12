@@ -15,9 +15,11 @@ function mock(options={}){
   let data=[],status=200;
   if(u.pathname==="/auth/v1/user")data={id:user};
   else if(u.pathname.endsWith("/system_admins"))data=[{user_id:user}];
-  else if(u.pathname.endsWith("/regente10_missions"))data=[{id:missionId,owner_id:user,project:"born-robot",original_request:"Elaborar um resumo de integração segura do Regente 1.0",status:"afinamento",paused:false}];
+  else if(u.pathname.endsWith("/regente10_missions"))data=[{id:missionId,owner_id:user,project:"born-robot",original_request:"Elaborar um resumo de integração segura do Regente 1.0",status:"afinamento",paused:false,...options.mission}];
   else if(u.pathname.endsWith("/regente10_orientation_steps"))data=method==="POST"?[{id:"44444444-4444-4444-8444-444444444444"}]:existing;
   else if(u.pathname.endsWith("/regente10_controls"))data=[{emergency_stop:!!options.emergency_stop}];
+  else if(u.pathname.endsWith("/regente10_mission_budgets"))data=options.budgetRows||[];
+  else if(u.pathname.endsWith("/regente10_projects"))data=[{id:"born-robot",status:"active"}];
   else if(u.pathname.endsWith("/rpc/regente10_reserve_ai_budget"))data=jobId;
   else if(u.pathname.endsWith("/rpc/regente10_settle_ai_budget"))data={state:"not_metered_or_prebudget"};
   else if(u.pathname.endsWith("/rpc/regente10_reserve_ai_call"))data=jobId;
@@ -73,4 +75,28 @@ test("pilot emergency stop endpoint does not touch legacy engine",async()=>{
  assert.equal(answer.statusCode,200);assert.equal(answer.body.scope,"somente Regente 1.0");
  assert(called.some(x=>x.url.endsWith("/regente10_controls")));
  assert(!called.some(x=>x.url.includes("/regent_tasks")));
+});
+
+test("new missions are registered under budget_v1, not unlimited legacy policy",async()=>{
+ const called=mock();
+ const answer=res();
+ await mission(req("POST","create",{project:"born-robot",request:"Criar novo plano institucional de engenharia"}),answer);
+ assert.equal(answer.statusCode,201);
+ const posted=called.find(x=>x.url.endsWith("/regente10_missions")&&x.method==="POST");
+ assert(posted,"Expected mission insert");
+});
+test("new budget_v1 mission cannot authorize text execution without financial approval",async()=>{
+ const called=mock({mission:{status:"aguardando_autorizacao",budget_policy:"budget_v1",prompt_affinado:"Texto validado",diagnostic:{}}});
+ const answer=res();
+ await mission(req("POST","authorize",{id:missionId}),answer);
+ assert.equal(answer.statusCode,409);
+ assert.match(answer.body.error,/orçamento/i);
+ assert(!called.some(x=>x.url.includes("api.openai.com")));
+});
+test("approved financial cap permits the existing text-only envelope, not external tools",async()=>{
+ mock({mission:{status:"aguardando_autorizacao",budget_policy:"budget_v1",prompt_affinado:"Texto validado",diagnostic:{}},budgetRows:[{state:"approved",cap_brl:15}]});
+ const answer=res();
+ await mission(req("POST","authorize",{id:missionId}),answer);
+ assert.equal(answer.statusCode,200);
+ assert.match(answer.body.scope,/Somente geração textual/i);
 });
