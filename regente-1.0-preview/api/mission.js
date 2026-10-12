@@ -69,6 +69,21 @@ module.exports=async function handler(req,res){
  if(req.method!=="GET"&&incoming){let originHost="";try{originHost=new URL(incoming).host}catch{}if(originHost!==host)return error(res,403,"Origem não autorizada.");}
  try{
  const {token,uid}=await identity(req);
+
+ if(req.method==="GET"&&action==="instruments"){
+  // Leitura de relatórios previamente persistidos pela v0.7: não faz probes, não invoca ferramentas, não reutiliza autorizações.
+  const snapshots=await sb(token,"regent_orchestra_checks?select=created_at,status,depth,report&user_id=eq."+uid+"&order=created_at.desc&limit=1");
+  const latest=snapshots?.[0];
+  const observed=latest?.report||{};
+  const checks=Array.isArray(observed.checks)?observed.checks:[];
+  const clean=(x,n=110)=>String(x??"").replace(/[\\r\\n]/g," ").slice(0,n);
+  const allowed=new Set(["healthy","attention","unknown","unavailable","manual","ready","limited","blocked"]);
+  const nodes=checks.slice(0,50).map(c=>{
+    const status=clean(c?.state||"unknown",25).toLowerCase();
+    return {id:clean(c?.id,24),label:clean(c?.label,95),state:allowed.has(status)?status:"unknown",adapterConnected:c?.adapterConnected===true,operational:c?.operational===true,configured:c?.configured===true};
+  });
+  return j(res,200,{source:"Relatório armazenado pela v0.7 (somente leitura)",asOf:latest?.created_at||null,stale:!latest?.created_at||Date.now()-Date.parse(latest.created_at)>24*60*60*1000,entries:nodes,limitation:"O relatório histórico não comprova a prontidão atual nem concede permissão para executar instrumentos."});
+ }
  if(req.method==="GET"&&action==="list"){const rows=await sb(token,TABLE+"?select=id,project,title,status,created_at,updated_at&owner_id=eq."+uid+"&order=created_at.desc&limit=60");return j(res,200,{missions:rows});}
  if(req.method==="GET"&&action==="detail"){const m=await mission(token,uid,req.query.id);const outputs=await sb(token,"regente10_outputs?select=*&mission_id=eq."+m.id+"&owner_id=eq."+uid+"&order=slot.asc");const runs=await sb(token,"regente10_ai_calls?select=kind,slot,status,created_at&mission_id=eq."+m.id+"&owner_id=eq."+uid);return j(res,200,{mission:m,outputs,runs});}
  if(req.method!=="POST")return error(res,405,"Método não permitido.");
