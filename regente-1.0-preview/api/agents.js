@@ -68,6 +68,8 @@ module.exports=async(req,res)=>{
  return out(res,200,{run:result?.[0]});
  }
  if(!profiles[node])return out(res,400,{error:"Agente não conectado."});
+ if(m.project==="optotica"&&node==="A3")return out(res,403,{error:"A3 é especializado no ENSAVIM. Selecione o projeto correspondente."});
+ if(m.project==="ensavim"&&(node==="A1"||node==="A2"))return out(res,403,{error:"A1/A2 atendem a Optótica; use o projeto correspondente."});
  if(!m.envelope_approved_at||!["em_execucao","em_resultados"].includes(m.status))return out(res,403,{error:"Autorize primeiro a execução textual no Afinamento."});
  if(!process.env.OPENAI_API_KEY)return out(res,503,{error:"IA não configurada."});
  if(containsPersonal(m.original_request)||containsPersonal(m.prompt_affinado))return out(res,403,{error:"Dados pessoais não permitidos no piloto."});
