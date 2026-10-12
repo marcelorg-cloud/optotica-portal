@@ -36,6 +36,8 @@ async function patch(token,id,owner,changes){
  return records[0];
 }
 async function reserve(token,uid,id,kind,slot){
+ const calls=await sb(token,"regente10_ai_calls?select=id&owner_id=eq."+uid+"&limit=12");
+ if(Array.isArray(calls)&&calls.length>=12)throw Object.assign(new Error("Limite do piloto atingido (12 chamadas reservadas de IA por Master). Nenhuma chamada adicional será executada."),{status:429});
  try{
   const list=await sb(token,"regente10_ai_calls",{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify({owner_id:uid,mission_id:id,kind,slot})});
   return list[0]?.id;
