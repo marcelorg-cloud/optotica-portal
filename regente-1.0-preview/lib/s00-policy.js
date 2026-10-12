@@ -14,8 +14,11 @@ function resourceEligibility(projectId,resource,parents=[]){
  if(!resource){return {allowed:false,base:null,reasons:["recurso_desconhecido"]}}
  const chain=[...parents,resource];
  if(chain.some(x=>x.lifecycle!=="active"))issues.push("recurso_ou_ancestral_nao_ativo");
- const privateClass=chain.some(x=>RANK[x.data_class]===undefined||RANK[x.data_class]>RANK.internal);
- if(privateClass)issues.push("dados_pessoais_ou_sensiveis_sem_CE14");
+ const childClass=RANK[resource.data_class];
+ if(childClass===undefined||childClass>RANK.internal)issues.push("dados_pessoais_ou_sensiveis_sem_CE14");
+ // An explicitly approved, segregated container can be less sensitive than its parent account;
+ // without an authorized local exception it inherits the most restrictive ancestor.
+ if(parents.some(p=>RANK[p.data_class]===undefined||RANK[p.data_class]>childClass)&&!resource.policy_decision_ref)issues.push("reclassificacao_mais_aberta_sem_decisao");
  let base=null;
  if(resource.owner_kind==="project"&&resource.owner_project===projectId)base="propria";
  else if(resource.share_category==="institutional_common"&&resource.owner_kind==="institute"&&RANK[resource.data_class]<=RANK.internal)base="institucional";
