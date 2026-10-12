@@ -20,8 +20,12 @@ jobs:
         run: |
           node --check regente-1.0-preview/api/mission.js
           node --check regente-1.0-preview/api/orientation.js
+          node --check regente-1.0-preview/api/network.js
+          node --check regente-1.0-preview/api/agents.js
       - name: Pilot authenticated route behavior (mocked network)
         run: node --test regente-1.0-preview/tests/pilot.test.cjs
+      - name: Network executor and tool contract tests
+        run: node --test regente-1.0-preview/tests/network.test.cjs
       - name: Check browser script syntax and architecture
         run: |
           node - <<'NODE'
@@ -33,6 +37,10 @@ jobs:
           const js=html.match(/<script>([\s\S]*?)<\/script>/);
           assert(js,'Inline browser script absent');
           new vm.Script(js[1],{filename:'index.html:script'});
+          const network=fs.readFileSync(dir+'network.html','utf8');
+          const networkJs=network.match(/<script>([\s\S]*?)<\/script>/);
+          assert(networkJs,'Network admin script absent');
+          new vm.Script(networkJs[1],{filename:'network.html:script'});
           const mission=fs.readFileSync(dir+'api/mission.js','utf8');
           const orientation=fs.readFileSync(dir+'api/orientation.js','utf8');
           assert(mission.includes('regente10_reserve_ai_call'),'Missing atomic reservation');
