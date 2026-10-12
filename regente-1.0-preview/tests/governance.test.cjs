@@ -25,6 +25,7 @@ function stub({stop=false}={}){
   else if(url.includes("/regente10_resources?"))data=[resource];
   else if(url.includes("/regente10_routes?"))data=[route];
   else if(url.includes("/regente10_adapter_checks?"))data=[];
+  else if(url.includes("/regente10_relation_edges?"))data=[{source_id:"A1",target_id:"F1",status:"proposed",relation_kind:"unclassified"}];
   else if(url.includes("/regente10_mission_connection_maps?"))data=method==="POST"?[{selection:{policy:"test"},state:"draft"}]:[];
   else if(url.includes("/regente10_s00_simulations"))data=method==="POST"?[{id:"33333333-3333-4333-8333-333333333333"}]:[];
   else throw Error("unexpected "+url);
@@ -44,6 +45,7 @@ test("governance catalog returns only alias metadata with no write",async()=>{
  const calls=stub(),r=res();await governance(req(),r);
  assert.equal(r.statusCode,200);assert.equal(r.data.externalWritesEnabled,false);
  assert.deepEqual(r.data.resources.map(x=>x.alias),["INST/REGENTE-RLS"]);
+ assert.equal(r.data.relations.length,1);assert.equal(r.data.relations[0].status,"proposed");
  assert(!calls.some(c=>c.url.includes("api.github.com")||c.url.includes("api.openai.com")));
 });
 test("preparation creates only a draft map, never a route activation",async()=>{
