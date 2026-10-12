@@ -15,6 +15,8 @@ a API de inventário não comprova o nome remoto do projeto.
 - Botão “Verificar Composio” em `/network.html`.
 - Parada de emergência bloqueia o início da consulta ao provedor.
 - Preflight de build consulta apenas auth_configs para validar a chave.
+- Em rejeição de credencial, um GET diagnóstico em auth/session/info registra
+  apenas o status HTTP e descarta o corpo; não cria sessão ou conexão.
   Esse ensaio técnico de publicação não usa dados de missões e não passa pelo
   controle de emergência individual; não liga contas ou executa ferramentas.
 
