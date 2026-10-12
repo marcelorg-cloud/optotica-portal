@@ -33,6 +33,12 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:410px;overflow:auto;b
 <div id="projects" class="grid"></div>
 </section>
 <section class="panel">
+<div class="row"><h2>Relações propostas da Grade Orquestral</h2><span class="muted">Laço não é conexão nem autorização</span></div>
+<p class="muted">A malha foi importada da aba Relações como propostas direcionadas, ainda sem classificação como “informa” ou “opera”. Não habilita nenhuma ferramenta.</p>
+<label>Participante <select id="relationParticipant"></select></label>
+<div id="relationList" class="grid"></div>
+</section>
+<section class="panel">
 <div class="row"><h2>Recursos e permissões</h2><span class="muted">Conta ≠ instrumento · elegível ≠ autorizado</span></div>
 <p class="muted">Somente aliases são exibidos. Recursos propostos não dão acesso à conta real. Uso de dados pessoais ou sensíveis permanece bloqueado até a política aplicável.</p>
 <div style="overflow-x:auto"><table><thead><tr><th>Recurso</th><th>Proprietário</th><th>Categoria</th><th>Classe</th><th>Estado</th></tr></thead><tbody id="resourceRows"></tbody></table></div>
@@ -78,12 +84,20 @@ async function api(url,data){
 function render(){
  $("projects").innerHTML=catalog.projects.map(x=>'<article class="card"><b>'+escape(x.label)+'</b><div class="muted">'+escape(x.id)+'</div><span class="state">'+escape(x.status)+'</span></article>').join("");
  $("resourceRows").innerHTML=catalog.resources.map(x=>'<tr><td><b>'+escape(x.alias)+'</b>'+(x.parent_alias?'<div class="muted">em '+escape(x.parent_alias)+'</div>':'')+'</td><td>'+escape(x.owner_kind==="project"?x.owner_project:x.owner_kind)+'</td><td>'+escape(x.share_category)+'</td><td>'+escape(x.data_class)+'</td><td>'+escape(x.lifecycle)+'</td></tr>').join("");
+ const rp=$("relationParticipant"),rpVal=rp.value;
+ rp.innerHTML=catalog.participants.map(x=>'<option value="'+escape(x.id)+'">'+escape(x.id+" · "+x.name)+'</option>').join("");
+ if(catalog.participants.some(x=>x.id===rpVal))rp.value=rpVal;
+ drawRelations();
  const selected=$("missionSelect").value;
  $("missionSelect").innerHTML='<option value="">Selecione uma missão</option>'+missions.map(m=>'<option value="'+escape(m.id)+'">'+escape(m.project+" · "+m.title)+'</option>').join("");
  if(missions.some(m=>m.id===selected))$("missionSelect").value=selected;
  $("participant").innerHTML=catalog.participants.map(x=>'<option value="'+escape(x.id)+'">'+escape(x.id+" · "+x.name)+'</option>').join("");
  $("resource").innerHTML=catalog.resources.map(x=>'<option value="'+escape(x.alias)+'">'+escape(x.alias+" ("+x.lifecycle+")")+'</option>').join("");
  adjustOperation();
+}
+function drawRelations(){
+ const node=$("relationParticipant").value,links=(catalog.relations||[]).filter(x=>x.source_id===node||x.target_id===node);
+ $("relationList").innerHTML=links.length?links.map(x=>'<article class="card"><b>'+escape(x.source_id+" → "+x.target_id)+'</b><div class="muted">proposta da Grade · sem laço opera validado</div></article>').join(""):'<p class="muted">Nenhuma relação proposta para este participante.</p>';
 }
 function adjustOperation(){
  const node=$("participant").value,alias=$("resource").value,resource=catalog.resources.find(x=>x.alias===alias);
@@ -100,7 +114,7 @@ async function load(){
  try{
   const [c,m]=await Promise.all([api("/api/governance?action=catalog"),api("/api/mission?action=list")]);
   catalog=c;missions=m.missions||[];render();
-  $("status").textContent=c.projects.length+" projetos · "+c.participants.length+" participantes · "+c.resources.length+" recursos · "+c.routes.length+" rotas. Escrita externa desabilitada.";
+  $("status").textContent=c.projects.length+" projetos · "+c.participants.length+" participantes · "+c.resources.length+" recursos · "+c.routes.length+" rotas · "+(c.relations||[]).length+" relações propostas. Escrita externa desabilitada.";
  }catch(e){$("status").textContent=e.message}
 }
 function showMap(map){
@@ -121,6 +135,6 @@ $("simulate").onclick=async()=>{
   $("simResult").textContent=(v.scenario==="would_allow"?"ELEGÍVEL NO CENÁRIO":"NEGADO NO CENÁRIO")+" · Motivos: "+(v.reasons.join(", ")||"nenhum")+". NÃO É autorização real.";
  }catch(e){$("simResult").textContent=e.message}finally{$("simulate").disabled=false}
 };
-$("participant").onchange=adjustOperation;$("resource").onchange=adjustOperation;$("operation").onchange=adjustRoute;
+$("relationParticipant").onchange=drawRelations;$("participant").onchange=adjustOperation;$("resource").onchange=adjustOperation;$("operation").onchange=adjustRoute;
 $("reload").onclick=load;load();
 </script></body></html>
