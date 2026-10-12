@@ -161,6 +161,14 @@
       "provider": "Google",
       "contract": "not_connected",
       "writeEnabled": false
+    },
+    {
+      "id": "F15",
+      "name": "Gmail (Google Workspace)",
+      "type": "tool",
+      "provider": "Google Workspace",
+      "contract": "profile_state_only_until_CE14",
+      "writeEnabled": false
     }
   ]
 }
