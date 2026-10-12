@@ -36,8 +36,10 @@ DM6 segue adiada condicionalmente; S00 Portão externo segue desabilitado.
 
 `COMPOSIO_API_KEY` deve ser Secret/Sensitive, server-only, no projeto Vercel
 regente-1-0. Não usar prefixo público. Não salvar valor no repo ou no chat.
-O build registra apenas `COMPOSIO_PREFLIGHT credential_accepted` ou um código
-seguro de falha. Ausência da chave mantém a integração desabilitada; uma
+O build registra `COMPOSIO_PREFLIGHT credential_accepted` ou um código
+seguro de falha, status HTTP e request_id validado quando disponível. Checagens
+de formato registram apenas flags booleanas, nunca o valor da chave. Payloads
+e mensagens do provedor não são registrados. Ausência da chave mantém a integração desabilitada; uma
 chave presente que seja recusada impede a publicação dessa versão.
 
 ## Validação
@@ -52,3 +54,5 @@ Fontes oficiais consultadas em 12/10/2026:
 - https://docs.composio.dev/reference/api-reference/auth-configs/getAuthConfigs
 - https://docs.composio.dev/reference/api-reference/connected-accounts/getConnectedAccounts
 - https://docs.composio.dev/reference/api-reference/connected-accounts
+- https://docs.composio.dev/reference/errors
+- https://docs.composio.dev/docs/using-composio-skill

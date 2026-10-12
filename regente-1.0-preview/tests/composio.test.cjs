@@ -37,6 +37,14 @@ test("successful inventory strips all credential-bearing structures and never gr
  const upstream=calls.filter(x=>x.url.includes("composio.dev"));assert.equal(upstream.length,2);assert(upstream.every(x=>x.method==="GET"&&x.headers["x-api-key"]===SECRET&&!x.headers.Authorization));assert(upstream.some(x=>x.url.includes("account_type=PRIVATE")));assert.equal(r.headers["Cache-Control"],"no-store");
 });
 test("provider rejects key without echoing raw error",async()=>{mock({reject:true});const r=res();await handler(req(),r);assert.equal(r.statusCode,502);assert.equal(r.body.code,"credential_rejected");assert(!JSON.stringify(r.body).includes(SECRET))});
+test("provider diagnostics retain HTTP status and safe request ID without error payload",async()=>{
+ const fetcher=async()=>new Response(JSON.stringify({error:{request_id:"req_diagnostic_123",message:SECRET,suggested_fix:SECRET}}),{status:403});
+ await assert.rejects(()=>providerGet("configs",{apiKey:SECRET,fetcher}),e=>e.providerStatus===403&&e.providerRequestId==="req_diagnostic_123"&&!JSON.stringify(e).includes(SECRET));
+});
+test("provider diagnostics cannot echo a key hidden in request ID",async()=>{
+ const fetcher=async()=>new Response(JSON.stringify({error:{request_id:"req_"+SECRET}}),{status:401});
+ await assert.rejects(()=>providerGet("configs",{apiKey:SECRET,fetcher}),e=>e.providerStatus===401&&!e.providerRequestId&&!JSON.stringify(e).includes(SECRET));
+});
 test("malformed provider response is not a verified empty inventory",async()=>{mock({malformed:true});const r=res();await handler(req(),r);assert.equal(r.statusCode,502);assert.equal(r.body.code,"invalid_response");assert(!r.body.credentialAccepted)});
 test("missing key has no provider request",async()=>{let called=false;await assert.rejects(()=>providerGet("configs",{apiKey:"",fetcher:async()=>{called=true}}),e=>e.code==="not_configured");assert.equal(called,false)});
 test("arbitrary provider paths rejected before network",async()=>{await assert.rejects(()=>providerGet("tools/execute",{apiKey:SECRET}),e=>e.code==="invalid_query")});
