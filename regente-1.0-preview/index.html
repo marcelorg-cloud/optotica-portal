@@ -75,8 +75,25 @@ async function boot(){
  catch(e){$("serverStatus").textContent="API indisponível";$("healthBox").textContent=e.message}
  if(state.token){try{await list();$("loginOverlay").classList.add("hidden")}catch(e){$("loginOverlay").classList.remove("hidden");notify(e.message)}}
 }
+async function loadReadiness(){
+ const old=document.getElementById("readinessHistory");
+ if(old)old.remove();
+ if(!state.token)return;
+ try{
+  const report=await api("instruments");
+  const holder=document.createElement("div");
+  holder.id="readinessHistory";
+  holder.className="box";
+  const when=report.asOf?new Date(report.asOf).toLocaleString("pt-BR"):"nenhuma";
+  const entries=Array.isArray(report.entries)?report.entries:[];
+  const items=entries.slice(0,15).map(x=>'<div class="statusLine"><b>'+escape(x.label||x.id)+'</b> <span class="muted small">'+escape(x.state)+' · adapter '+(x.adapterConnected?"identificado":"não comprovado")+'</span></div>').join("");
+  holder.innerHTML='<h3>Histórico de prontidão da Orquestra</h3><p class="small muted">Relatório da v0.7 em '+escape(when)+(report.stale?' · desatualizado':' · recente')+'. Não concede permissão.</p>'+(items||'<p class="small muted">Não há verificações históricas disponíveis.</p>');
+  document.getElementById("healthBox").closest(".box").after(holder);
+ }catch(e){const holder=document.createElement("p");holder.id="readinessHistory";holder.className="small muted";holder.textContent="Histórico de prontidão indisponível: "+e.message;document.getElementById("healthBox").append(holder);}
+}
 async function list(){
  const r=await api("list");state.items=r.missions||[];$("loginOverlay").classList.add("hidden");
+ await loadReadiness();
  const current=state.items.filter(m=>m.project===state.project);$("missionCount").textContent=current.length;$("sideCount").textContent=state.items.length+" missões no Instituto";
  $("missionList").innerHTML=current.length?current.map(m=>'<button class="mission '+(m.id===state.current?"active":"")+'" data-id="'+escape(m.id)+'"><b>'+escape(m.title)+'</b><small>'+escape(m.status.replaceAll("_"," "))+' · '+new Date(m.created_at).toLocaleDateString("pt-BR")+'</small></button>').join(""):'<p class="small muted">Nenhuma missão ainda neste projeto.</p>';
 }
