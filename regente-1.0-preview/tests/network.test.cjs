@@ -1,10 +1,10 @@
 "use strict";
 const {test}=require("node:test"),assert=require("node:assert/strict");
-const network=require("../api/network.js"),agents=require("../api/agents.js");
 const ID="12345678-1234-4234-8234-123456789abc",USER="87654321-4321-4432-8432-cba987654321";
 process.env.SUPABASE_URL="https://example.supabase.co";
 process.env.SUPABASE_PUBLISHABLE_KEY="public-test-key";
 process.env.OPENAI_API_KEY="test-placeholder-not-sent";
+const network=require("../api/network.js"),agents=require("../api/agents.js");
 const req=(method,body={},query={})=>({method,body,query,headers:{host:"local.test",origin:"https://local.test",authorization:"Bearer test.token.fake"}});
 const res=()=>({statusCode:200,value:null,headers:{},setHeader(k,v){this.headers[k]=v;return this},status(n){this.statusCode=n;return this},json(v){this.value=v;return this}});
 function mock({emergency=false,approved=true}={}){
