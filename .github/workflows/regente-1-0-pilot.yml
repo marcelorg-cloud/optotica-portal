@@ -21,11 +21,14 @@ jobs:
           node --check regente-1.0-preview/api/mission.js
           node --check regente-1.0-preview/api/orientation.js
           node --check regente-1.0-preview/api/network.js
+          node --check regente-1.0-preview/api/bridges.js
           node --check regente-1.0-preview/api/agents.js
       - name: Pilot authenticated route behavior (mocked network)
         run: node --test regente-1.0-preview/tests/pilot.test.cjs
       - name: Network executor and tool contract tests
         run: node --test regente-1.0-preview/tests/network.test.cjs
+      - name: Read-only hub bridge authorization tests
+        run: node --test regente-1.0-preview/tests/bridges.test.cjs
       - name: Check browser script syntax and architecture
         run: |
           node - <<'NODE'
