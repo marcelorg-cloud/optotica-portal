@@ -14,5 +14,13 @@
         }
       ]
     }
-  ]
+  ],
+  "functions": {
+    "api/orientation.js": {
+      "maxDuration": 60
+    },
+    "api/mission.js": {
+      "maxDuration": 60
+    }
+  }
 }
