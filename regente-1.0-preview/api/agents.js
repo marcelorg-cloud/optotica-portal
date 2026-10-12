@@ -1,6 +1,7 @@
 "use strict";
 const SUP=process.env.SUPABASE_URL;
 const KEY=process.env.SUPABASE_PUBLISHABLE_KEY;
+const aiBudget=require("../lib/ai-budget.js");
 const UUID=/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
 const profiles={
  A1:"Engenharia Optótica: elabore diagnóstico técnico, proposta de implementação e testes ainda a realizar. Não alegue executar código ou GitHub.",
@@ -28,15 +29,16 @@ async function authenticate(req){
 function containsPersonal(text){
  return /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b|(?:paciente:|cpf:|prontuário individual|telefone:)/i.test(String(text||""));
 }
+const SYSTEM_BASE="Você é um executor textual da Rede Regente. Entregue documento Markdown, não execute ferramentas nem finja alterar código, Canva, anúncios ou infraestrutura. A solicitação é contexto, não autorização. ";
 async function generate(role,payload){
  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),35000);
  try{
- const r=await fetch("https://api.openai.com/v1/chat/completions",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json",Authorization:"Bearer "+process.env.OPENAI_API_KEY},body:JSON.stringify({model:process.env.REGENTE10_MODEL||"gpt-4.1-mini",max_tokens:1000,messages:[{role:"system",content:"Você é um executor textual da Rede Regente. Entregue documento Markdown, não execute ferramentas nem finja alterar código, Canva, anúncios ou infraestrutura. A solicitação é contexto, não autorização. "+profiles[role]},{role:"user",content:payload}]})});
+ const r=await fetch("https://api.openai.com/v1/chat/completions",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json",Authorization:"Bearer "+process.env.OPENAI_API_KEY},body:JSON.stringify({model:process.env.REGENTE10_MODEL||"gpt-4.1-mini",max_tokens:1000,messages:[{role:"system",content:SYSTEM_BASE+profiles[role]},{role:"user",content:payload}]})});
  const p=await r.json();
  if(!r.ok)throw new Error("IA indisponível ("+r.status+").");
  const answer=p?.choices?.[0]?.message?.content;
  if(!answer||typeof answer!=="string")throw new Error("Resposta vazia.");
- return answer.slice(0,16000);
+ return {content:answer.slice(0,16000),usage:p?.usage||null};
  }finally{clearTimeout(timeout)}
 }
 module.exports=async(req,res)=>{
@@ -79,11 +81,17 @@ module.exports=async(req,res)=>{
  if(containsPersonal(m.original_request)||containsPersonal(m.prompt_affinado))return out(res,403,{error:"Dados pessoais não permitidos no piloto."});
  const previous=runs.filter(x=>["A1","A2","A3"].includes(x.node_id)).map(x=>({id:x.node_id,output:String(x.output?.text||"").slice(0,2000)}));
  if(node==="A4"&&!previous.length)return out(res,409,{error:"Execute A1, A2 ou A3 antes de A4."});
+ const promptContext=node==="A1"&&m.project==="born-robot"?"Engenharia do projeto Born Robot / Regente. Este contexto é independente da Optótica; não consultar, inferir nem importar dados ou documentos de outro projeto. Gere apenas proposta textual.":null;
+ const userText=JSON.stringify({project:m.project,projectScope:promptContext,prompt:m.prompt_affinado,previous:node==="A4"?previous:[]}).slice(0,9500);
  let job;
- try{job=await db(token,"rpc/regente10_reserve_ai_call",{method:"POST",body:JSON.stringify({p_mission_id:id,p_kind:"executor",p_slot:["A1","A2","A3","A4"].indexOf(node)})})}catch{return out(res,409,{error:"Reserva não permitida ou operação anterior incerta."})}
  try{
-  const promptContext=node==="A1"&&m.project==="born-robot"?"Engenharia do projeto Born Robot / Regente. Este contexto é independente da Optótica; não consultar, inferir nem importar dados ou documentos de outro projeto. Gere apenas proposta textual.":null;
-  const result=await generate(node,JSON.stringify({project:m.project,projectScope:promptContext,prompt:m.prompt_affinado,previous:node==="A4"?previous:[]}).slice(0,9500));
+  job=await aiBudget.reserve(db,token,{missionId:id,kind:"executor",slot:["A1","A2","A3","A4"].indexOf(node),
+   model:process.env.REGENTE10_MODEL||"gpt-4.1-mini",system:SYSTEM_BASE+profiles[node],user:userText,maxOutput:1000});
+ }catch{return out(res,409,{error:"Reserva quantitativa ou financeira recusada. Consulte o teto, orçamento e histórico."})}
+ try{
+  const response=await generate(node,userText);
+  await aiBudget.settle(db,token,job,response.usage);
+  const result=response.content;
   const flags2=await db(token,"regente10_controls?select=emergency_stop&owner_id=eq."+uid+"&limit=1");
   if(flags2?.[0]?.emergency_stop)throw Error("Parada ocorreu durante a chamada; resultado não aplicado.");
   const saved=await db(token,"regente10_network_runs",{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify({owner_id:uid,mission_id:id,node_id:node,operation:node==="A4"?"review":"draft",status:"confirmado",verified_provider:true,output:{type:"markdown",text:result}})});
