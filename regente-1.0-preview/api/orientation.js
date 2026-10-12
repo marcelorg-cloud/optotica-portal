@@ -91,6 +91,15 @@ module.exports=async function handler(req,res){
   const m=await mission(token,uid,id);
   const steps=await request(token,"regente10_orientation_steps?select=role_id,step_index,output,confirmed_at&mission_id=eq."+id+"&owner_id=eq."+uid+"&order=step_index.asc");
   if(req.method==="GET")return respond(res,200,{missionId:id,steps,nextStep:steps.length<3?steps.length:null,complete:steps.length===3});
+  if(req.body?.action==="finalize"&&req.method==="POST"){
+   await checkControls(token,uid,m);
+   if(steps.length!==3)return respond(res,409,{error:"Três pareceres são necessários para finalizar."});
+   if(m.status!=="afinamento")return respond(res,200,{complete:true,already_finalized:true});
+   const update=finalize(steps,m);
+   const updated=await request(token,"regente10_missions?id=eq."+id+"&owner_id=eq."+uid,{method:"PATCH",headers:{"Prefer":"return=representation"},body:JSON.stringify(update)});
+   if(!updated?.length)throw new Error("Partitura não persistida.");
+   return respond(res,200,{complete:true,mission:updated});
+  }
   if(m.status!=="afinamento")return respond(res,409,{error:"Missão já afinada ou em outra fase."});
   await checkControls(token,uid,m);
   if(personal(m.original_request))return respond(res,400,{error:"Remova identificadores pessoais ou credenciais para utilizar este piloto."});
