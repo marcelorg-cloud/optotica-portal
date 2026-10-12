@@ -24,7 +24,7 @@ button{border-radius:10px;padding:10px 14px}.small{font-size:12px}.muted{color:v
  <button data-project="born-robot">◈ Regente / Born Robot</button></nav>
  <div class="sec">Missões</div><div id="sideCount" class="small" style="padding:2px 12px;color:#aecabc">Carregando...</div><div style="flex:1"></div>
  <button id="showNew">＋ Nova missão</button><button id="signOut">Sair da conta</button></aside>
- <div class="main"><header class="top"><h1 id="pageTitle">Missões · Optótica</h1><div class="tright"><span id="serverStatus" class="tag">Verificando</span><button id="reload" class="light small">Atualizar</button></div></header>
+ <div class="main"><header class="top"><h1 id="pageTitle">Missões · Optótica</h1><div class="tright"><span id="serverStatus" class="tag">Verificando</span><button id="stopAll" class="danger" title="Impede novas chamadas de IA no Regente 1.0">Parar tudo</button><button id="resumeAll" class="light hidden">Reativar 1.0</button><button id="reload" class="light small">Atualizar</button></div></header>
  <div class="content">
  <div class="cols"><section>
  <div class="box" id="newPanel"><div class="row spread"><h2>Criar missão</h2><span class="tag">Operacional</span></div>
@@ -43,19 +43,19 @@ button{border-radius:10px;padding:10px 14px}.small{font-size:12px}.muted{color:v
  <div class="box"><div class="row spread"><h3>Missões do projeto</h3><span id="missionCount" class="tag">0</span></div><div id="missionList" class="list"><p class="small muted">Entre para consultar.</p></div></div>
  <div class="box"><h3>Estado do sistema</h3><div id="healthBox" class="small muted">Verificando a API...</div></div>
  <div class="box"><h3>Limites deste piloto</h3>
- <p class="small muted">Autenticação Master e armazenamento com RLS. Afinamento por uma chamada de IA seguindo responsabilidades C01–C08. Até 3 entregáveis textuais por missão, com aceite individual. Sem acesso a GitHub, Vercel, Canva, anúncios ou dados clínicos.</p>
- <p class="note warning">A Orquestra multiagente e os instrumentos externos ainda não executam neste piloto. Não confunda relatórios produzidos pela IA com testes ou operações realizados.</p>
+ <p class="small muted">Autenticação Master e armazenamento com RLS. Afinamento por uma chamada de IA seguindo responsabilidades C01–C08. Até 3 entregáveis textuais por missão, com aceite individual. C01/C03/C08 com IA independente; outros papéis de orientação ainda determinísticos. Sem execução de GitHub, Vercel, Canva, anúncios ou dados clínicos.</p>
+ <p class="note warning">A Camada de Orientação ainda não possui os oito agentes generativos independentes; os instrumentos externos ainda não executam neste piloto. Não confunda relatórios produzidos pela IA com testes ou operações realizados.</p>
  </div>
  </aside></div><footer>Regente 1.0 · Piloto operacional isolado. Sem efeitos externos além de IA e registros de missão. Uso exclusivo do Master autorizado.</footer>
  </div></div></div><div id="toast" role="status"></div>
 <script>
 const URL_SB="https://xepkdqcbjrictowriccb.supabase.co", PK="sb_publishable_F-DN3Z4GZbX5j2IeXtq5cw_rJHP6mfw";
 const projects={optotica:"Optótica",ensavim:"ENSAVIM","born-robot":"Regente / Born Robot"};
-const state={project:"optotica",token:sessionStorage.getItem("regente10_token")||"",refresh:sessionStorage.getItem("regente10_refresh")||"",current:null,items:[],phase:"afinamento",details:null,health:null};
+const state={project:"optotica",token:sessionStorage.getItem("regente10_token")||"",refresh:sessionStorage.getItem("regente10_refresh")||"",current:null,items:[],phase:"afinamento",details:null,health:null,orientation:null,controls:null};
 const $=id=>document.getElementById(id);
 const escape=s=>String(s??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 const notify=(text)=>{const t=$("toast");t.textContent=text;t.style.display="block";clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>t.style.display="none",6500)};
-const markBusy=(value)=>{document.querySelectorAll("button").forEach(b=>{if(b.id!=="signOut")b.disabled=value})};
+const markBusy=(value)=>{document.querySelectorAll("button").forEach(b=>{if(!["signOut","stopAll","resumeAll"].includes(b.id))b.disabled=value})};
 async function authFetch(path,opts={}){
  const response=await fetch(URL_SB+path,{...opts,headers:{apikey:PK,"Content-Type":"application/json",...(opts.headers||{})}});
  let v={};try{v=await response.json()}catch{}
@@ -70,10 +70,48 @@ async function api(action,payload=null,params={}) {
  let v;try{v=await r.json()}catch{v={error:"Resposta inválida da API."}}
  if(!r.ok)throw Error(v.error||"Erro "+r.status);return v;
 }
+async function orientationApi(id,stage){
+ const opt={method:stage===undefined?"GET":"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+state.token},...(stage===undefined?{}:{body:JSON.stringify({id,stage})})};
+ let r=await fetch("/api/orientation"+(stage===undefined?"?id="+encodeURIComponent(id):""),opt);
+ if(r.status===401&&state.refresh){await refresh();opt.headers.Authorization="Bearer "+state.token;r=await fetch("/api/orientation"+(stage===undefined?"?id="+encodeURIComponent(id):""),opt)}
+ let v={};try{v=await r.json()}catch{}
+ if(!r.ok)throw Error(v.error||"Etapa de orientação não concluída.");
+ return v;
+}
+async function loadControls(){
+ if(!state.token)return;
+ try{state.controls=await api("controls");
+  $("stopAll").classList.toggle("hidden",state.controls.emergency_stop);
+  $("resumeAll").classList.toggle("hidden",!state.controls.emergency_stop);
+  $("serverStatus").textContent=state.controls.emergency_stop?"PARADO":state.health?.aiConfigured?"IA conectada":"IA pendente";
+ }catch(e){notify("Controles S00 indisponíveis: "+e.message)}
+}
+async function runOrientation(){
+ const id=state.details?.mission?.id;if(!id)return;
+ markBusy(true);
+ try{
+  let progress=await orientationApi(id);
+  const names=["C01 · Orientação de Coerência","C03 · Compositor","C08 · Auditor de Harmonia"];
+  while(progress.nextStep!==null){
+   const step=progress.nextStep;
+   const label=$("orientationProgress");if(label)label.textContent="Executando "+names[step]+" (chamada real de IA); estado persistido ao concluir cada etapa...";
+   await orientationApi(id,step);
+   progress=await orientationApi(id);
+   state.orientation=progress;
+   const updated=$("orientationProgress");if(updated)updated.textContent=(progress.steps||[]).length+" de 3 pareceres persistidos.";
+  }
+  if(progress.complete){const m=await api("detail",null,{id});if(!m.mission.prompt_affinado){
+   const opt={method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+state.token},body:JSON.stringify({id,action:"finalize"})};
+   const done=await fetch("/api/orientation",opt);if(!done.ok){const e=await done.json();throw Error(e.error||"Finalização não persistida")}
+  }}
+  await openMission(id);notify("Afinamento gerado com três agentes independentes e estados persistidos.");
+ }catch(e){notify(e.message);try{await openMission(id)}catch{}}
+ finally{markBusy(false)}
+}
 async function boot(){
  try{state.health=await api("health");$("healthBox").innerHTML='<div class="statusLine">Armazenamento isolado: <b>conectado</b></div><div class="statusLine">IA no projeto: <b>'+ (state.health.aiConfigured?"configurada":"não configurada")+'</b></div><div class="statusLine">Instrumentos externos: <b>desativados</b></div>';$("serverStatus").textContent=state.health.aiConfigured?"IA conectada":"IA pendente";}
  catch(e){$("serverStatus").textContent="API indisponível";$("healthBox").textContent=e.message}
- if(state.token){try{await list();$("loginOverlay").classList.add("hidden")}catch(e){$("loginOverlay").classList.remove("hidden");notify(e.message)}}
+ if(state.token){try{await list();await loadControls();$("loginOverlay").classList.add("hidden")}catch(e){$("loginOverlay").classList.remove("hidden");notify(e.message)}}
 }
 async function loadReadiness(){
  const old=document.getElementById("readinessHistory");
@@ -97,7 +135,7 @@ async function list(){
  const current=state.items.filter(m=>m.project===state.project);$("missionCount").textContent=current.length;$("sideCount").textContent=state.items.length+" missões no Instituto";
  $("missionList").innerHTML=current.length?current.map(m=>'<button class="mission '+(m.id===state.current?"active":"")+'" data-id="'+escape(m.id)+'"><b>'+escape(m.title)+'</b><small>'+escape(m.status.replaceAll("_"," "))+' · '+new Date(m.created_at).toLocaleDateString("pt-BR")+'</small></button>').join(""):'<p class="small muted">Nenhuma missão ainda neste projeto.</p>';
 }
-async function openMission(id){const r=await api("detail",null,{id});state.current=id;state.details=r;state.phase="afinamento";$("newPanel").classList.add("hidden");$("missionPanel").classList.remove("hidden");$("currentTitle").textContent=r.mission.title;$("currentStatus").textContent=r.mission.status.replaceAll("_"," ");renderPhase();await list()}
+async function openMission(id){const r=await api("detail",null,{id});try{state.orientation=await orientationApi(id)}catch{state.orientation=null}state.current=id;state.details=r;state.phase="afinamento";$("newPanel").classList.add("hidden");$("missionPanel").classList.remove("hidden");$("currentTitle").textContent=r.mission.title;$("currentStatus").textContent=r.mission.status.replaceAll("_"," ");renderPhase();await list()}
 function content(text){return '<pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:480px;overflow:auto;border:1px solid var(--line);border-radius:10px;background:#f6f8f6;padding:14px;font-size:13px;line-height:1.6">'+escape(text)+'</pre>'}
 function renderPhase(){
  const m=state.details?.mission;if(!m)return;
@@ -106,10 +144,11 @@ function renderPhase(){
  const pan=$("phaseBody");
  if(state.phase==="afinamento"){
  const r=m.diagnostic||{};
+ const roles=state.orientation?.steps||[];
  pan.innerHTML='<h3>Prompt Afinado da missão</h3>'+(m.prompt_affinado?content(m.prompt_affinado):'<p class="muted">A missão foi salva no banco. Execute o Afinamento para gerar o plano de trabalho por IA.</p>')+
- '<div class="note">As oito responsabilidades da Camada de Orientação são contempladas como checklist. Neste piloto, a síntese é feita por <b>uma chamada de IA</b>; não são oito agentes independentes.</div>'+
+ '<div class="note">Afinamento progressivo: <b>C01, C03 e C08 executam chamadas independentes de IA</b>, com saídas persistidas. C02, C04, C05, C06 e C07 participam por regras e apoio determinístico, sem chamadas generativas independentes. Nenhuma conexão externa é simulada como verificada.</div><div id="orientationProgress" class="small muted" style="margin-top:12px">'+roles.length+' de 3 pareceres independentes concluídos</div>'+roles.map(x=>'<details class="result"><summary>'+escape(x.role_id)+' · parecer persistido</summary>'+content(JSON.stringify(x.output,null,2))+'</details>').join('')+
  (m.prompt_affinado?'<h3 style="margin-top:20px">Diagnóstico crítico</h3>'+content(JSON.stringify(r,null,2))+'<h3>Entregáveis previstos</h3>'+ (m.result_plan||[]).map((x,i)=>'<div class="statusLine"><b>'+ (i+1)+'. '+escape(x.titulo)+'</b><div class="small muted">'+escape(x.criterio)+'</div></div>').join(""):'')+
- '<div class="row" style="margin-top:17px">'+(!m.prompt_affinado?'<button class="primary" data-op="afinamento" '+(!state.health?.aiConfigured?"disabled":"")+'>Gerar Prompt Afinado por IA</button>':'')+(m.status==="aguardando_autorizacao"?'<button class="primary" data-op="authorize">Autorizar execução textual</button>':'')+'</div>';
+ '<div class="row" style="margin-top:17px">'+(!m.prompt_affinado?'<button class="primary" data-op="run_orientation" '+(!state.health?.aiConfigured?"disabled":"")+'>Iniciar / continuar Afinamento por agentes</button>':'')+(m.status==="aguardando_autorizacao"?'<button class="primary" data-op="authorize" '+(r.bloqueio_critico?'disabled title="Revisão crítica pendente"':'')+'>Autorizar execução textual</button>':'')+'</div>';
  }
  if(state.phase==="execucao"){
  pan.innerHTML='<h3>Execução autorizada</h3><p class="muted">Os resultados são gerados por IA individualmente. Uma falha não impede que os demais sejam produzidos. Não há execução de código, publicações ou alterações externas.</p>'+
@@ -125,6 +164,7 @@ function renderPhase(){
 }
 async function change(op,slot){
  const m=state.details?.mission;if(!m)return;
+ if(op==="run_orientation")return runOrientation();
  if(op==="download"){const o=state.details.outputs.find(x=>x.slot===slot);if(!o)return;const file=new Blob([o.content],{type:"text/markdown;charset=utf-8"});const a=document.createElement("a");a.href=URL.createObjectURL(file);a.download="regente-resultado-"+(slot+1)+".md";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);return;}
  if(op==="authorize"&&!confirm("Autorizar esta missão SOMENTE a gerar até três resultados textuais por IA? Não permite commits, banco, anúncios ou publicação."))return;
  if(op==="conclude"&&!confirm("Concluir a missão depois do aceite de todos os entregáveis?"))return;
@@ -133,13 +173,15 @@ async function change(op,slot){
  catch(e){notify(e.message)}
  finally{markBusy(false)}
 }
-$("loginForm").addEventListener("submit",async e=>{e.preventDefault();$("loginStatus").textContent="Autenticando...";try{await login($("email").value,$("password").value);$("password").value="";await list();$("loginStatus").textContent=""}catch(err){$("loginStatus").textContent=err.message}});
+$("loginForm").addEventListener("submit",async e=>{e.preventDefault();$("loginStatus").textContent="Autenticando...";try{await login($("email").value,$("password").value);$("password").value="";await list();await loadControls();$("loginStatus").textContent=""}catch(err){$("loginStatus").textContent=err.message}});
 $("newForm").addEventListener("submit",async e=>{e.preventDefault();$("saveStatus").textContent="Salvando no Supabase...";markBusy(true);try{const r=await api("create",{project:state.project,title:$("missionTitle").value,request:$("missionText").value});$("saveStatus").textContent="";$("missionText").value="";$("missionTitle").value="";await openMission(r.mission.id);notify("Missão criada e armazenada.")}catch(err){notify(err.message)}finally{markBusy(false)}});
 $("projectMenu").addEventListener("click",async e=>{const b=e.target.closest("[data-project]");if(!b)return;state.project=b.dataset.project;document.querySelectorAll("[data-project]").forEach(x=>x.classList.toggle("selected",x===b));$("pageTitle").textContent="Missões · "+projects[state.project];state.current=null;state.details=null;$("newPanel").classList.remove("hidden");$("missionPanel").classList.add("hidden");await list()});
 $("missionList").addEventListener("click",async e=>{const b=e.target.closest("[data-id]");if(!b)return;try{await openMission(b.dataset.id)}catch(err){notify(err.message)}});
 $("missionPanel").addEventListener("click",async e=>{const b=e.target.closest("[data-op],[data-phase]");if(!b)return;if(b.dataset.phase){state.phase=b.dataset.phase;renderPhase()}if(b.dataset.op)change(b.dataset.op,b.dataset.slot===undefined?undefined:Number(b.dataset.slot))});
 $("showNew").onclick=$("backToNew").onclick=()=>{$("newPanel").classList.remove("hidden");$("missionPanel").classList.add("hidden")};
 $("reload").onclick=async()=>{try{if(state.current)await openMission(state.current);else await list();notify("Dados atualizados do servidor.")}catch(e){notify(e.message)}};
+$("stopAll").onclick=async()=>{if(!confirm("PARAR TUDO no Regente 1.0? Novas gerações serão bloqueadas; chamadas já iniciadas podem gerar custo e serão conciliadas."))return;try{await api("stop_all",{});await loadControls();notify("Parada de emergência ativada no Regente 1.0.")}catch(e){notify(e.message)}};
+$("resumeAll").onclick=async()=>{if(!confirm("Reativar novas operações somente no Regente 1.0?"))return;try{await api("resume_all",{confirm:true});await loadControls();notify("Regente 1.0 reativado.")}catch(e){notify(e.message)}};
 $("signOut").onclick=()=>{state.token="";state.refresh="";sessionStorage.removeItem("regente10_token");sessionStorage.removeItem("regente10_refresh");$("loginOverlay").classList.remove("hidden");notify("Sessão local encerrada.")};
 $("dictate").onclick=()=>{const Rec=window.SpeechRecognition||window.webkitSpeechRecognition;if(!Rec)return notify("Este navegador não oferece reconhecimento de voz. Utilize digitação.");if(!confirm("O fornecedor do navegador poderá processar seu áudio. Utilize somente informações não pessoais. Deseja iniciar?"))return;const rec=new Rec();rec.lang="pt-BR";rec.interimResults=false;rec.onresult=e=>{$("missionText").value=($("missionText").value+" "+e.results[0][0].transcript).trim();notify("Transcrição adicionada. Revise antes de criar a missão.")};rec.onerror=e=>notify("Ditado indisponível: "+e.error);rec.start()};
 boot();
