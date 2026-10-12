@@ -62,3 +62,19 @@ O projeto Vercel `regente-1-0` está separado dos projetos `optotica-portal` e `
 7. Execução e registro dos testes I-01..I-21 e T1..T13, E2E real, e aprovação de habilitação de escrita por instrumento.
 
 **O painel operacional permanece disponível com efeitos restritos a conteúdo textual e suas próprias tabelas RLS.**
+
+## Ratificação RC1–RC5 e orçamento na Fase 1 (12/10/2026)
+
+- **RC1/DM6:** separação física do repo GitHub e do projeto Supabase foi **adiada condicionalmente** para não interromper outros projetos. **Não libera** escrita autônoma privilegiada com alcance sobre a infraestrutura compartilhada.
+- **RC2:** novas missões recebem `budget_policy=budget_v1`. Após o Afinamento, a página `/budget.html?missionId=...` exibe previsão conservadora para IA textual (base GPT-4.1-mini: entrada US$0,40/1 milhão de tokens, saída US$1,60/1 milhão; fonte oficial https://developers.openai.com/api/docs/models/gpt-4.1-mini). O Maestro informa a taxa orçamentária USD→BRL, valores adicionais previstos e margem (padrão ilustrativo 50%), revisa e **aprova o teto**. A API `mission.authorize` bloqueia novas missões sem aprovação.
+- **RC2, controle do gasto:** `regente10_reserve_ai_budget` reserva atomica e conservadoramente cada operação textual após aprovação e `regente10_settle_ai_budget` usa a contagem de tokens do provedor para estimar gasto em reais. Uma resposta sem medição ou com valor inesperado conserva a reserva como **incerta**. A chamada preparatória de Afinamento **antes** da aprovação continua sob o limite global de 12 chamadas por Master; não está incluída na reserva monetária posterior. Missões legadas não são reclassificadas.
+- **Não representa fatura:** preços futuros, câmbio e cobrança final podem divergir; o saldo é estimativa orçamentária, não valor liquidado no provedor. Custos de Canva, HeyGen, Meta, terceiros e bridges **não estão certificados**. Essa aprovação de teto não habilita operações externas.
+- **RC3:** Maestro e Master técnico são **a mesma conta humana**, distinguindo tipos de decisões; S00 Portão futuro terá **identidade de serviço separada**, não uma identidade de IA.
+- **RC4:** Gateway de Instrumentos independente de fornecedor; **Composio é apenas a primeira candidata à prova de cobertura/custo**. Pipedream, n8n, APIs oficiais e bridges próprias continuam alternativas; nenhum OAuth externo ou fornecedor foi ativado por esta ratificação.
+- **RC5:** orçamento → identidades e logs → prova de gateway → contas/rotas específicas → ensaios → DM6 futura quando um privilégio amplo exigir.
+
+**Status técnico:** o orçamento financeiro foi implementado nas tabelas próprias do Regente 1.0 e nos endpoints textuais, com testes automatizados, smoke transacional com ROLLBACK e política de negação. Nenhuma garantia de teto monetário pode ser estendida a instrumentos ainda não integrados.
+
+**Correção adicional:** `regente10_missions.project` usa FK no catálogo `regente10_projects` em vez do antigo CHECK de três projetos, permitindo missões no contexto `Instituto — Governança` sem nova enumeração fixa.
+
+**Deploy:** esta atualização deverá ser publicada somente após workflow CI e pré-visualização Vercel verificados. Não requer merge dos PRs em rascunho.
