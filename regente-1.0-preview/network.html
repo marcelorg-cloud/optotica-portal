@@ -96,7 +96,7 @@ $("importReview").onclick=async()=>{
  try{await req("POST","/api/agents",{missionId,node:"A6",sourceRef:$("reviewSource").value,review:$("reviewText").value});$("reviewText").value="";await loadAgentRuns();$("status").textContent="Parecer manual registrado."}catch(e){$("status").textContent=e.message}
 };
 
-const HUBS=[["github","GitHub"],["vercel","Vercel"],["supabase","Supabase"],["canva","Canva"],["heygen","HeyGen"],["google_drive","Google Drive"],["windsor_meta","Windsor / Meta"]];
+const HUBS=[["github","GitHub"],["vercel","Vercel"],["supabase","Supabase"],["canva","Canva"],["heygen","HeyGen"],["google_drive","Google Drive"],["google_docs","Google Docs"],["google_sheets","Google Planilhas"],["gmail","Gmail"],["windsor_meta","Windsor / Meta"]];
 async function loadBridges(){
  const box=$("hubCards"),history=$("hubHistory");
  try{
