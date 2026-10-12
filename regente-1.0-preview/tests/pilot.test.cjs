@@ -18,6 +18,8 @@ function mock(options={}){
   else if(u.pathname.endsWith("/regente10_missions"))data=[{id:missionId,owner_id:user,project:"born-robot",original_request:"Elaborar um resumo de integração segura do Regente 1.0",status:"afinamento",paused:false}];
   else if(u.pathname.endsWith("/regente10_orientation_steps"))data=method==="POST"?[{id:"44444444-4444-4444-8444-444444444444"}]:existing;
   else if(u.pathname.endsWith("/regente10_controls"))data=[{emergency_stop:!!options.emergency_stop}];
+  else if(u.pathname.endsWith("/rpc/regente10_reserve_ai_budget"))data=jobId;
+  else if(u.pathname.endsWith("/rpc/regente10_settle_ai_budget"))data={state:"not_metered_or_prebudget"};
   else if(u.pathname.endsWith("/rpc/regente10_reserve_ai_call"))data=jobId;
   else if(u.pathname.endsWith("/regente10_ai_calls"))data=null;
   else if(u.hostname==="api.openai.com"){
@@ -61,7 +63,7 @@ test("C01 invokes real role endpoint and persists result only after DB reservati
  const answer=res();await orientation(req("POST","",{id:missionId,stage:0}),answer);
  assert.equal(answer.statusCode,200);
  assert.equal(answer.body.role,"C01");
- assert(called.some(x=>x.url.includes("reserve_ai_call")));
+ assert(called.some(x=>x.url.includes("reserve_ai_budget")));
  assert(called.some(x=>x.url.includes("api.openai.com")));
  assert(called.some(x=>x.url.includes("orientation_steps")&&x.method==="POST"));
 });
