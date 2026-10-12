@@ -1,4 +1,6 @@
 {
+  "buildCommand": "node scripts/composio-preflight.cjs",
+  "outputDirectory": ".",
   "cleanUrls": true,
   "headers": [
     {
@@ -36,6 +38,10 @@
     },
     "api/budget.js": {
       "maxDuration": 20
+    },
+    "api/composio.js": {
+      "maxDuration": 30
     }
   }
 }
+
