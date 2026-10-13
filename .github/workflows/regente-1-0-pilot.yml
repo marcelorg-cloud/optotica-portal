@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install pinned gateway validation dependencies
+        run: npm ci --prefix regente-1.0-preview --ignore-scripts --no-audit --no-fund
       - name: Check serverless Node syntax
         run: |
           node --check regente-1.0-preview/api/mission.js
@@ -46,6 +48,10 @@ jobs:
           node --test regente-1.0-preview/tests/ai-budget.test.cjs
       - name: Composio inventory authorization and secret redaction tests
         run: node --test regente-1.0-preview/tests/composio.test.cjs
+      - name: Operational gateway authorization and dispatch tests
+        run: |
+          node --test regente-1.0-preview/tests/gateway.test.cjs
+          node regente-1.0-preview/tests/gateway-db-check.cjs
       - name: Master panel server access tests
         run: node --test regente-1.0-preview/tests/master-panel.test.cjs
       - name: Check browser script syntax and architecture

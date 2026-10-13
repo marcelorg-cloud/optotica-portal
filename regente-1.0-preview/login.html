@@ -5,13 +5,14 @@
 <form id="loginForm"><label for="email">E-mail</label><input id="email" type="email" autocomplete="username" required><label for="password">Senha</label><input id="password" type="password" autocomplete="current-password" required><button id="submit" type="submit">Entrar no painel</button><p id="status" role="status" aria-live="polite"></p></form>
 </main><script>
 const SB="https://xepkdqcbjrictowriccb.supabase.co",PK="sb_publishable_F-DN3Z4GZbX5j2IeXtq5cw_rJHP6mfw";
+let next="/";try{const u=new URL(new URLSearchParams(location.search).get("next")||"/",location.origin);if(u.origin===location.origin&&["/","/network","/governance","/budget","/gateway"].includes(u.pathname))next=u.pathname+u.search;}catch{}
 document.getElementById("loginForm").addEventListener("submit",async e=>{
  e.preventDefault();const button=document.getElementById("submit"),status=document.getElementById("status"),password=document.getElementById("password");button.disabled=true;status.textContent="Verificando acesso...";
  try{
   const r=await fetch(SB+"/auth/v1/token?grant_type=password",{method:"POST",headers:{apikey:PK,"Content-Type":"application/json"},body:JSON.stringify({email:document.getElementById("email").value,password:password.value})});
   password.value="";const data=await r.json();if(!r.ok)throw Error("E-mail ou senha inválidos.");
   const check=await fetch("/api/session",{method:"POST",headers:{Authorization:"Bearer "+data.access_token}});const result=await check.json();if(!check.ok)throw Error(result.error||"Acesso Master não autorizado.");
-  sessionStorage.setItem("regente10_token",data.access_token);sessionStorage.setItem("regente10_refresh",data.refresh_token);location.replace("/");
+  sessionStorage.setItem("regente10_token",data.access_token);sessionStorage.setItem("regente10_refresh",data.refresh_token);location.replace(next);
  }catch(err){status.textContent=err.message||"Não foi possível entrar.";}finally{button.disabled=false;}
 });
 </script></body></html>
