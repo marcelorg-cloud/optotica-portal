@@ -24,6 +24,9 @@ jobs:
           node --check regente-1.0-preview/api/bridges.js
           node --check regente-1.0-preview/api/governance.js
           node --check regente-1.0-preview/api/budget.js
+          node --check regente-1.0-preview/api/composio.js
+          node --check regente-1.0-preview/lib/composio-readonly.js
+          node --check regente-1.0-preview/scripts/composio-preflight.cjs
           node --check regente-1.0-preview/lib/ai-budget.js
           node --check regente-1.0-preview/lib/s00-policy.js
           node --check regente-1.0-preview/api/agents.js
@@ -41,6 +44,10 @@ jobs:
         run: |
           node --test regente-1.0-preview/tests/budget.test.cjs
           node --test regente-1.0-preview/tests/ai-budget.test.cjs
+      - name: Composio inventory authorization and secret redaction tests
+        run: node --test regente-1.0-preview/tests/composio.test.cjs
+      - name: Master panel server access tests
+        run: node --test regente-1.0-preview/tests/master-panel.test.cjs
       - name: Check browser script syntax and architecture
         run: |
           node - <<'NODE'
@@ -76,3 +83,4 @@ jobs:
           assert(html.includes('runOrientation'),'Client orientation flow missing');
           console.log('Frontend syntax and pilot safety guards: PASS');
           NODE
+

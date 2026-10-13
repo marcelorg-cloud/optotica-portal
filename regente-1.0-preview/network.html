@@ -4,10 +4,18 @@
 :root{--bg:#f5f7f5;--ink:#172e23;--forest:#102b25;--line:#d9e4dc;--soft:#e6f1e9}
 *{box-sizing:border-box}body{font:14px system-ui,Arial,sans-serif;margin:0;background:var(--bg);color:var(--ink)}header{background:var(--forest);color:#fff;padding:19px 26px;display:flex;justify-content:space-between;gap:16px;align-items:center}header a{color:#d5e9dc}main{max-width:1190px;margin:0 auto;padding:24px}.intro,.panel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:19px;margin:0 0 15px}h1{font-size:23px;margin:0}h2{font-size:18px}p{line-height:1.65}small,.muted{color:#63756b}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}.card{background:white;border:1px solid var(--line);border-radius:12px;padding:16px}.row{display:flex;justify-content:space-between;gap:9px;align-items:center}.pill{background:var(--soft);color:#24573d;border-radius:14px;padding:4px 9px;font-size:11px;font-weight:bold}button{cursor:pointer;background:#174b3d;border:0;border-radius:9px;color:#fff;padding:10px 12px;margin-top:8px}button:disabled{opacity:.5}button.alt{background:#e6eeea;color:#184333}code{background:#f1f4f1;padding:2px 5px;border-radius:3px}.hint{font-size:12px;border-left:3px solid #b9cfc0;padding:10px 12px;background:#f3f8f5;line-height:1.6}.error{color:#a4372c}#status{padding:10px 0}.results{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,monospace}input,select,textarea{padding:10px;border:1px solid var(--line);border-radius:8px;max-width:100%}textarea{display:block;width:100%;min-height:110px;resize:vertical}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f7faf8;padding:10px;border:1px solid var(--line);border-radius:8px;max-height:350px;overflow:auto}@media(max-width:650px){main{padding:10px}header{padding:12px;flex-wrap:wrap}}
 </style></head><body><header><h1>REGENTE · Rede de Instrumentos</h1><a href="/">← Voltar às missões</a></header><main>
-<section class="intro"><div class="row"><h2>Camada da Rede — A1–A6 e F1–F14</h2><button id="reload" class="alt">Atualizar</button></div>
+<section class="intro"><div class="row"><h2>Camada da Rede — A1–A6 e F1–F15</h2><button id="reload" class="alt">Atualizar</button></div>
 <p>Inventário versionado dos participantes da Rede. <strong>Cadastrado não significa conectado</strong>. O diagnóstico só executa consultas autorizadas e não concede permissão para modificar contas, código ou publicar conteúdos.</p>
-<div class="hint">A1–A4 possuem implementação no Regente antigo, mas ainda não foram ligados como executores independentes no 1.0. A5 tem preflight local, e A6 recebe pareceres manuais. F1–F3 possuem verificações de leitura estritamente delimitadas. Para F4–F15, o estado permanece desconhecido até existir autenticação e adapter próprios.</div>
+<div class="hint">A1–A4 produzem e revisam documentos textuais no Regente 1.0. A5 tem preflight local, e A6 recebe pareceres manuais. F1–F3 possuem verificações de leitura delimitadas. As contas do Composio são consultadas separadamente; sua presença não habilita um instrumento numa missão.</div>
 <div id="status" role="status">Carregando...</div></section>
+<section class="panel" id="composioPanel">
+<div class="row"><h2>Composio · Regente1</h2><button id="checkComposio" class="alt">Verificar Composio</button></div>
+<p class="muted">Confira a autenticação da plataforma e as contas autorizadas no projeto Composio. A conexão de cada serviço deve ser concluída por você no Composio.</p>
+<div id="composioStatus" role="status" aria-live="polite">Verificação ainda não solicitada.</div>
+<div id="composioInventory"></div>
+<p class="hint">Uma chave aceita confirma o acesso à plataforma. Uma conta ativa confirma a autenticação daquele serviço. A autorização para usá-la numa missão depende do recurso, escopo e orçamento aprovados.</p>
+<p><a href="https://dashboard.composio.dev" target="_blank" rel="noopener noreferrer">Abrir painel do Composio ↗</a></p>
+</section>
 <section class="panel" id="runPanel">
 <h2>Agentes executores — Produção textual real</h2>
 <p class="muted">Selecione uma missão cujo Afinamento já foi autorizado. A1–A4 geram documentos por chamadas distintas de IA com registro persistente e limite de consumo; A5 gera diagnóstico local. A6 registra parecer manual. <strong>Nenhum desses agentes executa escrita externa nesta etapa.</strong></p>
@@ -121,5 +129,19 @@ $("hubCards").addEventListener("click",async e=>{
   await loadBridges();
  }catch(e){$("status").textContent=e.message}finally{btn.disabled=false}
 });
+async function checkComposio(){
+ const button=$("checkComposio"),status=$("composioStatus"),box=$("composioInventory");
+ button.disabled=true;status.className="muted";status.textContent="Verificando autenticação e inventário...";box.textContent="";
+ try{
+  const data=await req("GET","/api/composio?action=status");
+  status.textContent="Chave aceita pelo Composio · "+data.activeAccounts+" conta(s) ativa(s) nesta consulta · "+new Date(data.checkedAt).toLocaleString("pt-BR");
+  const accounts=data.accounts||[],configs=data.configs||[];
+  box.innerHTML='<h3>Contas autorizadas no Composio</h3>'+(accounts.length?'<div class="grid">'+accounts.map(a=>'<article class="card"><div class="row"><strong>'+esc(a.toolkit||"Serviço não identificado")+'</strong><span class="pill">'+esc(a.status)+'</span></div><p class="small">Conta: '+esc(a.id||"—")+' · '+esc(a.authScheme)+'</p><p class="muted">'+(a.disabled?'Conta desabilitada.':'Vínculo com projeto e missão ainda precisa ser aprovado.')+'</p></article>').join("")+'</div>':'<p class="muted">Nenhuma conta privada encontrada. No Composio, configure apenas os serviços necessários à próxima missão.</p>')+
+   '<h3>Configurações de autenticação</h3>'+(configs.length?'<div class="grid">'+configs.map(c=>'<article class="card"><strong>'+esc(c.toolkit||"Serviço não identificado")+'</strong><p>'+esc(c.authScheme)+' · '+esc(c.status)+' · '+(c.managed?'OAuth gerenciado':'configuração própria')+'</p><p class="muted">Configuração não equivale a conta conectada.</p></article>').join("")+'</div>':'<p class="muted">Nenhuma configuração de autenticação encontrada.</p>')+
+   (data.hasMore?'<p class="hint">Consulta limitada à primeira página de 100 itens. O inventário pode conter mais registros.</p>':'')+
+   '<p class="muted">Contas compartilhadas não são consultadas nesta etapa. Nenhuma nova conexão ou ferramenta foi executada.</p>';
+ }catch(e){status.className="error";status.textContent=e.message;}finally{button.disabled=false;}
+}
+$("checkComposio").onclick=checkComposio;
 $("reload").onclick=async()=>{await load();await loadBridges()};load();loadBridges();
 </script></body></html>

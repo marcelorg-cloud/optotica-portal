@@ -1,4 +1,6 @@
 {
+  "buildCommand": "node scripts/build-public.cjs",
+  "outputDirectory": "public",
   "cleanUrls": true,
   "headers": [
     {
@@ -36,6 +38,62 @@
     },
     "api/budget.js": {
       "maxDuration": 20
+    },
+    "api/composio.js": {
+      "maxDuration": 30
+    },
+    "api/panel.js": {
+      "maxDuration": 20,
+      "includeFiles": "*.html"
+    },
+    "api/session.js": {
+      "maxDuration": 20
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/api/panel?view=index"
+    },
+    {
+      "source": "/index",
+      "destination": "/api/panel?view=index"
+    },
+    {
+      "source": "/index.html",
+      "destination": "/api/panel?view=index"
+    },
+    {
+      "source": "/network",
+      "destination": "/api/panel?view=network"
+    },
+    {
+      "source": "/network.html",
+      "destination": "/api/panel?view=network"
+    },
+    {
+      "source": "/governance",
+      "destination": "/api/panel?view=governance"
+    },
+    {
+      "source": "/governance.html",
+      "destination": "/api/panel?view=governance"
+    },
+    {
+      "source": "/budget",
+      "destination": "/api/panel?view=budget"
+    },
+    {
+      "source": "/budget.html",
+      "destination": "/api/panel?view=budget"
+    },
+    {
+      "source": "/index-operacional",
+      "destination": "/api/panel?view=index"
+    },
+    {
+      "source": "/index-operacional.html",
+      "destination": "/api/panel?view=index"
+    }
+  ]
 }
