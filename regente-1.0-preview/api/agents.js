@@ -65,7 +65,7 @@ module.exports=async(req,res)=>{
   const gateway=require("../lib/instrument-gateway.js").createGateway();
   const context=await gateway.rpc("grant_private",{project:m.project,grantId:req.body.grantId});
   if(context.grant.mission_id!==m.id||context.grant.owner_id!==uid)return out(res,403,{error:"Envelope fora da missão."});
-  try{return out(res,200,await gateway.executeApproved({project:m.project,grantId:req.body.grantId,requestKey:req.body.requestKey}));}
+  try{return out(res,200,await gateway.executeForAgent({project:m.project,grantId:req.body.grantId,requestKey:req.body.requestKey}));}
   catch(e){return out(res,e.status||503,{error:"Despacho S00 recusado.",code:e.code||"gateway_unavailable"});}
  }
  if(runs.some(x=>x.node_id===node))return out(res,409,{error:"Já existe um run deste instrumento; não repetir."});

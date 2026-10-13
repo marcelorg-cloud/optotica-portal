@@ -25,7 +25,7 @@ persistidos no envelope. Nenhum prompt em linguagem natural vira execução. Arg
 
 O núcleo está no esquema privado `regente10_portao`, com RLS e privilégios
 diretos revogados. A ausência de políticas de leitura nessas sete tabelas é
-intencional: nenhuma tem acesso direto de anon/authenticated. O RPC público
+intencional: nenhuma tem acesso direto de anon/authenticated. O banco também bloqueia destinos genéricos, argumentos de credencial e rotas de privilégio elevado, inclusive para snapshots anteriores do deploy. O RPC público
 é SECURITY INVOKER; o núcleo privado valida a chave interna, Master ativo,
 projeto, emergência e propriedade. Cap, recurso e grant exigem também JWT
 Master real. O worker técnico não pode aprová-los.
@@ -65,8 +65,8 @@ Não há agendador de ferramentas pagas ou concessão global de privilégios.
 
 `POST /api/agents` aceita `action=execute_instrument`, missionId, node,
 grantId e requestKey. Valida participante ativo, projeto e missão do grant,
-depois usa o mesmo Gateway. As gerações textuais existentes preservam seu
-fluxo e orçamento; não recebem credenciais nem seletores de conta.
+depois usa o mesmo Gateway. O agente recebe apenas recibo/estado/log_id; o payload do fornecedor permanece disponível ao Master, após filtragem. As gerações textuais existentes preservam seu
+fluxo e orçamento; não recebem credenciais nem seletores de conta. Chaves, variáveis de ambiente, deploys, administração e código arbitrário estão fora desta liberação operativa e exigem revisão S00/DM6 própria.
 
 ## Validação e limites
 
@@ -80,7 +80,7 @@ verificados nem alterados. Portanto, esses valores não são uma tarifa total
 garantida. O envelope exige uma fonte verificada e teto total em BRL; não
 presume gratuidade. Instant, proxy e sandbox foram desabilitados na sessão.
 
-111 testes Node passaram. Os testes de banco executam as mesmas migrações
+112 testes Node passaram. Os testes de banco executam as mesmas migrações
 em PGlite/PostgreSQL com restrições extraídas do schema real e fixtures
 sintéticas, tudo com rollback. Testam custo, escopo, reconexão, mudanças de
 política, teto, idempotência, dispatch e reserva incerta. PGlite tem conexão

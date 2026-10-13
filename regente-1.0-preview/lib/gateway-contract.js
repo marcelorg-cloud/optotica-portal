@@ -4,7 +4,7 @@ const error=(code,status=409)=>Object.assign(new Error(code),{code,status});
 const UUID=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const PROJECTS=["optotica","ensavim","born-robot","instituto-governanca"];
 const credentialField=/^(?:__proto__|constructor|prototype|.*(?:password|secret|credential|api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|oauth[_-]?token|token|bearer|custom[_-]?auth|auth[_-]?data).*)$/i;
-const elevatedSurface=/(?:^|_)(?:PROXY|GRAPHQL|SQL|INVOKE|BASH|TERMINAL|SHELL|SCRIPT|COMMAND|SECRETS?|TOKENS?|PASSWORD|PERMISSIONS?|ADMIN|ROLES?|MEMBERSHIP|CREDENTIALS?|PAYMENTS?|BANK|PURCHASE|BILLING)(?:_|$)|(?:EXECUTE|RUN)_(?:CODE|QUERY)|(?:CUSTOM|HTTP|API)_(?:REQUEST|CALL)|(?:CREATE|DELETE|REMOVE|UPDATE|ADD)_(?:A_)?(?:USER|TEAM|ACCOUNT|ORGANIZATION|MEMBER)(?:_|$)/i;
+const elevatedSurface=/(?:^|_)(?:PROXY|GRAPHQL|SQL|INVOKE|BASH|TERMINAL|SHELL|SCRIPT|COMMAND|SECRETS?|TOKENS?|KEYS?|ENV|ENVIRONMENT|ENVIRONMENTS|DEPLOY|DEPLOYMENT|DEPLOYMENTS|REDEPLOY|AUTH|PASSWORD|PERMISSIONS?|ADMIN|ROLES?|MEMBERSHIP|CREDENTIALS?|PAYMENTS?|BANK|PURCHASE|BILLING)(?:_|$)|(?:EXECUTE|RUN)_(?:CODE|QUERY)|(?:CUSTOM|HTTP|API)_(?:REQUEST|CALL)|(?:CREATE|DELETE|REMOVE|UPDATE|ADD)_(?:A_)?(?:USER|TEAM|ACCOUNT|ORGANIZATION|MEMBER|PROJECT)(?:_|$)/i;
 function assertToolLevel(tool){if(elevatedSurface.test(tool.slug))throw error("privileged_route_requires_separate_s00_review");return tool;}
 const targetFields=new Set(["repo","repo_name","repository","project_id","projectid","folder_id","parent_id","document_id","documentid","spreadsheet_id","spreadsheetid","drive_id","file_id","page_id","database_id","channel_id","workspace_id","calendar_id","message_id","ad_account_id","site_id","domain","model_id","voice_id","url"]);
 function assertDestination(args){

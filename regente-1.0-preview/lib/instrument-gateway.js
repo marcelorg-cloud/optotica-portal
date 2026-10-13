@@ -64,7 +64,8 @@ function createGateway({fetcher=fetch,provider=createProvider({fetcher}),rpc:ove
   let result;try{result=await provider.execute(claim.binding,claim.grant)}catch(e){result={state:"uncertain",diagnostic:e.code||"provider_outcome_uncertain",logId:null,result:null};}
   await rpc("complete",{project,eventId,...result});return {...result,eventId,reused:false,untrusted:true};
  }
- return {rpc,state,prepare,verify,discover,bootstrap,status,approve,executeApproved};
+ async function executeForAgent(p){const r=await executeApproved(p);return {state:r.state,eventId:r.eventId,logId:r.logId||null,reused:r.reused===true,resultAccess:"master_only",untrusted:true};}
+ return {rpc,state,prepare,verify,discover,bootstrap,status,approve,executeApproved,executeForAgent};
 }
 // This is the only instrument tool contract given to an agent. No provider URL,
 // account selector, credentials, argument overrides, or natural-language execution.

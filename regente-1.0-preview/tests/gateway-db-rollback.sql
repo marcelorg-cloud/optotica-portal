@@ -18,7 +18,7 @@ begin
  insert into regente10_portao.tools(project_id,binding_id,slug,version,contract_hash,schema,name) values('optotica',bid,'TEST_FIXTURE_ONLY','test_v1',repeat('a',64),'{"type":"object"}','Rollback fixture');
  perform public.regente10_gateway('cap','{"project":"optotica","capBrl":5,"fx":5,"confirm":true}',k);
  sc:=public.regente10_gateway('scope',jsonb_build_object('project','optotica','bindingId',bid,'toolSlug','TEST_FIXTURE_ONLY','version','test_v1','argsHash',repeat('b',64),'dataClass','internal','description','Synthetic rollback fixture, no provider calls','confirmNonPersonal',true),k);
- v:=jsonb_build_object('project','optotica','missionId',mid,'bindingId',bid,'resourceAlias',sc->>'resourceAlias','operation','instrument.execute','toolSlug','TEST_FIXTURE_ONLY','version','test_v1','contractHash',repeat('a',64),'arguments','{}'::jsonb,'argsHash',repeat('b',64),'resourceHash',repeat('c',64),'unitMaxBrl',3,'maxCalls',1,'ttlMinutes',15,'priceSource','Synthetic fixture tariff','confirm',true,'costVerified',true);
+ v:=jsonb_build_object('project','optotica','missionId',mid,'bindingId',bid,'resourceAlias',sc->>'resourceAlias','operation','instrument.execute','toolSlug','TEST_FIXTURE_ONLY','version','test_v1','contractHash',repeat('a',64),'arguments','{"repo":"project_fixture_only"}'::jsonb,'argsHash',repeat('b',64),'resourceHash',repeat('c',64),'unitMaxBrl',3,'maxCalls',1,'ttlMinutes',15,'priceSource','Synthetic fixture tariff','confirm',true,'costVerified',true);
  denied:=false;begin perform public.regente10_gateway('grant',v||'{"costVerified":false}',k);exception when others then denied:=true;end;if not denied then raise exception 'Unknown cost accepted';end if;
  g1:=public.regente10_gateway('grant',v,k);g2:=public.regente10_gateway('grant',v,k);
  v:=jsonb_build_object('project','optotica','grantId',g1->>'grantId','requestKey',rk,'argsHash',repeat('b',64),'contractHash',repeat('a',64),'resourceHash',repeat('c',64));
@@ -27,6 +27,12 @@ begin
  if (select reserved_brl from public.regente10_mission_budgets where mission_id=mid)<>3 then raise exception 'Duplicate reservation';end if;
  denied:=false;begin perform public.regente10_gateway('claim',v||jsonb_build_object('grantId',g2->>'grantId','requestKey',gen_random_uuid()),k);exception when others then denied:=true;end;if not denied then raise exception 'Over cap reservation accepted';end if;
  denied:=false;begin perform public.regente10_gateway('claim',v||'{"project":"ensavim"}',k);exception when others then denied:=true;end;if not denied then raise exception 'Cross project grant accepted';end if;
+ update public.regente10_missions set envelope_approved_at=null where id=mid;
+ denied:=false;begin perform public.regente10_gateway('arm',jsonb_build_object('project','optotica','eventId',c->'event'->>'id'),k);exception when others then denied:=true;end;if not denied then raise exception 'Revoked mission dispatched';end if;
+ update public.regente10_missions set envelope_approved_at=now() where id=mid;
+ denied:=false;begin perform regente10_portao.assert_instrument('SUPABASE_GET_API_KEYS','{"project_id":"project_fixture"}');exception when others then denied:=true;end;if not denied then raise exception 'Credential tool allowed';end if;
+ denied:=false;begin perform regente10_portao.assert_instrument('TEST_TOOL','{"folder_id":"root"}');exception when others then denied:=true;end;if not denied then raise exception 'Unscoped tool allowed';end if;
+ denied:=false;begin perform regente10_portao.assert_instrument('TEST_TOOL','{"repo":"project_fixture","token":"credential"}');exception when others then denied:=true;end;if not denied then raise exception 'Credential argument accepted';end if;
  update regente10_portao.bindings set revision=revision+1 where id=bid;
  denied:=false;begin perform public.regente10_gateway('arm',jsonb_build_object('project','optotica','eventId',c->'event'->>'id'),k);exception when others then denied:=true;end;if not denied then raise exception 'Reconnected binding dispatched stale grant';end if;
  update regente10_portao.bindings set revision=revision-1 where id=bid;
