@@ -19,12 +19,8 @@ async function db(t,path,opt={}){
 }
 async function authenticate(req){
  const t=String(req.headers.authorization||"").match(/^Bearer ([-.\w]+)$/)?.[1];
- if(!t)throw new Error("Autenticação Master obrigatória.");
- const u=await fetch(SUP+"/auth/v1/user",{headers:h(t)});
- if(!u.ok)throw new Error("Sessão expirada.");
- const me=await u.json(),a=await db(t,"system_admins?select=user_id&user_id=eq."+me.id+"&active=eq.true&limit=1");
- if(!a?.length)throw new Error("Sem permissão Master.");
- return {uid:me.id,token:t};
+ const {verifyMaster}=require("../lib/master-session.js");
+ return {uid:await verifyMaster(t),token:t};
 }
 function containsPersonal(text){
  return /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b|(?:paciente:|cpf:|prontuário individual|telefone:)/i.test(String(text||""));
@@ -105,7 +101,11 @@ module.exports=async(req,res)=>{
   await aiBudget.settle(db,token,job,response.usage);
   const result=response.content;
   const flags2=await db(token,"regente10_controls?select=emergency_stop&owner_id=eq."+uid+"&limit=1");
-  if(flags2?.[0]?.emergency_stop)throw Error("Parada ocorreu durante a chamada; resultado não aplicado.");
+  if(flags2?.[0]?.emergency_stop)throw Object.assign(Error("Parada ocorreu durante a chamada; resultado não aplicado."),{status:423});
+  const latest=await db(token,"regente10_missions?select=paused,status,envelope_approved_at&id=eq."+id+"&owner_id=eq."+uid+"&limit=1");
+  if(!latest?.[0])throw Object.assign(Error("Missão não localizada após a chamada; resultado não aplicado."),{status:404});
+  if(latest[0].paused)throw Object.assign(Error("Missão pausada durante a chamada; resultado não aplicado."),{status:423});
+  if(!latest[0].envelope_approved_at||!["em_execucao","em_resultados"].includes(latest[0].status))throw Object.assign(Error("Autorização textual alterada durante a chamada; resultado não aplicado."),{status:403});
   const saved=await db(token,"regente10_network_runs",{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify({owner_id:uid,mission_id:id,node_id:node,operation:node==="A4"?"review":"draft",status:"confirmado",verified_provider:true,output:{type:"markdown",text:result}})});
   await db(token,"regente10_ai_calls?id=eq."+job+"&owner_id=eq."+uid,{method:"PATCH",body:JSON.stringify({status:"confirmado"})});
   return out(res,200,{run:saved?.[0]});
@@ -113,5 +113,6 @@ module.exports=async(req,res)=>{
   try{await db(token,"regente10_ai_calls?id=eq."+job+"&owner_id=eq."+uid,{method:"PATCH",body:JSON.stringify({status:"incerto"})})}catch{}
   throw e;
  }
- }catch(e){return out(res,500,{error:"Operação não concluída: "+String(e.message||"erro").slice(0,130)})}
+ }catch(e){return out(res,e.status||500,{error:e.status?String(e.message).slice(0,130):"Operação não concluída."})}
 };
+

@@ -62,6 +62,34 @@ test("agents: GET lists no outputs, no paid calls",async()=>{
  assert.equal(r.statusCode,200);assert.deepEqual(r.value.runs,[]);
  assert(!calls.some(x=>x.url.includes("api.openai.com")));
 });
+test("agents: missing Master returns 401 without accessing a provider",async()=>{
+ const calls=mock(),q=req("POST",{missionId:ID,node:"A1"});q.headers.authorization="";
+ const r=res();await agents(q,r);
+ assert.equal(r.statusCode,401);assert.equal(calls.length,0);
+});
+test("agents: valid identity without Master permission returns 403",async()=>{
+ const calls=mock(),originalFetch=global.fetch;
+ global.fetch=async(url,opt)=>String(url).includes("/system_admins")?new Response("[]"):originalFetch(url,opt);
+ const r=res();await agents(req("POST",{missionId:ID,node:"A1"}),r);
+ assert.equal(r.statusCode,403);
+ assert(!calls.some(x=>x.url.includes("api.openai.com")));
+});
+test("agents: pause committed while provider works prevents applying its output",async()=>{
+ const calls=mock(),originalFetch=global.fetch;let providerFinished=false;
+ global.fetch=async(url,opt)=>{
+  const response=await originalFetch(url,opt);
+  if(String(url).includes("api.openai.com"))providerFinished=true;
+  if(providerFinished&&String(url).includes("/regente10_missions")){
+   const rows=await response.json();rows[0].paused=true;return new Response(JSON.stringify(rows));
+  }
+  return response;
+ };
+ const r=res();await agents(req("POST",{missionId:ID,node:"A1"}),r);
+ assert.equal(r.statusCode,423);
+ assert.equal(calls.filter(x=>x.url.includes("api.openai.com")).length,1);
+ assert(!calls.some(x=>x.url.includes("regente10_network_runs")&&x.method==="POST"));
+ assert(calls.some(x=>x.url.includes("regente10_ai_calls")&&x.method==="PATCH"));
+});
 test("agents: E14a rejects participant outside mission project",async()=>{
  const calls=mock(),r=res();
  const originalFetch=global.fetch;
@@ -89,3 +117,4 @@ test("agents: manual A6 stores review without invoking provider",async()=>{
  await agents(req("POST",{missionId:ID,node:"A6",review:"Parecer de revisão externa informado pelo operador, sem acesso direto à API do provedor."}),r);
  assert.equal(r.statusCode,200);assert(!calls.some(x=>x.url.includes("api.openai.com")));
 });
+
