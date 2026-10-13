@@ -18,6 +18,9 @@ const nextConfig: NextConfig = {
       path: { browser: './lib/node-shims/empty.js' }
     }
   },
+  async rewrites() {
+    return [{ source: '/ensavim', destination: '/ensavim.html' }];
+  },
   async headers() {
     return [
       { source: '/verificar/:path*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }, { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' }, { key: 'Cache-Control', value: 'private, no-store' }] },
