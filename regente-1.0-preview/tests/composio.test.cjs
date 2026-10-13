@@ -49,6 +49,49 @@ test("malformed provider response is not a verified empty inventory",async()=>{m
 test("missing key has no provider request",async()=>{let called=false;await assert.rejects(()=>providerGet("configs",{apiKey:"",fetcher:async()=>{called=true}}),e=>e.code==="not_configured");assert.equal(called,false)});
 test("arbitrary provider paths rejected before network",async()=>{await assert.rejects(()=>providerGet("tools/execute",{apiKey:SECRET}),e=>e.code==="invalid_query")});
 test("network errors cannot leak secret-bearing messages",async()=>{await assert.rejects(()=>providerGet("configs",{apiKey:SECRET,fetcher:async()=>{throw Object.assign(new Error(SECRET),{code:"ECONNRESET"})}}),e=>e.code==="provider_unavailable"&&!e.message.includes(SECRET))});
+test("request ID is kept in documented snake_case, camelCase or header form, without assuming a prefix",async()=>{
+ for(const [body,headers,id] of [[{error:{request_id:"5f1c2a9e-7b1d-4c2e-9a10-1234567890ab"}},{},"5f1c2a9e-7b1d-4c2e-9a10-1234567890ab"],[{error:{requestId:"rq-12345678"}},{},"rq-12345678"],[{error:{message:"Unauthorized"}},{"x-request-id":"hdr_987654"},"hdr_987654"]]){
+  const fetcher=async()=>new Response(JSON.stringify(body),{status:401,headers});
+  await assert.rejects(()=>providerGet("configs",{apiKey:SECRET,fetcher}),e=>e.code==="credential_rejected"&&e.providerRequestId===id);
+ }
+});
+test("401 summary classifies the provider message and redacts any key fragment",async()=>{
+ const cases=[["Invalid API key provided: "+SECRET+" see https://docs.composio.dev/x","invalid_or_revoked_key"],["User API key (uak_) must be sent in x-user-api-key","user_key_wrong_header"],["API key is required","missing_key"]];
+ for(const [message,klass] of cases){
+  const fetcher=async()=>new Response(JSON.stringify({error:{message,code:"UNAUTHORIZED",status:401,suggested_fix:"Use "+SECRET}}),{status:401});
+  await assert.rejects(()=>providerGet("configs",{apiKey:SECRET,fetcher}),e=>{
+   const s=e.providerError,text=JSON.stringify(s);
+   return s.messageClass===klass&&s.code==="UNAUTHORIZED"&&s.status===401&&!text.includes(SECRET)&&!text.includes(SECRET.slice(3,11))&&!text.includes("https://")&&!JSON.stringify(e).includes("providerError");
+  });
+ }
+});
+test("auth probe uses a documented Project ApiKeyAuth path and returns only a safe summary",async()=>{
+ const {authProbe}=require("../scripts/composio-auth-probe.cjs");const urls=[];
+ const result=await authProbe({apiKey:SECRET,fetcher:async(url,opt)=>{urls.push([String(url),opt.headers["x-api-key"]===SECRET,opt.method]);return new Response(JSON.stringify({error:{message:"Invalid API key "+SECRET,request_id:"abc-123456"}}),{status:401})}});
+ assert.deepEqual(urls,[["https://backend.composio.dev/api/v3.1/toolkits?limit=1",true,"GET"]]);
+ assert.equal(result.httpStatus,401);assert.equal(result.providerError.requestId,"abc-123456");assert.equal(result.providerError.messageClass,"invalid_or_revoked_key");assert(!JSON.stringify(result).includes(SECRET));
+});
+test("preflight reports internal invisible characters and the project prefix as booleans only, and still fails the build",async()=>{
+ const previous=process.env.COMPOSIO_API_KEY,previousFetch=global.fetch,lines=[],log=console.log;
+ process.env.COMPOSIO_API_KEY="ak_test​value_1234567890";
+ global.fetch=async()=>new Response(JSON.stringify({error:{message:"Invalid API key",request_id:"req-abcdef"}}),{status:401});
+ console.log=(...a)=>lines.push(a.join(" "));
+ try{
+  delete require.cache[require.resolve("../scripts/composio-preflight.cjs")];
+  await assert.rejects(()=>require("../scripts/composio-preflight.cjs").main(),e=>e.code==="credential_rejected");
+ }finally{console.log=log;process.env.COMPOSIO_API_KEY=previous;global.fetch=previousFetch;}
+ const checks=JSON.parse(lines.find(l=>l.startsWith("COMPOSIO_PREFLIGHT input_checks ")).slice("COMPOSIO_PREFLIGHT input_checks ".length));
+ assert.equal(checks.internalNonTokenCharacters,true);assert.equal(checks.projectKeyPrefix,true);assert.equal(checks.outerWhitespace,false);
+ assert(lines.some(l=>l.includes("project_key_probe")&&l.includes("v3.1/toolkits")));
+ assert(!lines.join("\n").includes("value_1234567890"));
+});
+test("diagnostics drop provider prose and secret-bearing root property names",async()=>{
+ const {providerErrorSummary}=require("../lib/composio-readonly.js");
+ const result=await providerErrorSummary(new Response(JSON.stringify({[SECRET]:"private",error:{message:"Invalid API key "+Buffer.from(SECRET).toString("base64"),suggested_fix:"private credentials here"}}),{status:401}),SECRET);
+ assert.equal(result.messageClass,"invalid_or_revoked_key");assert.deepEqual(result.bodyShape,["error"]);
+ assert(!Object.hasOwn(result,"message"));assert(!Object.hasOwn(result,"suggestedFix"));
+ assert(!JSON.stringify(result).includes(SECRET));assert(!JSON.stringify(result).includes(Buffer.from(SECRET).toString("base64")));
+});
 test("unknown states are not counted active and truncated inventory is disclosed",async()=>{
  const fetcher=async()=>new Response(JSON.stringify({items:[{id:"ca_other",toolkit:{slug:"github"},status:"made_up",state:{api_key:SECRET}}],next_cursor:"page2"}));
  const result=await inventory({apiKey:SECRET,fetcher});assert.equal(result.activeAccounts,0);assert.equal(result.hasMore,true);assert.equal(result.accounts[0].status,"UNKNOWN");
