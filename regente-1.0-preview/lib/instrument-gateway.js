@@ -26,7 +26,7 @@ function createGateway({fetcher=fetch,provider=createProvider({fetcher}),rpc:ove
   
   await rpc("verified",{project,bindingId,revision:b.revision,...v});return v;
  }
- async function discover(project,bindingId,query=""){const b=await binding(project,bindingId);if(!b.toolkit)throw error("toolkit_not_found");const d=await journal(project,"tools.discover",()=>provider.tools(b,query));await rpc("tools",{project,bindingId,tools:d.tools});return {count:d.tools.length,hasMore:d.hasMore,skipped:d.skipped};}
+ async function discover(project,bindingId,query=""){const b=await binding(project,bindingId);if(!b.toolkit)throw error("toolkit_not_found");const d=await journal(project,"tools.discover",()=>provider.tools(b,query));await rpc("tools",{project,bindingId,tools:d.tools});return {count:d.tools.length,hasMore:d.hasMore,skipped:d.skipped,matches:d.tools.map(t=>({slug:t.slug,version:t.version}))};}
  async function bootstrap(project,{catalog,bindingIds}={}){
   const catalogData=catalog||await journal(project,"discover",()=>provider.catalog()),s=await state(project),counts={prepared:0,reused:0,unsupported:0,errors:0,catalogHasMore:catalogData.hasMore};
   const rows=s.bindings.filter(b=>!bindingIds||bindingIds.includes(b.id));let index=0;
