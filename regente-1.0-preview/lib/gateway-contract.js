@@ -3,9 +3,21 @@ const crypto=require("node:crypto"),Ajv=require("ajv"),formats=require("ajv-form
 const error=(code,status=409)=>Object.assign(new Error(code),{code,status});
 const UUID=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const PROJECTS=["optotica","ensavim","born-robot","instituto-governanca"];
-const credentialField=/^(?:__proto__|constructor|prototype|.*(?:password|secret|credential|api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|oauth[_-]?token).*)$/i;
-const elevatedSurface=/(?:^|_)(?:PROXY|GRAPHQL|SQL|BASH|TERMINAL|SHELL|SCRIPT|COMMAND|SECRETS?|TOKENS?|PASSWORD|PERMISSIONS?|ADMIN|ROLES?|MEMBERSHIP|CREDENTIALS?|PAYMENTS?|BANK|PURCHASE|BILLING)(?:_|$)|(?:EXECUTE|RUN)_(?:CODE|QUERY)|(?:CUSTOM|HTTP|API)_(?:REQUEST|CALL)/i;
+const credentialField=/^(?:__proto__|constructor|prototype|.*(?:password|secret|credential|api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|oauth[_-]?token|token|bearer|custom[_-]?auth|auth[_-]?data).*)$/i;
+const elevatedSurface=/(?:^|_)(?:PROXY|GRAPHQL|SQL|INVOKE|BASH|TERMINAL|SHELL|SCRIPT|COMMAND|SECRETS?|TOKENS?|PASSWORD|PERMISSIONS?|ADMIN|ROLES?|MEMBERSHIP|CREDENTIALS?|PAYMENTS?|BANK|PURCHASE|BILLING)(?:_|$)|(?:EXECUTE|RUN)_(?:CODE|QUERY)|(?:CUSTOM|HTTP|API)_(?:REQUEST|CALL)|(?:CREATE|DELETE|REMOVE|UPDATE|ADD)_(?:A_)?(?:USER|TEAM|ACCOUNT|ORGANIZATION|MEMBER)(?:_|$)/i;
 function assertToolLevel(tool){if(elevatedSurface.test(tool.slug))throw error("privileged_route_requires_separate_s00_review");return tool;}
+const targetFields=new Set(["repo","repo_name","repository","project_id","projectid","folder_id","parent_id","document_id","documentid","spreadsheet_id","spreadsheetid","drive_id","file_id","page_id","database_id","channel_id","workspace_id","calendar_id","message_id","ad_account_id","site_id","domain","model_id","voice_id","url"]);
+function assertDestination(args){
+ const found=[];
+ function visit(v){if(!v||typeof v!=="object")return;for(const [k,x] of Object.entries(v)){
+  if(targetFields.has(k.toLowerCase())&&typeof x==="string"&&x.trim().length>=3&&!/^(?:all|root|me|primary|default|\*)$/i.test(x.trim())){
+   if(k.toLowerCase()==="url"){let u;try{u=new URL(x)}catch{continue;}if(u.protocol!=="https:"||u.username||u.password||/^(?:localhost|127\.|0\.|10\.|192\.168\.|169\.254\.|\[)/.test(u.hostname))continue;}
+   found.push(k);
+  }
+  visit(x);
+ }}visit(args);
+ if(!found.length)throw error("explicit_project_destination_required");return args;
+}
 function canonical(v,depth=0){
  if(depth>20)throw error("input_too_deep",400);
  if(v===null||typeof v==="boolean"||typeof v==="string")return JSON.stringify(v);
@@ -18,7 +30,7 @@ const hash=v=>crypto.createHash("sha256").update(canonical(v)).digest("hex");
 function argumentsSafe(v,depth=0){
  if(depth>15)throw error("input_too_deep",400);
  if(v&&typeof v==="object")for(const [k,x] of Object.entries(v)){if(credentialField.test(k))throw error("credentials_forbidden",400);argumentsSafe(x,depth+1);}
- if(typeof v==="string"&&(/\b(?:ak_|sk_live_|sk_test_|sb_secret_)[A-Za-z0-9_-]{12,}/.test(v)||/eyJ[\w-]+\.eyJ[\w-]+\.[\w-]+/.test(v)))throw error("credentials_forbidden",400);
+ if(typeof v==="string"&&([process.env.COMPOSIO_API_KEY,process.env.REGENTE_GATEWAY_KEY,process.env.OPENAI_API_KEY].filter(Boolean).some(s=>v.includes(s))||/\b(?:ak_|sk_live_|sk_test_|sb_secret_)[A-Za-z0-9_-]{12,}/.test(v)||/eyJ[\w-]+\.eyJ[\w-]+\.[\w-]+/.test(v)))throw error("credentials_forbidden",400);
  if(depth===0&&(!v||Array.isArray(v)||typeof v!=="object"||Buffer.byteLength(canonical(v))>64000))throw error("invalid_arguments",400);
  return v;
 }
@@ -63,4 +75,4 @@ function sanitizeResult(v,depth=0){
  if(v&&typeof v==="object")return Object.fromEntries(Object.entries(v).filter(([k])=>!credentialField.test(k)&&!/^headers$|^cookies$|^state$/i.test(k)).slice(0,60).map(([k,x])=>[k,sanitizeResult(x,depth+1)]));
  return ["boolean","number"].includes(typeof v)?v:null;
 }
-module.exports={error,UUID,PROJECTS,hash,canonical,argumentsSafe,normalizeTool,validateArguments,encryptLink,decryptLink,safeLink,sanitizeResult,assertToolLevel};
+module.exports={error,UUID,PROJECTS,hash,canonical,argumentsSafe,normalizeTool,validateArguments,encryptLink,decryptLink,safeLink,sanitizeResult,assertToolLevel,assertDestination};

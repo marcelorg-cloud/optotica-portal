@@ -19,7 +19,7 @@ Sessões de autenticação permitem um toolkit e zero ferramentas, com Instant,
 workbench, proxy, busca e gestão de conexões por agentes desabilitados.
 Executar um instrumento usa a rota determinística REST, com versão explícita
 (a rota session/execute não documenta esse parâmetro), conta e argumentos
-persistidos no envelope. Nenhum prompt em linguagem natural vira execução.
+persistidos no envelope. Nenhum prompt em linguagem natural vira execução. Argumentos precisam de um identificador explícito de destino; operações genéricas de conta inteira ou raízes me/root/default/primary são bloqueadas. O Master deve confirmar que o destino pertence ao projeto.
 
 ## S00 e finanças
 
@@ -47,6 +47,12 @@ automático. Mesmo requestKey retorna recibo e não repete o fornecedor.
 
 ## Operação
 
+Bootstrap real em produção: 35 vínculos para 17 serviços; 15 toolkits encontrados,
+25 links de consentimento, oito vínculos aguardando credencial do serviço.
+Bling e Facebook Ads não tiveram correspondência nativa no catálogo consultado.
+São 2.911 registros por projeto, correspondentes a 1.145 ferramentas distintas.
+Nenhuma execução de instrumento foi registrada; conta ativa não é alegada.
+
 O build prepara os 35 vínculos planejados em quatro projetos e descobre o
 catálogo real, sem adivinhar slugs ou conectar contas com outra identidade.
 OAuth termina no Connect Link escolhido pelo Master. Serviços sem OAuth
@@ -64,7 +70,17 @@ fluxo e orçamento; não recebem credenciais nem seletores de conta.
 
 ## Validação e limites
 
-109 testes Node passaram. Os testes de banco executam as mesmas migrações
+### Prova de custos, sem contratação
+
+A [tabela oficial](https://composio.dev/pricing), consultada em 13/10/2026,
+declara sessões gratuitas. Após as franquias, OAuth gerenciado publica
+USD 0,0005/chamada e execução fora de Session pode acrescentar USD 0,0001/chamada.
+O plano efetivo, saldo de franquia, add-ons e custos do serviço não foram
+verificados nem alterados. Portanto, esses valores não são uma tarifa total
+garantida. O envelope exige uma fonte verificada e teto total em BRL; não
+presume gratuidade. Instant, proxy e sandbox foram desabilitados na sessão.
+
+111 testes Node passaram. Os testes de banco executam as mesmas migrações
 em PGlite/PostgreSQL com restrições extraídas do schema real e fixtures
 sintéticas, tudo com rollback. Testam custo, escopo, reconexão, mudanças de
 política, teto, idempotência, dispatch e reserva incerta. PGlite tem conexão

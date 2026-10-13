@@ -1,6 +1,6 @@
 "use strict";
 module.exports={
- release:"operational-gateway-v1",testCount:109,
+ release:"operational-gateway-v1",testCount:111,
  databaseChecks:"PostgreSQL isolado: chave, Master, escopo, custo conhecido, teto compartilhado, idempotência, reconexão, mudança de recurso, dispatch único, reserva incerta e emergência.",
  migrationNames:["regente10_operational_gateway","regente10_gateway_verification_receipts","regente10_gateway_identity_status"],
  custody:"Chaves Composio e Gateway apenas no servidor; Connect Links cifrados em repouso; nenhum service_role no runtime.",

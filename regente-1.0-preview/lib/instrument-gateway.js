@@ -1,6 +1,6 @@
 "use strict";
 const crypto=require("node:crypto"),{createProvider}=require("./composio-gateway.js");
-const {error,PROJECTS,hash,argumentsSafe,validateArguments,encryptLink,decryptLink,assertToolLevel}=require("./gateway-contract.js");
+const {error,PROJECTS,hash,argumentsSafe,validateArguments,encryptLink,decryptLink,assertToolLevel,assertDestination}=require("./gateway-contract.js");
 function createGateway({fetcher=fetch,provider=createProvider({fetcher}),rpc:override}={}){
  async function rpc(op,p,token){
   if(!PROJECTS.includes(p.project))throw error("invalid_project",400);
@@ -44,7 +44,7 @@ function createGateway({fetcher=fetch,provider=createProvider({fetcher}),rpc:ove
  async function approve(p,token){
   if(p.confirm!==true||p.costVerified!==true||p.confirmNonPersonal!==true||!["public","internal"].includes(p.dataClass)||typeof p.resourceDescription!=="string"||p.resourceDescription.trim().length<12||p.resourceDescription.length>500)throw error("explicit_scope_and_cost_required",400);
   if(!Number.isFinite(p.unitMaxBrl)||Math.abs(p.unitMaxBrl*10000-Math.round(p.unitMaxBrl*10000))>1e-7||p.unitMaxBrl<0||p.unitMaxBrl>10000||!Number.isInteger(p.maxCalls)||p.maxCalls<1||p.maxCalls>100||!Number.isInteger(p.ttlMinutes)||p.ttlMinutes<1||p.ttlMinutes>60||typeof p.priceSource!=="string"||p.priceSource.trim().length<8||p.priceSource.length>500)throw error("invalid_envelope",400);
-  argumentsSafe(p.arguments);const b=await binding(p.project,p.bindingId);
+  argumentsSafe({source:p.priceSource,resource:p.resourceDescription});argumentsSafe(p.arguments);assertDestination(p.arguments);const b=await binding(p.project,p.bindingId);
   const t=await journal(p.project,"tools.discover",()=>provider.tool(b,p.toolSlug,p.version));assertToolLevel(t);validateArguments(t.schema,p.arguments);
   await rpc("tools",{project:p.project,bindingId:b.id,tools:[t]});await verify(p.project,b.id);
   const argsHash=hash(p.arguments),sc=await rpc("scope",{project:p.project,bindingId:b.id,toolSlug:t.slug,version:t.version,argsHash,dataClass:p.dataClass,description:p.resourceDescription,confirmNonPersonal:true},token);
@@ -53,7 +53,7 @@ function createGateway({fetcher=fetch,provider=createProvider({fetcher}),rpc:ove
  }
  async function executeApproved({project,grantId,requestKey}){
   const receipt=await rpc("receipt",{project,grantId,requestKey});if(receipt.event)return {reused:true,eventId:receipt.event.id,state:receipt.event.state,result:receipt.event.result,logId:receipt.event.provider_log_id,untrusted:true};
-  const {grant:g,binding:b}=await rpc("grant_private",{project,grantId});argumentsSafe(g.arguments);
+  const {grant:g,binding:b}=await rpc("grant_private",{project,grantId});argumentsSafe(g.arguments);assertDestination(g.arguments);
   const t=await journal(project,"tools.discover",()=>provider.tool(b,g.tool_slug,g.tool_version));assertToolLevel(t);validateArguments(t.schema,g.arguments);
   const v=await verify(project,b.id);if(!["active","no_auth"].includes(v.state))throw error("connection_not_active");
   const resource=await rpc("resource",{project,resourceAlias:g.resource_alias,operation:g.operation});
