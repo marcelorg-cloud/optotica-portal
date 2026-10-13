@@ -56,6 +56,18 @@ module.exports=async(req,res)=>{
  const runs=await db(token,"regente10_network_runs?select=*&mission_id=eq."+id+"&owner_id=eq."+uid+"&order=created_at.asc&limit=20");
  if(req.method==="GET")return out(res,200,{runs});
  const node=String(req.body?.node||"");
+ if(req.body?.action==="execute_instrument"){
+  const {sameOrigin}=require("../lib/master-session.js");
+  if(!sameOrigin(req)||Object.keys(req.body).some(k=>!["action","missionId","node","grantId","requestKey"].includes(k)))return out(res,403,{error:"Origem ou contrato de despacho inválido."});
+  if(!/^A[1-4]$/.test(node)||!UUID.test(req.body.grantId||"")||!UUID.test(req.body.requestKey||""))return out(res,400,{error:"Envelope inválido."});
+  const rows=await db(token,"regente10_participants?select=project_scopes,lifecycle&id=eq."+node+"&limit=1"),participant=rows?.[0];
+  if(participant?.lifecycle!=="active"||!participant.project_scopes?.some(p=>p==="*"||p===m.project))return out(res,403,{error:"Participante fora do projeto."});
+  const gateway=require("../lib/instrument-gateway.js").createGateway();
+  const context=await gateway.rpc("grant_private",{project:m.project,grantId:req.body.grantId});
+  if(context.grant.mission_id!==m.id||context.grant.owner_id!==uid)return out(res,403,{error:"Envelope fora da missão."});
+  try{return out(res,200,await gateway.executeForAgent({project:m.project,grantId:req.body.grantId,requestKey:req.body.requestKey}));}
+  catch(e){return out(res,e.status||503,{error:"Despacho S00 recusado.",code:e.code||"gateway_unavailable"});}
+ }
  if(runs.some(x=>x.node_id===node))return out(res,409,{error:"Já existe um run deste instrumento; não repetir."});
  if(!/^A[1-6]$/.test(node))return out(res,400,{error:"Participante inválido."});
  const scope=await db(token,"regente10_participants?select=project_scopes,lifecycle&id=eq."+node+"&limit=1");

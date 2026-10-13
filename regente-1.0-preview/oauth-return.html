@@ -1,0 +1,4 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Regente · Retorno da conexão</title></head><body><p>Voltando ao painel Master para verificar a conexão...</p><script>
+const q=new URLSearchParams(location.search),p=q.get("project"),a=q.get("attempt");
+if(["optotica","ensavim","born-robot","instituto-governanca"].includes(p)&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(a||""))location.replace("/gateway?project="+encodeURIComponent(p)+"&attempt="+a);else location.replace("/gateway");
+</script></body></html>

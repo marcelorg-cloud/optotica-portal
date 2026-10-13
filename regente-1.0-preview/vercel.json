@@ -48,6 +48,9 @@
     },
     "api/session.js": {
       "maxDuration": 20
+    },
+    "api/gateway.js": {
+      "maxDuration": 60
     }
   },
   "rewrites": [
@@ -94,6 +97,14 @@
     {
       "source": "/index-operacional.html",
       "destination": "/api/panel?view=index"
+    },
+    {
+      "source": "/gateway",
+      "destination": "/api/panel?view=gateway"
+    },
+    {
+      "source": "/gateway.html",
+      "destination": "/api/panel?view=gateway"
     }
   ]
 }

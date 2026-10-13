@@ -1,7 +1,7 @@
 "use strict";
 const fs=require("node:fs"),path=require("node:path");
 const {cookieToken,verifyMaster,clearCookie,noStore}=require("../lib/master-session.js");
-const VIEWS={index:"index.html",network:"network.html",governance:"governance.html",budget:"budget.html"};
+const VIEWS={index:"index.html",network:"network.html",governance:"governance.html",budget:"budget.html",gateway:"gateway.html"};
 module.exports=async(req,res)=>{
  noStore(res);
  if(!["GET","HEAD"].includes(req.method))return res.status(405).send("Método não permitido.");
@@ -9,7 +9,7 @@ module.exports=async(req,res)=>{
  if(typeof view!=="string"||!Object.hasOwn(VIEWS,view))return res.status(404).send("Página não encontrada.");
  const token=cookieToken(req);
  try{await verifyMaster(token);}catch(e){
-  if(e.status===401||e.status===403){clearCookie(res);res.setHeader("Location","/login");return res.status(303).send("");}
+  if(e.status===401||e.status===403){clearCookie(res);let next=view==="index"?"/":"/"+view;if(view==="gateway"){const q=new URLSearchParams();if(["optotica","ensavim","born-robot","instituto-governanca"].includes(req.query?.project))q.set("project",req.query.project);if(/^[0-9a-f-]{36}$/i.test(req.query?.attempt||""))q.set("attempt",req.query.attempt);if(q.size)next+="?"+q;}res.setHeader("Location","/login?next="+encodeURIComponent(next));return res.status(303).send("");}
   return res.status(503).send("Autenticação temporariamente indisponível. Tente novamente.");
  }
  try{
