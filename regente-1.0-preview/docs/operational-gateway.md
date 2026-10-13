@@ -85,8 +85,20 @@ em PGlite/PostgreSQL com restrições extraídas do schema real e fixtures
 sintéticas, tudo com rollback. Testam custo, escopo, reconexão, mudanças de
 política, teto, idempotência, dispatch e reserva incerta. PGlite tem conexão
 única: não comprova concorrência multi-processo. A atomicidade usa row locks
-PostgreSQL e a restrição reserved+metered<=cap; ensaio multi-processo permanece
-necessário antes de ampliar o volume de execução.
+PostgreSQL e a restrição reserved+metered<=cap.
+
+O [ensaio multiprocesso real](gateway-concurrency.md), implementado no
+[PR #42](https://github.com/marcelorg-cloud/optotica-portal/pull/42), executou
+20 cenários em PostgreSQL 17.6 descartável, com 187 backends independentes
+e até 24 esperando locks simultaneamente. O código anterior reproduziu
+duas falhas de autorização durante espera: parada de emergência e expiração.
+A migração proposta revalida S00 após os locks e usa relógio corrente;
+com ela, 20/20 cenários e 112/112 regressões Node passaram no
+[CI 38388583782](https://github.com/marcelorg-cloud/optotica-portal/actions/runs/38388583782).
+Teto, idempotência, dispatch único, rollback e reservas incertas foram
+verificados com fornecedor sintético, sem ferramentas externas pagas.
+A correção ainda precisa passar pelo fluxo de implantação; esse ensaio
+não alterou produção e não comprova login/OAuth/PostgREST ou failover reais.
 
 Tentativas de rodar fixtures com rollback no conector Supabase retornaram
 Invalid or expired requestState. Nenhum fixture ou chave de teste foi aplicado

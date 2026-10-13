@@ -85,11 +85,26 @@ produção é uma etapa separada.
 
 ## Evidências e limites
 
-Os 112 testes Node e o teste de migrações/rollback PGlite passaram localmente
-após a correção. A execução PostgreSQL real é feita pelo workflow
-`Regente Gateway real PostgreSQL concurrency`; seus logs e relatórios são
-a evidência do baseline e da correção. Não presumir sucesso antes de consultar
-o job do commit correspondente.
+Execução comprovada em 13/10/2026, código do commit
+`e385ff585c93ed3fb33a313937c2dacc49992b17`:
+
+| Verificação | Resultado |
+| --- | --- |
+| PostgreSQL real | 17.6 (Debian 17.6-2.pgdg13+1), container descartável |
+| Kernel anterior | 18/20 passam; duas falhas esperadas, emergência e expiração |
+| Kernel corrigido | 20/20 passam, zero falhas |
+| Backends independentes por execução | 187 |
+| Conexões simultaneamente esperando locks | 24, verificadas em pg_stat_activity |
+| Regressões Node | 112/112 passam |
+| Migrações e rollback PGlite | PASS |
+| Ferramentas externas pagas no ensaio | Zero |
+
+[CI do PR, 38388583782](https://github.com/marcelorg-cloud/optotica-portal/actions/runs/38388583782)
+e [CI da branch, 38388551415](https://github.com/marcelorg-cloud/optotica-portal/actions/runs/38388551415)
+concluíram com sucesso. O job do PR é `115266387854`; logs registram os
+resultados de cada cenário, os dois resumos e a remoção do banco/container.
+Os testes Node e PGlite também passaram localmente. A execução documentada
+não aplicou a correção em produção.
 
 A fixture de autenticação simula `auth.uid()` por claims SQL; não é um teste
 de assinatura JWT, login Master, PostgREST, pooler ou OAuth. O schema de
@@ -105,7 +120,8 @@ pode deixar reserva em `dispatched`/`uncertain`, exigindo reconciliação
 humana sem retry/refund automático. Uma revogação posterior ao commit de
 arm não desfaz uma chamada já admitida. Não foram testados failover do
 cluster, perda de WAL/disco, serializable, grande volume prolongado,
-latência real de pooler nem recuperação de indisponibilidade de PostgREST.
+latência real de pooler, mutações simultâneas de toda a cadeia de recursos
+nem recuperação de indisponibilidade de PostgREST.
 O teto é de admissão conservadora, não uma garantia da fatura externa;
 tarifa/câmbio incorretos continuam sendo riscos independentes.
 
