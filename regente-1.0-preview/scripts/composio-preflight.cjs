@@ -13,5 +13,6 @@ async function main(){
  }
  console.log("COMPOSIO_PREFLIGHT credential_accepted; read_only; no account linked; no tool executed");
 }
-if(require.main===module)main().catch(e=>{console.error("COMPOSIO_PREFLIGHT failed: "+(e.safeProviderError===true?e.code:"provider_unavailable")+"; "+JSON.stringify({httpStatus:e.safeProviderError===true?e.providerStatus||null:null,requestId:e.safeProviderError===true?e.providerRequestId||null:null,providerError:e.safeProviderError===true?e.providerError||null:null}));process.exitCode=1});
-module.exports={main};
+function reportFailure(e){console.error("COMPOSIO_PREFLIGHT failed: "+(e.safeProviderError===true?e.code:"provider_unavailable")+"; "+JSON.stringify({httpStatus:e.safeProviderError===true?e.providerStatus||null:null,requestId:e.safeProviderError===true?e.providerRequestId||null:null,providerError:e.safeProviderError===true?e.providerError||null:null}));process.exitCode=1;}
+if(require.main===module)main().catch(reportFailure);
+module.exports={main,reportFailure};

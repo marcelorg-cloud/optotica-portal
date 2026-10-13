@@ -46,6 +46,8 @@ jobs:
           node --test regente-1.0-preview/tests/ai-budget.test.cjs
       - name: Composio inventory authorization and secret redaction tests
         run: node --test regente-1.0-preview/tests/composio.test.cjs
+      - name: Master panel server access tests
+        run: node --test regente-1.0-preview/tests/master-panel.test.cjs
       - name: Check browser script syntax and architecture
         run: |
           node - <<'NODE'

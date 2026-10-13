@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Regente · Login Master</title>
+<style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#102b25;color:#172921;font:16px system-ui;padding:24px}main{background:#fff;border-radius:18px;padding:32px;width:100%;max-width:420px}h1{letter-spacing:.1em;margin:0 0 12px}p{line-height:1.5;color:#64746a}label{display:block;font-weight:600;margin:18px 0 7px}input,button{font:inherit;padding:13px;border-radius:9px;width:100%}input{border:1px solid #bdcfc3}button{margin-top:24px;background:#174b3d;color:white;border:0;cursor:pointer}button:disabled{opacity:.6}#status{min-height:24px;color:#a94739;font-size:14px}input:focus-visible,button:focus-visible{outline:3px solid #88c5a6;outline-offset:2px}</style></head><body><main>
+<h1>REGENTE</h1><p>Entre com sua conta Master para acessar o painel.</p>
+<form id="loginForm"><label for="email">E-mail</label><input id="email" type="email" autocomplete="username" required><label for="password">Senha</label><input id="password" type="password" autocomplete="current-password" required><button id="submit" type="submit">Entrar no painel</button><p id="status" role="status" aria-live="polite"></p></form>
+</main><script>
+const SB="https://xepkdqcbjrictowriccb.supabase.co",PK="sb_publishable_F-DN3Z4GZbX5j2IeXtq5cw_rJHP6mfw";
+document.getElementById("loginForm").addEventListener("submit",async e=>{
+ e.preventDefault();const button=document.getElementById("submit"),status=document.getElementById("status"),password=document.getElementById("password");button.disabled=true;status.textContent="Verificando acesso...";
+ try{
+  const r=await fetch(SB+"/auth/v1/token?grant_type=password",{method:"POST",headers:{apikey:PK,"Content-Type":"application/json"},body:JSON.stringify({email:document.getElementById("email").value,password:password.value})});
+  password.value="";const data=await r.json();if(!r.ok)throw Error("E-mail ou senha inválidos.");
+  const check=await fetch("/api/session",{method:"POST",headers:{Authorization:"Bearer "+data.access_token}});const result=await check.json();if(!check.ok)throw Error(result.error||"Acesso Master não autorizado.");
+  sessionStorage.setItem("regente10_token",data.access_token);sessionStorage.setItem("regente10_refresh",data.refresh_token);location.replace("/");
+ }catch(err){status.textContent=err.message||"Não foi possível entrar.";}finally{button.disabled=false;}
+});
+</script></body></html>
