@@ -32,7 +32,7 @@ export function parseSupplierList(raw: string, expectedStoreId?: string): Suppli
   const lists: unknown[] = [];
   for (const root of roots) {
     if (Array.isArray(root)) lists.push(root);
-    for (const key of ['items', 'products', 'itemList', 'productList', 'list', 'results']) {
+    for (const key of ['items', 'products', 'itemList', 'productList', 'list', 'results', 'resultList', 'records']) {
       const value = object(root)?.[key];
       if (Array.isArray(value)) lists.push(value);
       else if (Array.isArray(object(value)?.list)) lists.push(object(value)!.list);
@@ -42,12 +42,15 @@ export function parseSupplierList(raw: string, expectedStoreId?: string): Suppli
   if (!list) throw new Error('Não encontrei uma lista de produtos neste JSON. Use a resposta de “Store Item Search”, não “Item Detail”.');
   const result = new Map<string, SupplierListingItem>();
   for (const entry of list) {
-    const item = object(entry);
+    // DataHub variants may wrap each listing as { item: { ... } }.
+    const wrapper = object(entry);
+    const item = object(wrapper?.item) || wrapper;
     if (!item) continue;
     const itemId = first(item.itemId, item.productId, item.product_id, item.item_id, item.id);
     if (!itemId || !/^\d{5,30}$/.test(itemId)) continue;
     const priceObject = object(item.price) || object(item.prices);
-    const price = first(item.salePrice, item.discountPrice, item.price, priceObject?.salePrice, priceObject?.current, priceObject?.value, priceObject?.minPrice);
+    const price = first(item.salePrice, item.discountPrice, item.promotionPrice, item.price,
+      priceObject?.salePrice, priceObject?.current, priceObject?.value, priceObject?.minPrice);
     if (result.has(itemId)) continue;
     result.set(itemId, {
       itemId,
