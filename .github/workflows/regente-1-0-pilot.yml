@@ -48,6 +48,8 @@ jobs:
         run: |
           node --test regente-1.0-preview/tests/budget.test.cjs
           node --test regente-1.0-preview/tests/ai-budget.test.cjs
+      - name: Full cycle command to accepted textual deliverable (synthetic)
+        run: node --test regente-1.0-preview/tests/mission-cycle.test.cjs
       - name: Fase 1 private file and text budget pause regressions
         run: |
           node --test regente-1.0-preview/tests/phase1-files.test.cjs
