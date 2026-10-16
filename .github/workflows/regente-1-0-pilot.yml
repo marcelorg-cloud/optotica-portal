@@ -2,7 +2,7 @@ name: Regente 1.0 pilot syntax and guard checks
 
 on:
   push:
-    branches: [feat/regente-1-0-standalone, feat/regente10-s00-resource-gates-20261012, feat/regente10-phase1-budget-20261012]
+    branches: [feat/regente-1-0-standalone, feat/regente10-s00-resource-gates-20261012, feat/regente10-phase1-budget-20261012, fix/regente10-unblock-mission-attachments-composio-20261015]
   pull_request:
     paths:
       - 'regente-1.0-preview/**'
@@ -27,6 +27,8 @@ jobs:
           node --check regente-1.0-preview/api/governance.js
           node --check regente-1.0-preview/api/budget.js
           node --check regente-1.0-preview/api/composio.js
+          node --check regente-1.0-preview/api/attachments.js
+          node --check regente-1.0-preview/lib/phase1-files.js
           node --check regente-1.0-preview/lib/composio-readonly.js
           node --check regente-1.0-preview/scripts/composio-preflight.cjs
           node --check regente-1.0-preview/lib/ai-budget.js
@@ -46,6 +48,10 @@ jobs:
         run: |
           node --test regente-1.0-preview/tests/budget.test.cjs
           node --test regente-1.0-preview/tests/ai-budget.test.cjs
+      - name: Fase 1 private file and text budget pause regressions
+        run: |
+          node --test regente-1.0-preview/tests/phase1-files.test.cjs
+          node --test regente-1.0-preview/tests/attachments.test.cjs
       - name: Composio inventory authorization and secret redaction tests
         run: node --test regente-1.0-preview/tests/composio.test.cjs
       - name: Operational gateway authorization and dispatch tests
@@ -87,6 +93,8 @@ jobs:
           assert(!orientation.includes('service_role'),'No bypass of RLS permitted');
           assert(html.includes('id="stopAll"'),'Emergency button not accessible');
           assert(html.includes('runOrientation'),'Client orientation flow missing');
+          assert(html.includes('phaseFileForm'),'File attachment upload UI absent');
+          assert(html.includes('text_budget_paused'),'Text-budget suspension state absent');
           console.log('Frontend syntax and pilot safety guards: PASS');
           NODE
 
