@@ -174,6 +174,19 @@ async function openMission(id,phaseOverride){
 }
 function content(text){return '<pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:480px;overflow:auto;border:1px solid var(--line);border-radius:10px;background:#f6f8f6;padding:14px;font-size:13px;line-height:1.6">'+escape(text)+'</pre>'}
 const currencyBRL=x=>Number(x||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:2,maximumFractionDigits:4});
+function attachmentsSection(m){
+ const files=state.files||[],canAdd=m.status==="afinamento"&&!m.paused;
+ let html='<section class="result"><h3>Arquivos da missão · Fase 1</h3>'+
+ '<p class="small muted">Até 5 arquivos, máximo 3 MB cada. TXT, MD, CSV, JSON e DOCX podem fornecer trechos textuais para C01. PDF, PNG e JPG ficam como referências, sem análise automática. Evite dados pessoais, clínicos ou segredos.</p>';
+ if(state.filesError)html+='<div class="note warning">'+escape(state.filesError)+'</div>';
+ for(const a of files)html+='<div class="statusLine"><b>'+escape(a.filename)+'</b> · '+Math.round(a.size_bytes/1024)+' KB <span class="small muted">'+(a.include_in_ai?"Texto disponível ao Afinamento":"Somente referência")+'</span> <button class="light" data-file-download="'+escape(a.id)+'" type="button">Baixar</button> <button class="light" data-file-remove="'+escape(a.id)+'" type="button">Remover</button></div>';
+ if(canAdd)html+='<form id="phaseFileForm" class="result" style="margin:12px 0"><label class="label" for="phaseFile">Selecione os arquivos (antes de iniciar C01)</label><input id="phaseFile" type="file" multiple required accept=".txt,.md,.csv,.json,.docx,.pdf,.png,.jpg,.jpeg" class="field">'+
+ '<label class="small"><input id="fileUseAi" type="checkbox" checked> Usar os trechos de texto extraíveis no Afinamento</label>'+
+ '<label class="small"><input id="fileNoPersonal" type="checkbox" required> Confirmo que os arquivos não contêm dados pessoais, clínicos ou segredos.</label>'+
+ '<div class="row"><button class="light" type="submit">Anexar à missão</button><span id="fileProgress" class="small muted"></span></div></form>';
+ else if(m.status!=="afinamento")html+='<p class="small muted">O Afinamento já foi registrado. Anexos posteriores são somente referência: não alteram automaticamente os pareceres anteriores.</p>';
+ return html+'</section>';
+}
 function budgetNote(m){
  if(state.controls?.text_budget_paused===true)return '<div class="note"><b>Orçamento monetário da IA textual suspenso temporariamente.</b> Não precisa sair da missão para aprovar valores. Continuam 12 chamadas por Master em 24h, até 12 por missão e a parada de emergência. Custos e permissões das ferramentas externas continuam controlados pelo S00.</div>';
  if(m.budget_policy!=="budget_v1")return '<div class="note small">Missão legada: limite quantitativo de IA; orçamento monetário não alterado retroativamente.</div>';
@@ -194,7 +207,7 @@ function renderPhase(){
  pan.innerHTML='<h3>Prompt Afinado da missão</h3>'+(m.prompt_affinado?content(m.prompt_affinado):'<p class="muted">A missão foi salva no banco. Execute o Afinamento para gerar o plano de trabalho por IA.</p>')+
  '<div class="note">Afinamento progressivo: <b>C01, C03 e C08 executam chamadas independentes de IA</b>, com saídas persistidas. C02, C04, C05, C06 e C07 participam por regras e apoio determinístico, sem chamadas generativas independentes. Nenhuma conexão externa é simulada como verificada.</div><div id="orientationProgress" class="small muted" style="margin-top:12px">'+roles.length+' de 3 pareceres independentes concluídos</div>'+roles.map(x=>'<details class="result"><summary>'+escape(x.role_id)+' · parecer persistido</summary>'+content(JSON.stringify(x.output,null,2))+'</details>').join('')+
  (m.prompt_affinado?'<h3 style="margin-top:20px">Diagnóstico crítico</h3>'+content(JSON.stringify(r,null,2))+'<h3>Entregáveis previstos</h3>'+ (m.result_plan||[]).map((x,i)=>'<div class="statusLine"><b>'+ (i+1)+'. '+escape(x.titulo)+'</b><div class="small muted">'+escape(x.criterio)+'</div></div>').join(""):'')+
- budgetNote(m)+'<div class="row" style="margin-top:17px">'+(!m.prompt_affinado?'<button class="primary" data-op="run_orientation" '+(!state.health?.aiConfigured?"disabled":"")+'>Iniciar / continuar Afinamento por agentes</button>':'')+(m.status==="aguardando_autorizacao"?'<button class="primary" data-op="authorize" '+(r.bloqueio_critico?'disabled title="Revisão crítica pendente"':(m.budget_policy==="budget_v1"&&!state.controls?.text_budget_paused&&state.budget?.budget?.state!=="approved"?'disabled title="Aprovação de orçamento pendente"':''))+'>Autorizar execução textual</button>':'')+'</div>';
+ attachmentsSection(m)+budgetNote(m)+'<div class="row" style="margin-top:17px">'+(!m.prompt_affinado?'<button class="primary" data-op="run_orientation" '+(!state.health?.aiConfigured?"disabled":"")+'>Iniciar / continuar Afinamento por agentes</button>':'')+(m.status==="aguardando_autorizacao"?'<button class="primary" data-op="authorize" '+(r.bloqueio_critico?'disabled title="Revisão crítica pendente"':(m.budget_policy==="budget_v1"&&!state.controls?.text_budget_paused&&state.budget?.budget?.state!=="approved"?'disabled title="Aprovação de orçamento pendente"':''))+'>Autorizar execução textual</button>':'')+'</div>';
  }
  if(state.phase==="execucao"){
  pan.innerHTML='<h3>Execução autorizada</h3><p class="muted">Os resultados são gerados por IA individualmente. Uma falha não impede que os demais sejam produzidos. Não há execução de código, publicações ou alterações externas.</p>'+
