@@ -11,7 +11,7 @@ label{display:flex;flex-direction:column;gap:5px;font-weight:600}input{width:100
 button{border:1px solid var(--forest);border-radius:9px;padding:10px 14px;color:white;background:var(--forest);cursor:pointer;font:inherit}button:disabled{opacity:.55;cursor:not-allowed}.secondary{background:white;color:var(--forest)}
 .cost{font-size:23px;font-weight:750}.row{display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap;align-items:center}.sep{border-top:1px solid var(--line);margin:15px 0}
 </style></head><body>
-<header><div><h1>Fase 1 · Orçamento da missão</h1><div style="font-size:12px;color:#bbd7c6">Regente 1.0 · Maestro / Master</div></div><a href="/">← Voltar às missões</a></header>
+<header><div><h1>Fase 1 · Orçamento da missão</h1><div style="font-size:12px;color:#bbd7c6">Regente 1.0 · Maestro / Master</div></div><a id="backMission" href="/">← Voltar à missão</a></header>
 <main>
 <div class="box"><h2>Estado do orçamento</h2><p id="status">Consultando orçamento...</p><div id="overview"></div></div>
 <div class="box"><h2>Previsão financeira</h2>
@@ -32,9 +32,10 @@ button{border:1px solid var(--forest);border-radius:9px;padding:10px 14px;color:
 <script>
 "use strict";
 const $=id=>document.getElementById(id),id=new URLSearchParams(location.search).get("missionId");
+$("backMission").href=id?"/?missionId="+encodeURIComponent(id)+"&phase=afinamento":"/";
 const escape=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const brl=v=>Number(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:2,maximumFractionDigits:4});
-let state={budget:null,policy:null};
+let state={budget:null,policy:null,textBudgetPaused:false};
 async function api(action,body){
  const token=sessionStorage.getItem("regente10_token");
  if(!token)throw Error("Entre primeiro no Regente 1.0 com a conta Master.");
@@ -45,6 +46,14 @@ async function api(action,body){
 }
 function render(){
  const b=state.budget;
+ if(state.textBudgetPaused){
+  $("overview").textContent="A exigência de orçamento da IA textual foi suspensa temporariamente pelo Maestro. Volte à missão para autorizar a execução textual; tetos e aprovações de ferramentas externas não foram alterados.";
+  $("budgetForm").style.display="none";$("calculate").disabled=true;$("approve").disabled=true;
+  $("estimate").textContent="Orçamento monetário de texto suspenso nesta fase. Operações externas permanecem sujeitas ao S00.";
+  $("status").textContent="Sem trava financeira textual. Continue a missão na Fase 1.";
+  $("usage").textContent="Limites de segurança mantidos: 12 chamadas textuais por Master nas últimas 24 horas e no máximo 12 por missão.";
+  return;
+ }
  $("overview").textContent=state.policy==="budget_v1"?"Esta missão usa o orçamento monetário da Fase 1.":"Missão anterior à política orçamentária; regras antigas preservadas.";
  $("budgetForm").style.display=state.policy==="budget_v1"&&b?.state!=="approved"?"grid":"none";
  $("calculate").disabled=state.policy!=="budget_v1";
@@ -58,7 +67,7 @@ function render(){
   $("status").textContent=state.policy==="budget_v1"?"Aguardando orçamento do Afinamento.":"Sem política orçamentária retroativa.";
  }
 }
-async function load(){if(!id)throw Error("Abra esta página a partir de uma missão.");const data=await api();state.budget=data.budget;state.policy=data.missionBudgetPolicy;render()}
+async function load(){if(!id)throw Error("Abra esta página a partir de uma missão.");const data=await api();state.budget=data.budget;state.policy=data.missionBudgetPolicy;state.textBudgetPaused=data.textBudgetPaused===true;render()}
 $("budgetForm").addEventListener("submit",async e=>{
  e.preventDefault();$("calculate").disabled=true;
  try{const x=await api("draft",{fx:Number($("fx").value),otherEstimate:Number($("otherEstimate").value),marginPct:Number($("marginPct").value)});await load();$("status").textContent="Previsão salva. Confirme o teto antes de executar."}catch(err){$("status").textContent=err.message}finally{$("calculate").disabled=false}

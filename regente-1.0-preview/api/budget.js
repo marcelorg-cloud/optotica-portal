@@ -37,14 +37,17 @@ module.exports=async(req,res)=>{
   if(!UUID.test(id))return ok(res,400,{error:"Missão inválida."});
   const missions=await db(token,"regente10_missions?select=id,project,status,paused,budget_policy,envelope_approved_at,owner_id&id=eq."+id+"&owner_id=eq."+uid+"&limit=1");
   const m=missions?.[0];if(!m)return ok(res,404,{error:"Missão não localizada."});
+  const controls=await db(token,"regente10_controls?select=text_budget_paused&owner_id=eq."+uid+"&limit=1");
+  const textBudgetPaused=controls?.[0]?.text_budget_paused===true;
   if(req.method==="GET"){
    const rows=await db(token,"regente10_mission_budgets?select=mission_id,currency,fx_brl_per_usd,fx_source,model,model_price_source,model_price_date,estimated_text_brl,estimated_other_brl,estimated_total_brl,margin_pct,cap_brl,reserved_brl,metered_brl,state,approved_at,updated_at&mission_id=eq."+id+"&owner_id=eq."+uid+"&limit=1");
-   return ok(res,200,{budget:rows?.[0]||null,missionBudgetPolicy:m.budget_policy,
+   return ok(res,200,{budget:rows?.[0]||null,missionBudgetPolicy:m.budget_policy,textBudgetPaused,
     pricing:{model:"gpt-4.1-mini",inputUsdPerMillion:0.4,outputUsdPerMillion:1.6,
     source:"https://developers.openai.com/api/docs/models/gpt-4.1-mini",
     verifiedAt:"2026-10-12",callUpperBound:12,fxSource:"assunção informada pelo Maestro"},
     limitations:"Custo textual calculado em cenário conservador. Outros instrumentos não conectados, sem preço verificado e sem autorização de gasto."});
   }
+  if(textBudgetPaused)return ok(res,409,{error:"A aprovação financeira da IA textual está temporariamente suspensa; volte à missão e autorize diretamente a execução textual. Tetos de ferramentas externas continuam exigidos."});
   const action=String(req.body?.action||"");
   if(!["draft","approve"].includes(action))return ok(res,400,{error:"Ação indisponível."});
   if(m.budget_policy!=="budget_v1")return ok(res,409,{error:"Esta é uma missão anterior à política de orçamento financeiro. A aprovação não será alterada retroativamente."});

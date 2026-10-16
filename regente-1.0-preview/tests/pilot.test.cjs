@@ -17,7 +17,8 @@ function mock(options={}){
   else if(u.pathname.endsWith("/system_admins"))data=[{user_id:user}];
   else if(u.pathname.endsWith("/regente10_missions"))data=[{id:missionId,owner_id:user,project:"born-robot",original_request:"Elaborar um resumo de integração segura do Regente 1.0",status:"afinamento",paused:false,...options.mission}];
   else if(u.pathname.endsWith("/regente10_orientation_steps"))data=method==="POST"?[{id:"44444444-4444-4444-8444-444444444444"}]:existing;
-  else if(u.pathname.endsWith("/regente10_controls"))data=[{emergency_stop:!!options.emergency_stop}];
+  else if(u.pathname.endsWith("/regente10_controls"))data=[{emergency_stop:!!options.emergency_stop,text_budget_paused:options.textBudgetPaused!==false}];
+  else if(u.pathname.endsWith("/regente10_mission_files"))data=options.files||[];
   else if(u.pathname.endsWith("/regente10_mission_budgets"))data=options.budgetRows||[];
   else if(u.pathname.endsWith("/regente10_projects"))data=[{id:"born-robot",status:"active"}];
   else if(u.pathname.endsWith("/rpc/regente10_reserve_ai_budget"))data=jobId;
@@ -86,7 +87,7 @@ test("new missions are registered under budget_v1, not unlimited legacy policy",
  assert(posted,"Expected mission insert");
 });
 test("new budget_v1 mission cannot authorize text execution without financial approval",async()=>{
- const called=mock({mission:{status:"aguardando_autorizacao",budget_policy:"budget_v1",prompt_affinado:"Texto validado",diagnostic:{}}});
+ const called=mock({textBudgetPaused:false,mission:{status:"aguardando_autorizacao",budget_policy:"budget_v1",prompt_affinado:"Texto validado",diagnostic:{}}});
  const answer=res();
  await mission(req("POST","authorize",{id:missionId}),answer);
  assert.equal(answer.statusCode,409);
@@ -99,4 +100,22 @@ test("approved financial cap permits the existing text-only envelope, not extern
  await mission(req("POST","authorize",{id:missionId}),answer);
  assert.equal(answer.statusCode,200);
  assert.match(answer.body.scope,/Somente geração textual/i);
+});
+
+test("budget approval suspended for text: existing Phase-1 mission can continue without a financial draft",async()=>{
+ const called=mock({textBudgetPaused:true,mission:{status:"aguardando_autorizacao",budget_policy:"budget_v1",prompt_affinado:"Texto afinado",diagnostic:{}}});
+ const r=res();await mission(req("POST","authorize",{id:missionId}),r);
+ assert.equal(r.statusCode,200);
+ assert.match(r.body.scope,/Somente geração textual/);
+ assert(!called.some(x=>x.url.includes("/regente10_mission_budgets")));
+});
+test("Master controls expose temporary pause and rolling 24h bounded trial",async()=>{
+ const called=mock({textBudgetPaused:true}),r=res();
+ await mission(req("GET","controls"),r);
+ assert.equal(r.statusCode,200);
+ assert.equal(r.body.financialMode,"text_budget_paused");
+ assert.equal(r.body.reservationCap,12);
+ assert.equal(r.body.reservationWindowHours,24);
+ assert.equal(r.body.externalToolFinancialGates,"unchanged");
+ assert(!called.some(x=>x.url.includes("api.openai.com")));
 });

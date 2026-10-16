@@ -51,6 +51,9 @@
     },
     "api/gateway.js": {
       "maxDuration": 60
+    },
+    "api/attachments.js": {
+      "maxDuration": 30
     }
   },
   "rewrites": [

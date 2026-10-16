@@ -23,3 +23,31 @@ test("untrusted results are displayed as data and secret-bearing fields are reda
 
 test("unscoped account-wide operations and default roots are blocked",()=>{for(const args of [{},{user_id:"me"},{folder_id:"root"},{calendar_id:"primary"}])assert.throws(()=>contract.assertDestination(args),/destination_required/);assert.equal(contract.assertDestination({repo:"owned_project",owner:"operator"}).repo,"owned_project");});
 test("project destinations never accept credential-bearing or local URLs",()=>{for(const url of ["https://localhost/test","https://127.0.0.1/test","https://user:password@example.test/path"])assert.throws(()=>contract.assertDestination({url}),/destination_required/);});
+
+test("read-only Composio reconciliation verifies only previously linked account within project",async()=>{
+ const actions=[],pending={...b,status:"pending",account_id:"ca_test",verified_at:null};
+ const gw=createGateway({
+  provider:{
+   verify:async binding=>{actions.push("verify:"+binding.project_id+":"+binding.account_id);return {state:"active",diagnostic:"identity_verified_not_resource_authorization"}},
+   execute:async()=>{throw Error("Reconciliation must never execute tools")},
+   prepare:async()=>{throw Error("No new OAuth link allowed")}
+  },
+  rpc:async(op,p)=>{
+   actions.push(op);
+   if(op==="worker_state")return {bindings:[pending,{...pending,id:"44444444-4444-4444-8444-444444444444",status:"needs_credentials",account_id:null}]};
+   if(op==="control")return {id:"log1"};
+   if(op==="control_result"||op==="verified")return {okay:true};
+   throw Error("unexpected "+op);
+  }
+ });
+ const r=await gw.reconcilePending("optotica");
+ assert.equal(r.checked,1);assert.equal(r.activated,1);assert.equal(r.toolCalls,0);
+ assert(actions.includes("verified"));
+ assert(!actions.some(x=>x==="prepare_connection"||x==="claim"||x==="arm"||x==="grant"||x==="discovery"));
+});
+test("reconciliation skips pending records without linked account",async()=>{
+ let verified=0;
+ const gw=createGateway({provider:{verify:async()=>{verified++;return {state:"active"}}},rpc:async op=>op==="worker_state"?{bindings:[{...b,status:"pending",account_id:null}]}:{ok:true}});
+ const r=await gw.reconcilePending("ensavim");
+ assert.equal(r.checked,0);assert.equal(verified,0);
+});

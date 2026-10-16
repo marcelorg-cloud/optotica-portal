@@ -51,11 +51,11 @@ button{border-radius:10px;padding:10px 14px}.small{font-size:12px}.muted{color:v
 <script>
 const URL_SB="https://xepkdqcbjrictowriccb.supabase.co", PK="sb_publishable_F-DN3Z4GZbX5j2IeXtq5cw_rJHP6mfw";
 const projects={optotica:"Optótica",ensavim:"ENSAVIM","born-robot":"Born Robot — Engenharia","instituto-governanca":"Instituto — Governança"};
-const state={project:"optotica",token:sessionStorage.getItem("regente10_token")||"",refresh:sessionStorage.getItem("regente10_refresh")||"",current:null,items:[],phase:"afinamento",details:null,health:null,orientation:null,controls:null,budget:null};
+const state={project:"optotica",token:sessionStorage.getItem("regente10_token")||"",refresh:sessionStorage.getItem("regente10_refresh")||"",current:null,items:[],phase:"afinamento",details:null,health:null,orientation:null,controls:null,budget:null,files:[],filesError:null,readinessAt:0};
 const $=id=>document.getElementById(id);
 const escape=s=>String(s??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 const notify=(text)=>{const t=$("toast");t.textContent=text;t.style.display="block";clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>t.style.display="none",6500)};
-const markBusy=(value)=>{document.querySelectorAll("button").forEach(b=>{if(!["signOut","stopAll","resumeAll"].includes(b.id))b.disabled=value})};
+const markBusy=(value)=>{document.querySelectorAll("button").forEach(b=>{if(["signOut","stopAll","resumeAll"].includes(b.id))return;if(value){if(b.dataset.busyLocked!=="yes"){b.dataset.prevDisabled=b.disabled?"yes":"no";b.dataset.busyLocked="yes";}b.disabled=true;}else if(b.dataset.busyLocked==="yes"){b.disabled=b.dataset.prevDisabled==="yes";delete b.dataset.busyLocked;delete b.dataset.prevDisabled;}})};
 async function authFetch(path,opts={}){
  const response=await fetch(URL_SB+path,{...opts,headers:{apikey:PK,"Content-Type":"application/json",...(opts.headers||{})}});
  let v={};try{v=await response.json()}catch{}
@@ -69,6 +69,14 @@ async function api(action,payload=null,params={}) {
  let r=await fetch(url,opt);if(r.status===401&&state.refresh&&action!=="health"){await refresh();opt.headers.Authorization="Bearer "+state.token;r=await fetch(url,opt);}
  let v;try{v=await r.json()}catch{v={error:"Resposta inválida da API."}}
  if(!r.ok)throw Error(v.error||"Erro "+r.status);return v;
+}
+async function filesApi(missionId,payload=null){
+ const url="/api/attachments"+(payload?"":"?missionId="+encodeURIComponent(missionId));
+ const opt={method:payload?"POST":"GET",headers:{"Content-Type":"application/json","Authorization":"Bearer "+state.token},...(payload?{body:JSON.stringify({missionId,...payload})}:{})};
+ let r=await fetch(url,opt);
+ if(r.status===401&&state.refresh){await refresh();opt.headers.Authorization="Bearer "+state.token;r=await fetch(url,opt)}
+ let d={};try{d=await r.json()}catch{}
+ if(!r.ok)throw Error(d.error||"Falha no anexo");return d;
 }
 async function budgetApi(id){
  const opt={headers:{"Content-Type":"application/json","Authorization":"Bearer "+state.token}};
@@ -117,16 +125,19 @@ async function runOrientation(){
  }catch(e){notify(e.message);try{await openMission(id)}catch{}}
  finally{markBusy(false)}
 }
+async function restoreMissionFromUrl(){const id=new URLSearchParams(location.search).get("missionId");if(!id)return;try{await openMission(id,new URLSearchParams(location.search).get("phase")||"afinamento")}catch(e){notify("Não foi possível restaurar esta missão: "+e.message)}}
 async function boot(){
  try{state.health=await api("health");$("healthBox").innerHTML='<div class="statusLine">Armazenamento isolado: <b>conectado</b></div><div class="statusLine">IA no projeto: <b>'+ (state.health.aiConfigured?"configurada":"não configurada")+'</b></div><div class="statusLine">Instrumentos externos: <b>desativados</b></div>';$("serverStatus").textContent=state.health.aiConfigured?"IA conectada":"IA pendente";}
  catch(e){$("serverStatus").textContent="API indisponível";$("healthBox").textContent=e.message}
- if(state.token){try{await list();await loadControls();$("loginOverlay").classList.add("hidden")}catch(e){$("loginOverlay").classList.remove("hidden");notify(e.message)}}
+ if(state.token){try{await Promise.all([list(),loadControls()]);$("loginOverlay").classList.add("hidden");await restoreMissionFromUrl()}catch(e){$("loginOverlay").classList.remove("hidden");notify(e.message)}}
 }
 async function loadReadiness(){
+ if(Date.now()-state.readinessAt<120000)return;
  const old=document.getElementById("readinessHistory");
  if(old)old.remove();
  if(!state.token)return;
  try{
+  state.readinessAt=Date.now();
   const report=await api("instruments");
   const holder=document.createElement("div");
   holder.id="readinessHistory";
@@ -144,10 +155,41 @@ async function list(){
  const current=state.items.filter(m=>m.project===state.project);$("missionCount").textContent=current.length;$("sideCount").textContent=state.items.length+" missões no Instituto";
  $("missionList").innerHTML=current.length?current.map(m=>'<button class="mission '+(m.id===state.current?"active":"")+'" data-id="'+escape(m.id)+'"><b>'+escape(m.title)+'</b><small>'+escape(m.status.replaceAll("_"," "))+' · '+new Date(m.created_at).toLocaleDateString("pt-BR")+'</small></button>').join(""):'<p class="small muted">Nenhuma missão ainda neste projeto.</p>';
 }
-async function openMission(id){const r=await api("detail",null,{id});try{state.orientation=await orientationApi(id)}catch{state.orientation=null}try{state.budget=await budgetApi(id)}catch(e){state.budget={error:e.message,budget:null}}state.current=id;state.details=r;state.phase="afinamento";$("newPanel").classList.add("hidden");$("missionPanel").classList.remove("hidden");$("currentTitle").textContent=r.mission.title;$("currentStatus").textContent=r.mission.status.replaceAll("_"," ");renderPhase();await list()}
+async function openMission(id,phaseOverride){
+ const r=await api("detail",null,{id});
+ const phase=phaseOverride||(state.current===id?state.phase:"afinamento");
+ const [o,b,a]=await Promise.allSettled([orientationApi(id),budgetApi(id),filesApi(id)]);
+ state.orientation=o.status==="fulfilled"?o.value:null;
+ state.budget=b.status==="fulfilled"?b.value:{error:String(b.reason?.message||"Orçamento indisponível"),budget:null};
+ state.files=a.status==="fulfilled"?(a.value.files||[]):[];
+ state.filesError=a.status==="fulfilled"?null:String(a.reason?.message||"Anexos indisponíveis");
+ state.current=id;state.details=r;state.phase=["afinamento","execucao","resultados"].includes(phase)?phase:"afinamento";
+ state.project=r.mission.project;
+ document.querySelectorAll("[data-project]").forEach(x=>x.classList.toggle("selected",x.dataset.project===state.project));
+ $("pageTitle").textContent="Missões · "+(projects[state.project]||state.project);
+ $("newPanel").classList.add("hidden");$("missionPanel").classList.remove("hidden");
+ $("currentTitle").textContent=r.mission.title;$("currentStatus").textContent=r.mission.status.replaceAll("_"," ");
+ history.replaceState(null,"","/?"+new URLSearchParams({missionId:id,phase:state.phase}));
+ renderPhase();await list();
+}
 function content(text){return '<pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:480px;overflow:auto;border:1px solid var(--line);border-radius:10px;background:#f6f8f6;padding:14px;font-size:13px;line-height:1.6">'+escape(text)+'</pre>'}
 const currencyBRL=x=>Number(x||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:2,maximumFractionDigits:4});
+function attachmentsSection(m){
+ const files=state.files||[],canAdd=["afinamento","aguardando_autorizacao"].includes(m.status)&&!m.paused;
+ const aiNotStarted=m.status==="afinamento"&&!(state.orientation?.steps||[]).length;
+ let html='<section class="result"><h3>Arquivos da missão · Fase 1</h3>'+
+ '<p class="small muted">Até 5 arquivos, máximo 3 MB cada. TXT, MD, CSV, JSON e DOCX podem fornecer trechos textuais para C01. PDF, PNG e JPG ficam como referências, sem análise automática. Evite dados pessoais, clínicos ou segredos.</p>';
+ if(state.filesError)html+='<div class="note warning">'+escape(state.filesError)+'</div>';
+ for(const a of files)html+='<div class="statusLine"><b>'+escape(a.filename)+'</b> · '+Math.round(a.size_bytes/1024)+' KB <span class="small muted">'+(a.include_in_ai?"Texto disponível ao Afinamento":"Somente referência")+'</span> <button class="light" data-file-download="'+escape(a.id)+'" type="button">Baixar</button> <button class="light" data-file-remove="'+escape(a.id)+'" type="button">Remover</button></div>';
+ if(canAdd)html+='<form id="phaseFileForm" class="result" style="margin:12px 0"><label class="label" for="phaseFile">Selecione os arquivos</label><input id="phaseFile" type="file" multiple required accept=".txt,.md,.csv,.json,.docx,.pdf,.png,.jpg,.jpeg" class="field">'+
+ '<label class="small"><input id="fileUseAi" type="checkbox" '+(aiNotStarted?'checked':'disabled')+'> '+(aiNotStarted?'Usar os trechos de texto extraíveis no Afinamento':'C01 já começou: novos arquivos serão somente referência')+'</label>'+
+ '<label class="small"><input id="fileNoPersonal" type="checkbox" required> Confirmo que os arquivos não contêm dados pessoais, clínicos ou segredos.</label>'+
+ '<div class="row"><button class="light" type="submit">Anexar à missão</button><span id="fileProgress" class="small muted"></span></div></form>';
+ else html+='<p class="small muted">O upload fica disponível na Fase 1. Após autorização de execução, consulte ou remova os anexos já cadastrados. Nenhuma anexação altera pareceres anteriores.</p>';
+ return html+'</section>';
+}
 function budgetNote(m){
+ if(state.controls?.text_budget_paused===true)return '<div class="note"><b>Orçamento monetário da IA textual suspenso temporariamente.</b> Não precisa sair da missão para aprovar valores. Continuam 12 chamadas por Master em 24h, até 12 por missão e a parada de emergência. Custos e permissões das ferramentas externas continuam controlados pelo S00.</div>';
  if(m.budget_policy!=="budget_v1")return '<div class="note small">Missão legada: limite quantitativo de IA; orçamento monetário não alterado retroativamente.</div>';
  const b=state.budget?.budget;
  if(state.budget?.error)return '<div class="note warning">Orçamento indisponível: '+escape(state.budget.error)+'. Confirme o estado antes de executar.</div>';
@@ -166,7 +208,7 @@ function renderPhase(){
  pan.innerHTML='<h3>Prompt Afinado da missão</h3>'+(m.prompt_affinado?content(m.prompt_affinado):'<p class="muted">A missão foi salva no banco. Execute o Afinamento para gerar o plano de trabalho por IA.</p>')+
  '<div class="note">Afinamento progressivo: <b>C01, C03 e C08 executam chamadas independentes de IA</b>, com saídas persistidas. C02, C04, C05, C06 e C07 participam por regras e apoio determinístico, sem chamadas generativas independentes. Nenhuma conexão externa é simulada como verificada.</div><div id="orientationProgress" class="small muted" style="margin-top:12px">'+roles.length+' de 3 pareceres independentes concluídos</div>'+roles.map(x=>'<details class="result"><summary>'+escape(x.role_id)+' · parecer persistido</summary>'+content(JSON.stringify(x.output,null,2))+'</details>').join('')+
  (m.prompt_affinado?'<h3 style="margin-top:20px">Diagnóstico crítico</h3>'+content(JSON.stringify(r,null,2))+'<h3>Entregáveis previstos</h3>'+ (m.result_plan||[]).map((x,i)=>'<div class="statusLine"><b>'+ (i+1)+'. '+escape(x.titulo)+'</b><div class="small muted">'+escape(x.criterio)+'</div></div>').join(""):'')+
- budgetNote(m)+'<div class="row" style="margin-top:17px">'+(!m.prompt_affinado?'<button class="primary" data-op="run_orientation" '+(!state.health?.aiConfigured?"disabled":"")+'>Iniciar / continuar Afinamento por agentes</button>':'')+(m.status==="aguardando_autorizacao"?'<button class="primary" data-op="authorize" '+(r.bloqueio_critico?'disabled title="Revisão crítica pendente"':(m.budget_policy==="budget_v1"&&state.budget?.budget?.state!=="approved"?'disabled title="Aprovação de orçamento pendente"':''))+'>Autorizar execução textual</button>':'')+'</div>';
+ attachmentsSection(m)+budgetNote(m)+'<div class="row" style="margin-top:17px">'+(!m.prompt_affinado?'<button class="primary" data-op="run_orientation" '+(!state.health?.aiConfigured?"disabled":"")+'>Iniciar / continuar Afinamento por agentes</button>':'')+(m.status==="aguardando_autorizacao"?'<button class="primary" data-op="authorize" '+(r.bloqueio_critico?'disabled title="Revisão crítica pendente"':(m.budget_policy==="budget_v1"&&!state.controls?.text_budget_paused&&state.budget?.budget?.state!=="approved"?'disabled title="Aprovação de orçamento pendente"':''))+'>Autorizar execução textual</button>':'')+'</div>';
  }
  if(state.phase==="execucao"){
  pan.innerHTML='<h3>Execução autorizada</h3><p class="muted">Os resultados são gerados por IA individualmente. Uma falha não impede que os demais sejam produzidos. Não há execução de código, publicações ou alterações externas.</p>'+
@@ -191,12 +233,67 @@ async function change(op,slot){
  catch(e){notify(e.message)}
  finally{markBusy(false)}
 }
-$("loginForm").addEventListener("submit",async e=>{e.preventDefault();$("loginStatus").textContent="Autenticando...";try{await login($("email").value,$("password").value);$("password").value="";await list();await loadControls();$("loginStatus").textContent=""}catch(err){$("loginStatus").textContent=err.message}});
+$("loginForm").addEventListener("submit",async e=>{e.preventDefault();$("loginStatus").textContent="Autenticando...";try{await login($("email").value,$("password").value);$("password").value="";await Promise.all([list(),loadControls()]);await restoreMissionFromUrl();$("loginStatus").textContent=""}catch(err){$("loginStatus").textContent=err.message}});
 $("newForm").addEventListener("submit",async e=>{e.preventDefault();$("saveStatus").textContent="Salvando no Supabase...";markBusy(true);try{const r=await api("create",{project:state.project,title:$("missionTitle").value,request:$("missionText").value});$("saveStatus").textContent="";$("missionText").value="";$("missionTitle").value="";await openMission(r.mission.id);notify("Missão criada e armazenada.")}catch(err){notify(err.message)}finally{markBusy(false)}});
 $("projectMenu").addEventListener("click",async e=>{const b=e.target.closest("[data-project]");if(!b)return;state.project=b.dataset.project;document.querySelectorAll("[data-project]").forEach(x=>x.classList.toggle("selected",x===b));$("pageTitle").textContent="Missões · "+projects[state.project];state.current=null;state.details=null;$("newPanel").classList.remove("hidden");$("missionPanel").classList.add("hidden");await list()});
 $("missionList").addEventListener("click",async e=>{const b=e.target.closest("[data-id]");if(!b)return;try{await openMission(b.dataset.id)}catch(err){notify(err.message)}});
-$("missionPanel").addEventListener("click",async e=>{const b=e.target.closest("[data-op],[data-phase]");if(!b)return;if(b.dataset.phase){state.phase=b.dataset.phase;renderPhase()}if(b.dataset.op)change(b.dataset.op,b.dataset.slot===undefined?undefined:Number(b.dataset.slot))});
-$("showNew").onclick=$("backToNew").onclick=()=>{$("newPanel").classList.remove("hidden");$("missionPanel").classList.add("hidden")};
+async function uploadPhaseFiles(){
+ const m=state.details?.mission;if(!m||m.status!=="afinamento")throw Error("Anexos devem ser enviados antes de iniciar o Afinamento.");
+ const selected=[...($("phaseFile")?.files||[])];if(!selected.length)throw Error("Selecione arquivos.");
+ if(selected.length+(state.files||[]).length>5)throw Error("Máximo de 5 arquivos nesta missão.");
+ if(!$("fileNoPersonal")?.checked)throw Error("Confirme que os arquivos são institucionais, sem dados pessoais, clínicos ou segredos.");
+ const extMime={txt:"text/plain",md:"text/markdown",csv:"text/csv",json:"application/json",docx:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",pdf:"application/pdf",png:"image/png",jpg:"image/jpeg",jpeg:"image/jpeg"};
+ let done=0;
+ for(const file of selected){
+  const ext=file.name.toLowerCase().split(".").pop(),mime=extMime[ext],normalizedExt=ext==="jpeg"?"jpg":ext;
+  const normalizedName=ext==="jpeg"?file.name.slice(0,-5)+".jpg":file.name;
+  if(!mime||!Number.isInteger(file.size)||file.size<1||file.size>3145728)throw Error("Formato ou tamanho inválido: "+file.name);
+  const prepared=await filesApi(m.id,{action:"prepare",fileName:normalizedName,mime:file.type||"",size:file.size});
+  const endpoint=URL_SB+"/storage/v1/object/"+prepared.bucket+"/"+prepared.path.split("/").map(encodeURIComponent).join("/");
+  const progress=$("fileProgress");if(progress)progress.textContent="Enviando "+file.name+"…";
+  const r=await fetch(endpoint,{method:"POST",headers:{apikey:PK,Authorization:"Bearer "+state.token,"Content-Type":mime,"x-upsert":"false"},body:file});
+  if(!r.ok){let e={};try{e=await r.json()}catch{}throw Error("Falha no upload privado de "+file.name+": "+(e.message||r.status))}
+  try{
+   await filesApi(m.id,{action:"register",id:prepared.id,path:prepared.path,fileName:normalizedName,mime,size:file.size,includeInAi:prepared.canAnalyze&&$("fileUseAi")?.checked===true,acknowledgedNonPersonal:true});
+  }catch(e){
+   await fetch(endpoint,{method:"DELETE",headers:{apikey:PK,Authorization:"Bearer "+state.token}}).catch(()=>{});
+   throw e;
+  }
+  done++;
+ }
+ return done;
+}
+async function downloadPhaseFile(id){
+ const f=(state.files||[]).find(x=>x.id===id);if(!f)throw Error("Arquivo não encontrado nesta missão.");
+ const uri=URL_SB+"/storage/v1/object/authenticated/regente10-phase1/"+f.storage_path.split("/").map(encodeURIComponent).join("/");
+ const r=await fetch(uri,{headers:{apikey:PK,Authorization:"Bearer "+state.token}});
+ if(!r.ok)throw Error("Sem acesso a este arquivo privado.");
+ const blob=await r.blob(),href=URL.createObjectURL(blob),a=document.createElement("a");
+ a.href=href;a.download=f.filename;a.click();setTimeout(()=>URL.revokeObjectURL(href),3000);
+}
+$("missionPanel").addEventListener("submit",async e=>{
+ if(e.target.id!=="phaseFileForm")return;
+ e.preventDefault();markBusy(true);
+ try{const n=await uploadPhaseFiles();await openMission(state.current,"afinamento");notify(n+" arquivo(s) incluído(s) na Fase 1.");}
+ catch(err){notify(err.message)}finally{markBusy(false)}
+});
+$("missionPanel").addEventListener("click",async e=>{
+ const del=e.target.closest("[data-file-remove]"),down=e.target.closest("[data-file-download]");
+ if(del){
+  if(!confirm("Remover este anexo?"))return;
+  try{await filesApi(state.current,{action:"remove",id:del.dataset.fileRemove});await openMission(state.current,state.phase);notify("Arquivo removido.");}catch(err){notify(err.message)}
+  return;
+ }
+ if(down){try{await downloadPhaseFile(down.dataset.fileDownload)}catch(err){notify(err.message)}return;}
+ const b=e.target.closest("[data-op],[data-phase]");if(!b)return;
+ if(b.dataset.phase){
+  state.phase=b.dataset.phase;
+  history.replaceState(null,"","/?"+new URLSearchParams({missionId:state.current,phase:state.phase}));
+  renderPhase();
+ }
+ if(b.dataset.op)change(b.dataset.op,b.dataset.slot===undefined?undefined:Number(b.dataset.slot));
+});
+$("showNew").onclick=$("backToNew").onclick=()=>{history.replaceState(null,"","/");state.current=null;state.details=null;$("newPanel").classList.remove("hidden");$("missionPanel").classList.add("hidden")};
 $("reload").onclick=async()=>{try{if(state.current)await openMission(state.current);else await list();notify("Dados atualizados do servidor.")}catch(e){notify(e.message)}};
 $("stopAll").onclick=async()=>{if(!confirm("PARAR TUDO no Regente 1.0? Novas gerações serão bloqueadas; chamadas já iniciadas podem gerar custo e serão conciliadas."))return;try{await api("stop_all",{});await loadControls();notify("Parada de emergência ativada no Regente 1.0.")}catch(e){notify(e.message)}};
 $("resumeAll").onclick=async()=>{if(!confirm("Reativar novas operações somente no Regente 1.0?"))return;try{await api("resume_all",{confirm:true});await loadControls();notify("Regente 1.0 reativado.")}catch(e){notify(e.message)}};

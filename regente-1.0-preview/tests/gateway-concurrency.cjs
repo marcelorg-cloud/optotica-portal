@@ -89,7 +89,12 @@ async function main(){
  await db.query(fs.readFileSync(path.join(__dirname,"gateway-db-schema-fixture.sql"),"utf8").replace("create role anon;create role authenticated;",""));
  await db.query(fs.readFileSync(path.join(__dirname,"gateway-concurrency-ai-fixture.sql"),"utf8"));
  await db.query(fs.readFileSync(path.join(root,"migrations/20261012_phase1_budget_approval_and_reservations.sql"),"utf8"));
- for(const file of fs.readdirSync(path.join(root,"supabase/migrations")).sort()){
+ // This disposable PostgreSQL harness models Gateway plus its budget fixtures.
+ // Supabase Auth/Storage-specific migrations are tested on Supabase itself.
+ const portaoMigrations=fs.readdirSync(path.join(root,"supabase/migrations")).sort()
+  .filter(file=>/regente10_(?:operational_gateway|gateway_)/.test(file));
+ if(portaoMigrations.length<5)throw Error("Required gateway migrations missing");
+ for(const file of portaoMigrations){
   if(process.env.REGENTE_TEST_BASELINE==="1"&&file.includes("gateway_concurrency"))continue;
   await db.query(fs.readFileSync(path.join(root,"supabase/migrations",file),"utf8"));
  }
