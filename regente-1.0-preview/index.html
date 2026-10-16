@@ -236,8 +236,63 @@ $("loginForm").addEventListener("submit",async e=>{e.preventDefault();$("loginSt
 $("newForm").addEventListener("submit",async e=>{e.preventDefault();$("saveStatus").textContent="Salvando no Supabase...";markBusy(true);try{const r=await api("create",{project:state.project,title:$("missionTitle").value,request:$("missionText").value});$("saveStatus").textContent="";$("missionText").value="";$("missionTitle").value="";await openMission(r.mission.id);notify("Missão criada e armazenada.")}catch(err){notify(err.message)}finally{markBusy(false)}});
 $("projectMenu").addEventListener("click",async e=>{const b=e.target.closest("[data-project]");if(!b)return;state.project=b.dataset.project;document.querySelectorAll("[data-project]").forEach(x=>x.classList.toggle("selected",x===b));$("pageTitle").textContent="Missões · "+projects[state.project];state.current=null;state.details=null;$("newPanel").classList.remove("hidden");$("missionPanel").classList.add("hidden");await list()});
 $("missionList").addEventListener("click",async e=>{const b=e.target.closest("[data-id]");if(!b)return;try{await openMission(b.dataset.id)}catch(err){notify(err.message)}});
-$("missionPanel").addEventListener("click",async e=>{const b=e.target.closest("[data-op],[data-phase]");if(!b)return;if(b.dataset.phase){state.phase=b.dataset.phase;renderPhase()}if(b.dataset.op)change(b.dataset.op,b.dataset.slot===undefined?undefined:Number(b.dataset.slot))});
-$("showNew").onclick=$("backToNew").onclick=()=>{$("newPanel").classList.remove("hidden");$("missionPanel").classList.add("hidden")};
+async function uploadPhaseFiles(){
+ const m=state.details?.mission;if(!m||m.status!=="afinamento")throw Error("Anexos devem ser enviados antes de iniciar o Afinamento.");
+ const selected=[...($("phaseFile")?.files||[])];if(!selected.length)throw Error("Selecione arquivos.");
+ if(selected.length+(state.files||[]).length>5)throw Error("Máximo de 5 arquivos nesta missão.");
+ if(!$("fileNoPersonal")?.checked)throw Error("Confirme que os arquivos são institucionais, sem dados pessoais, clínicos ou segredos.");
+ const extMime={txt:"text/plain",md:"text/markdown",csv:"text/csv",json:"application/json",docx:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",pdf:"application/pdf",png:"image/png",jpg:"image/jpeg",jpeg:"image/jpeg"};
+ let done=0;
+ for(const file of selected){
+  const ext=file.name.toLowerCase().split(".").pop(),mime=extMime[ext],normalizedExt=ext==="jpeg"?"jpg":ext;
+  const normalizedName=ext==="jpeg"?file.name.slice(0,-5)+".jpg":file.name;
+  if(!mime||!Number.isInteger(file.size)||file.size<1||file.size>3145728)throw Error("Formato ou tamanho inválido: "+file.name);
+  const prepared=await filesApi(m.id,{action:"prepare",fileName:normalizedName,mime:file.type||"",size:file.size});
+  const endpoint=URL_SB+"/storage/v1/object/"+prepared.bucket+"/"+prepared.path.split("/").map(encodeURIComponent).join("/");
+  const progress=$("fileProgress");if(progress)progress.textContent="Enviando "+file.name+"…";
+  const r=await fetch(endpoint,{method:"POST",headers:{apikey:PK,Authorization:"Bearer "+state.token,"Content-Type":mime,"x-upsert":"false"},body:file});
+  if(!r.ok){let e={};try{e=await r.json()}catch{}throw Error("Falha no upload privado de "+file.name+": "+(e.message||r.status))}
+  try{
+   await filesApi(m.id,{action:"register",id:prepared.id,path:prepared.path,fileName:normalizedName,mime,size:file.size,includeInAi:prepared.canAnalyze&&$("fileUseAi")?.checked===true,acknowledgedNonPersonal:true});
+  }catch(e){
+   await fetch(endpoint,{method:"DELETE",headers:{apikey:PK,Authorization:"Bearer "+state.token}}).catch(()=>{});
+   throw e;
+  }
+  done++;
+ }
+ return done;
+}
+async function downloadPhaseFile(id){
+ const f=(state.files||[]).find(x=>x.id===id);if(!f)throw Error("Arquivo não encontrado nesta missão.");
+ const uri=URL_SB+"/storage/v1/object/authenticated/regente10-phase1/"+f.storage_path.split("/").map(encodeURIComponent).join("/");
+ const r=await fetch(uri,{headers:{apikey:PK,Authorization:"Bearer "+state.token}});
+ if(!r.ok)throw Error("Sem acesso a este arquivo privado.");
+ const blob=await r.blob(),href=URL.createObjectURL(blob),a=document.createElement("a");
+ a.href=href;a.download=f.filename;a.click();setTimeout(()=>URL.revokeObjectURL(href),3000);
+}
+$("missionPanel").addEventListener("submit",async e=>{
+ if(e.target.id!=="phaseFileForm")return;
+ e.preventDefault();markBusy(true);
+ try{const n=await uploadPhaseFiles();await openMission(state.current,"afinamento");notify(n+" arquivo(s) incluído(s) na Fase 1.");}
+ catch(err){notify(err.message)}finally{markBusy(false)}
+});
+$("missionPanel").addEventListener("click",async e=>{
+ const del=e.target.closest("[data-file-remove]"),down=e.target.closest("[data-file-download]");
+ if(del){
+  if(!confirm("Remover este anexo?"))return;
+  try{await filesApi(state.current,{action:"remove",id:del.dataset.fileRemove});await openMission(state.current,state.phase);notify("Arquivo removido.");}catch(err){notify(err.message)}
+  return;
+ }
+ if(down){try{await downloadPhaseFile(down.dataset.fileDownload)}catch(err){notify(err.message)}return;}
+ const b=e.target.closest("[data-op],[data-phase]");if(!b)return;
+ if(b.dataset.phase){
+  state.phase=b.dataset.phase;
+  history.replaceState(null,"","/?"+new URLSearchParams({missionId:state.current,phase:state.phase}));
+  renderPhase();
+ }
+ if(b.dataset.op)change(b.dataset.op,b.dataset.slot===undefined?undefined:Number(b.dataset.slot));
+});
+$("showNew").onclick=$("backToNew").onclick=()=>{history.replaceState(null,"","/");state.current=null;state.details=null;$("newPanel").classList.remove("hidden");$("missionPanel").classList.add("hidden")};
 $("reload").onclick=async()=>{try{if(state.current)await openMission(state.current);else await list();notify("Dados atualizados do servidor.")}catch(e){notify(e.message)}};
 $("stopAll").onclick=async()=>{if(!confirm("PARAR TUDO no Regente 1.0? Novas gerações serão bloqueadas; chamadas já iniciadas podem gerar custo e serão conciliadas."))return;try{await api("stop_all",{});await loadControls();notify("Parada de emergência ativada no Regente 1.0.")}catch(e){notify(e.message)}};
 $("resumeAll").onclick=async()=>{if(!confirm("Reativar novas operações somente no Regente 1.0?"))return;try{await api("resume_all",{confirm:true});await loadControls();notify("Regente 1.0 reativado.")}catch(e){notify(e.message)}};
