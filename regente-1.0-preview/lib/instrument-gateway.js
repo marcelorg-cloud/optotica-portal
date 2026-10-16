@@ -29,7 +29,7 @@ function createGateway({fetcher=fetch,provider=createProvider({fetcher}),rpc:ove
  async function discover(project,bindingId,query=""){const b=await binding(project,bindingId);if(!b.toolkit)throw error("toolkit_not_found");const d=await journal(project,"tools.discover",()=>provider.tools(b,query));await rpc("tools",{project,bindingId,tools:d.tools});return {count:d.tools.length,hasMore:d.hasMore,skipped:d.skipped,matches:d.tools.map(t=>({slug:t.slug,version:t.version}))};}
  async function bootstrap(project,{catalog,bindingIds}={}){
   const catalogData=catalog||await journal(project,"discover",()=>provider.catalog()),s=await state(project),counts={prepared:0,reused:0,unsupported:0,errors:0,catalogHasMore:catalogData.hasMore};
-  const rows=s.bindings.filter(b=>!bindingIds||bindingIds.includes(b.id));let index=0;
+  const rows=s.bindings.filter(b=>bindingIds?bindingIds.includes(b.id):["planned","discovered","unsupported","error","expired"].includes(b.status));let index=0;
   async function work(){while(index<rows.length){const b=rows[index++];try{
    const match=provider.matchToolkit(catalogData.items,b.service_name);
    await rpc("discovery",{project,bindingId:b.id,...(match||{toolkit:null,authSchemes:[],noAuth:false,managedOauth:false})});
@@ -37,6 +37,24 @@ function createGateway({fetcher=fetch,provider=createProvider({fetcher}),rpc:ove
    const r=await prepare(project,b.id);r.reused?counts.reused++:counts.prepared++;if(r.state==="error")counts.errors++;await discover(project,b.id).catch(()=>{counts.errors++;});
   }catch{counts.errors++;}}}
   await Promise.all(Array.from({length:Math.min(4,rows.length)},work));return counts;
+ }
+ // Recheck only exact project-owned account IDs already created in Composio.
+ // No authorization links, new accounts, cross-project reuse or tool execution.
+ async function reconcilePending(project,limit=15){
+  const s=await state(project),rows=s.bindings.filter(b=>b.account_id&&b.toolkit&&b.provider_user_id&&
+    (["pending","expired","error"].includes(b.status)||
+    (b.status==="active"&&(!b.verified_at||Date.now()-Date.parse(b.verified_at)>86400000)))).slice(0,Math.min(limit,20));
+  const counts={checked:0,activated:0,stillPending:0,expired:0,failed:0,toolCalls:0,credentialsExposed:false};
+  for(const b of rows){
+   try{
+    const v=await verify(project,b.id);counts.checked++;
+    if(v.state==="active"||v.state==="no_auth")counts.activated++;
+    else if(v.state==="pending")counts.stillPending++;
+    else if(v.state==="expired"||v.state==="blocked")counts.expired++;
+    else counts.failed++;
+   }catch{counts.failed++;}
+  }
+  return counts;
  }
  async function status(project,token){const d=await rpc("status",{project},token);d.connections=d.connections.map(b=>{const {encrypted_link,...row}=b;row.configurationUrl="https://dashboard.composio.dev/";row.documentationUrl=b.toolkit?"https://docs.composio.dev/toolkits/"+encodeURIComponent(b.toolkit):null;
   if(encrypted_link&&new Date(b.link_expires_at)>new Date()&&b.status==="pending")try{row.connectUrl=decryptLink(encrypted_link,b)}catch{row.diagnostic="connect_link_unavailable";}
@@ -65,7 +83,7 @@ function createGateway({fetcher=fetch,provider=createProvider({fetcher}),rpc:ove
   await rpc("complete",{project,eventId,...result});return {...result,eventId,reused:false,untrusted:true};
  }
  async function executeForAgent(p){const r=await executeApproved(p);return {state:r.state,eventId:r.eventId,logId:r.logId||null,reused:r.reused===true,resultAccess:"master_only",untrusted:true};}
- return {rpc,state,prepare,verify,discover,bootstrap,status,approve,executeApproved,executeForAgent};
+ return {rpc,state,prepare,verify,discover,bootstrap,reconcilePending,status,approve,executeApproved,executeForAgent};
 }
 // This is the only instrument tool contract given to an agent. No provider URL,
 // account selector, credentials, argument overrides, or natural-language execution.
