@@ -175,16 +175,17 @@ async function openMission(id,phaseOverride){
 function content(text){return '<pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:480px;overflow:auto;border:1px solid var(--line);border-radius:10px;background:#f6f8f6;padding:14px;font-size:13px;line-height:1.6">'+escape(text)+'</pre>'}
 const currencyBRL=x=>Number(x||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:2,maximumFractionDigits:4});
 function attachmentsSection(m){
- const files=state.files||[],canAdd=m.status==="afinamento"&&!m.paused;
+ const files=state.files||[],canAdd=["afinamento","aguardando_autorizacao"].includes(m.status)&&!m.paused;
+ const aiNotStarted=m.status==="afinamento"&&!(state.orientation?.steps||[]).length;
  let html='<section class="result"><h3>Arquivos da missão · Fase 1</h3>'+
  '<p class="small muted">Até 5 arquivos, máximo 3 MB cada. TXT, MD, CSV, JSON e DOCX podem fornecer trechos textuais para C01. PDF, PNG e JPG ficam como referências, sem análise automática. Evite dados pessoais, clínicos ou segredos.</p>';
  if(state.filesError)html+='<div class="note warning">'+escape(state.filesError)+'</div>';
  for(const a of files)html+='<div class="statusLine"><b>'+escape(a.filename)+'</b> · '+Math.round(a.size_bytes/1024)+' KB <span class="small muted">'+(a.include_in_ai?"Texto disponível ao Afinamento":"Somente referência")+'</span> <button class="light" data-file-download="'+escape(a.id)+'" type="button">Baixar</button> <button class="light" data-file-remove="'+escape(a.id)+'" type="button">Remover</button></div>';
- if(canAdd)html+='<form id="phaseFileForm" class="result" style="margin:12px 0"><label class="label" for="phaseFile">Selecione os arquivos (antes de iniciar C01)</label><input id="phaseFile" type="file" multiple required accept=".txt,.md,.csv,.json,.docx,.pdf,.png,.jpg,.jpeg" class="field">'+
- '<label class="small"><input id="fileUseAi" type="checkbox" checked> Usar os trechos de texto extraíveis no Afinamento</label>'+
+ if(canAdd)html+='<form id="phaseFileForm" class="result" style="margin:12px 0"><label class="label" for="phaseFile">Selecione os arquivos</label><input id="phaseFile" type="file" multiple required accept=".txt,.md,.csv,.json,.docx,.pdf,.png,.jpg,.jpeg" class="field">'+
+ '<label class="small"><input id="fileUseAi" type="checkbox" '+(aiNotStarted?'checked':'disabled')+'> '+(aiNotStarted?'Usar os trechos de texto extraíveis no Afinamento':'C01 já começou: novos arquivos serão somente referência')+'</label>'+
  '<label class="small"><input id="fileNoPersonal" type="checkbox" required> Confirmo que os arquivos não contêm dados pessoais, clínicos ou segredos.</label>'+
  '<div class="row"><button class="light" type="submit">Anexar à missão</button><span id="fileProgress" class="small muted"></span></div></form>';
- else if(m.status!=="afinamento")html+='<p class="small muted">O Afinamento já foi registrado. Anexos posteriores são somente referência: não alteram automaticamente os pareceres anteriores.</p>';
+ else html+='<p class="small muted">O upload fica disponível na Fase 1. Após autorização de execução, consulte ou remova os anexos já cadastrados. Nenhuma anexação altera pareceres anteriores.</p>';
  return html+'</section>';
 }
 function budgetNote(m){
