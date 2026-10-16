@@ -70,6 +70,10 @@ module.exports=async(req,res)=>{
    if(!UUID.test(id)||!type||!Number.isInteger(size)||size<1||size>MAX_BYTES||params.acknowledgedNonPersonal!==true)
     return respond(res,400,{error:"Dados do arquivo inválidos ou confirmação de conteúdo institucional ausente."});
    if(personal(filename)||includeInAi&&!type.canAnalyze)return respond(res,400,{error:"Nome pessoal ou formato sem extração de texto validada."});
+   if(includeInAi){
+    const steps=await db(token,"regente10_orientation_steps?select=id&mission_id=eq."+m.id+"&owner_id=eq."+uid+"&limit=1");
+    if(m.status!=="afinamento"||steps?.length)return respond(res,409,{error:"C01 já começou ou a Partitura foi finalizada. Este arquivo pode ser referência, mas não alterará o Afinamento. Desmarque a inclusão na IA."});
+   }
    if(storagePath!==uid+"/"+m.id+"/"+id+"."+type.extension)return respond(res,400,{error:"Arquivo fora da missão."});
    const a=await db(token,"regente10_mission_files",{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify({
     id,owner_id:uid,mission_id:m.id,storage_path:storagePath,filename,mime:type.mime,
