@@ -11,7 +11,7 @@ label{display:flex;flex-direction:column;gap:5px;font-weight:600}input{width:100
 button{border:1px solid var(--forest);border-radius:9px;padding:10px 14px;color:white;background:var(--forest);cursor:pointer;font:inherit}button:disabled{opacity:.55;cursor:not-allowed}.secondary{background:white;color:var(--forest)}
 .cost{font-size:23px;font-weight:750}.row{display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap;align-items:center}.sep{border-top:1px solid var(--line);margin:15px 0}
 </style></head><body>
-<header><div><h1>Fase 1 · Orçamento da missão</h1><div style="font-size:12px;color:#bbd7c6">Regente 1.0 · Maestro / Master</div></div><a href="/">← Voltar às missões</a></header>
+<header><div><h1>Fase 1 · Orçamento da missão</h1><div style="font-size:12px;color:#bbd7c6">Regente 1.0 · Maestro / Master</div></div><a id="backMission" href="/">← Voltar à missão</a></header>
 <main>
 <div class="box"><h2>Estado do orçamento</h2><p id="status">Consultando orçamento...</p><div id="overview"></div></div>
 <div class="box"><h2>Previsão financeira</h2>
@@ -32,6 +32,7 @@ button{border:1px solid var(--forest);border-radius:9px;padding:10px 14px;color:
 <script>
 "use strict";
 const $=id=>document.getElementById(id),id=new URLSearchParams(location.search).get("missionId");
+$("backMission").href=id?"/?missionId="+encodeURIComponent(id)+"&phase=afinamento":"/";
 const escape=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const brl=v=>Number(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:2,maximumFractionDigits:4});
 let state={budget:null,policy:null};
