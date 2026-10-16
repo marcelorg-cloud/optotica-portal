@@ -1,7 +1,7 @@
 "use strict";
 const {cookieToken,verifyMaster,sameOrigin,noStore}=require("../lib/master-session.js");
 const {createGateway}=require("../lib/instrument-gateway.js"),{PROJECTS,UUID,error}=require("../lib/gateway-contract.js");
-const FIELDS={bootstrap:[],prepare:["bindingId"],reconnect:["bindingId"],verify:["bindingId","attemptId"],discover:["bindingId","query"],cap:["capBrl","fx","confirm"],approve:["missionId","bindingId","toolSlug","version","arguments","unitMaxBrl","maxCalls","ttlMinutes","priceSource","costVerified","confirm","confirmNonPersonal","dataClass","resourceDescription"],revoke:["grantId"],execute:["grantId","requestKey"]};
+const FIELDS={bootstrap:[],reconcile:[],prepare:["bindingId"],reconnect:["bindingId"],verify:["bindingId","attemptId"],discover:["bindingId","query"],cap:["capBrl","fx","confirm"],approve:["missionId","bindingId","toolSlug","version","arguments","unitMaxBrl","maxCalls","ttlMinutes","priceSource","costVerified","confirm","confirmNonPersonal","dataClass","resourceDescription"],revoke:["grantId"],execute:["grantId","requestKey"]};
 module.exports=async(req,res)=>{
  noStore(res);if(!["GET","POST"].includes(req.method))return res.status(405).json({error:"Método não permitido."});
  if(req.method==="POST"&&!sameOrigin(req))return res.status(403).json({error:"Origem não autorizada.",code:"invalid_origin"});
@@ -18,7 +18,8 @@ module.exports=async(req,res)=>{
   if(!Object.hasOwn(FIELDS,action)||Object.keys(p).some(k=>!["project","action",...FIELDS[action]].includes(k)))throw error("invalid_action",400);
   for(const key of ["bindingId","grantId","missionId","requestKey","attemptId"])if(p[key]!==undefined&&!UUID.test(p[key]))throw error("invalid_identifier",400);
   let d;
-  if(action==="bootstrap"){
+  if(action==="reconcile")d=await gateway.reconcilePending(p.project);
+  else if(action==="bootstrap"){
    const s=await gateway.state(p.project),ids=s.bindings.filter(b=>["planned","discovered","unsupported","error","expired"].includes(b.status)).slice(0,4).map(b=>b.id);
    d=ids.length?await gateway.bootstrap(p.project,{bindingIds:ids}):{reused:s.bindings.length,prepared:0};
   }else if(["prepare","reconnect"].includes(action))d=await gateway.prepare(p.project,p.bindingId,action==="reconnect");
