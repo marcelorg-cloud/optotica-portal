@@ -10,7 +10,7 @@ function req(method="GET",body={},query={missionId:ID}){
 }
 function res(){return {statusCode:200,body:null,setHeader(){return this},status(n){this.statusCode=n;return this},json(x){this.body=x;return this}}}
 const sample={mission_id:ID,owner_id:USER,state:"draft",currency:"BRL",estimated_text_brl:0.75,estimated_other_brl:10,estimated_total_brl:10.75,margin_pct:50,cap_brl:16.125,fx_brl_per_usd:5,reserved_brl:0,metered_brl:0};
-function mock({legacy=false,paused=false,status="aguardando_autorizacao"}={}){
+function mock({legacy=false,paused=false,status="aguardando_autorizacao",textBudgetPaused=false}={}){
  const calls=[];
  global.fetch=async(uri,opt={})=>{
   const url=String(uri),method=opt.method||"GET";calls.push({url,method,body:opt.body});
@@ -19,6 +19,7 @@ function mock({legacy=false,paused=false,status="aguardando_autorizacao"}={}){
   else if(url.includes("/system_admins?"))value=[{user_id:USER}];
   else if(url.includes("/regente10_missions?"))value=[{id:ID,owner_id:USER,project:"born-robot",status,paused,budget_policy:legacy?"legacy":"budget_v1"}];
   else if(url.includes("/regente10_mission_budgets?"))value=[sample];
+  else if(url.includes("/regente10_controls?"))value=[{text_budget_paused:textBudgetPaused}];
   else if(url.endsWith("/rpc/regente10_budget_submit"))value={state:"draft",estimated_total_brl:10.75,cap_brl:16.125};
   else if(url.endsWith("/rpc/regente10_budget_approve"))value={state:"approved",cap_brl:16.125};
   else throw Error("Unexpected mock request "+url);
@@ -70,4 +71,16 @@ test("budget draft refuses paused mission",async()=>{
 test("budget draft is restricted to post-Afinamento",async()=>{
  const calls=mock({status:"afinamento"}),r=res();await budget(req("POST",{missionId:ID,action:"draft",fx:5,marginPct:50,otherEstimate:0}),r);
  assert.equal(r.statusCode,409);assert(!calls.some(x=>x.url.endsWith("/rpc/regente10_budget_submit")));
+});
+
+test("suspended textual budget is informational, not a blocking approval form",async()=>{
+ const calls=mock({textBudgetPaused:true}),r=res();await budget(req(),r);
+ assert.equal(r.statusCode,200);assert.equal(r.body.textBudgetPaused,true);
+ assert(!calls.some(x=>x.url.endsWith("/rpc/regente10_budget_approve")));
+});
+test("budget POST cannot accidentally approve a suspended textual budget",async()=>{
+ const calls=mock({textBudgetPaused:true}),r=res();
+ await budget(req("POST",{missionId:ID,action:"approve",confirm:true}),r);
+ assert.equal(r.statusCode,409);assert.match(r.body.error,/temporariamente suspensa/);
+ assert(!calls.some(x=>x.url.endsWith("/rpc/regente10_budget_approve")));
 });
