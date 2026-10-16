@@ -1,0 +1,37 @@
+name: Catalog AliExpress mirror import checks
+on:
+  push:
+    branches: [feat/catalog-aliexpress-mirror-scale-20261016]
+  pull_request:
+    paths:
+      - 'lib/catalog/mirror-batch.ts'
+      - 'lib/catalog/parse-supplier-list.ts'
+      - 'app/api/admin/catalog/mirror/**'
+      - 'components/catalog/supplier-product-selection.tsx'
+      - 'tests/catalog-mirror.test.mjs'
+      - 'supabase/migrations/202610162100_aliexpress_supplier_mirror_queue.sql'
+      - '.github/workflows/catalog-aliexpress-mirror.yml'
+permissions:
+  contents: read
+jobs:
+  catalog-mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install lockfile dependencies
+        run: npm ci
+      - name: Type generation
+        run: npx --no-install next typegen
+      - name: Verify TypeScript contracts
+        run: npm run typecheck
+      - name: Verify importer guards
+        run: |
+          node --test tests/supplier-list.test.mjs
+          node --test tests/catalog-mirror.test.mjs

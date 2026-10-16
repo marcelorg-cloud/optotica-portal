@@ -19,6 +19,11 @@ export function SupplierProductSelection({ supplier, existing, onImported }: {
   const [listingBusy, setListingBusy] = useState(false);
   const [listingProgress, setListingProgress] = useState('');
   const [automatic, setAutomatic] = useState(false);
+  const [mirrorTotal, setMirrorTotal] = useState(0);
+  const [mirrorConfigured, setMirrorConfigured] = useState(false);
+  const [mirrorBusy, setMirrorBusy] = useState(false);
+  const [syncPage, setSyncPage] = useState(1);
+  const [syncPages, setSyncPages] = useState(1);
   const [lastPage, setLastPage] = useState(0);
   const [morePages, setMorePages] = useState(true);
   const [progress, setProgress] = useState('');
@@ -29,6 +34,17 @@ export function SupplierProductSelection({ supplier, existing, onImported }: {
 
   useEffect(() => {
     let active = true;
+    fetch(`/api/admin/catalog/mirror?supplierId=${encodeURIComponent(supplier.id)}`).then(async response => {
+      const payload = await response.json().catch(() => ({}));
+      if (!active || !response.ok) return;
+      setMirrorConfigured(payload.apiConfigured === true);
+      setMirrorTotal(payload.total || 0);
+      setRows(previous => {
+        const known = new Set(previous.map(row => row.itemId));
+        return [...previous, ...(payload.items || []).filter((item: SupplierListingItem) => !known.has(item.itemId))
+          .map((item: SupplierListingItem) => ({...item, selected:false, formatCode:'', materialCode:''}))];
+      });
+    }).catch(() => { if (active) setMessage('Não foi possível consultar o espelho persistente.'); });
     fetch(`/api/admin/catalog/suppliers/${supplier.id}/listing?page=1`).then(async (response) => {
       const payload = await response.json();
       if (!active) return;
@@ -37,7 +53,11 @@ export function SupplierProductSelection({ supplier, existing, onImported }: {
       setAutomatic(true);
       setLastPage(1);
       setMorePages(payload.items.length > 0);
-      setRows(payload.items.map((item: SupplierListingItem) => ({ ...item, selected: false, formatCode: '', materialCode: '' })));
+      setRows(previous => {
+        const known = new Set(previous.map(row => row.itemId));
+        return [...previous, ...payload.items.filter((item: SupplierListingItem) => !known.has(item.itemId))
+          .map((item: SupplierListingItem) => ({ ...item, selected: false, formatCode: '', materialCode: '' }))];
+      });
     }).catch(() => { if (active) setMessage('A lista automática não carregou. Você pode colar o JSON abaixo.'); });
     return () => { active = false; };
   }, [supplier.id]);
@@ -66,15 +86,57 @@ export function SupplierProductSelection({ supplier, existing, onImported }: {
     finally { setListingProgress(''); setListingBusy(false); }
   }
 
-  function addPage() {
+  async function refreshMirror() {
+    const r = await fetch(`/api/admin/catalog/mirror?supplierId=${encodeURIComponent(supplier.id)}`);
+    const payload = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(payload.message || 'Falha ao consultar o espelho.');
+    setMirrorConfigured(payload.apiConfigured === true);
+    setMirrorTotal(payload.total || 0);
+    const items = (payload.items || []) as SupplierListingItem[];
+    setRows((previous) => {
+      const known = new Set(previous.map(item => item.itemId));
+      return [...previous, ...items.filter(item => !known.has(item.itemId))
+        .map(item => ({...item, selected:false, formatCode:'', materialCode:''}))];
+    });
+  }
+
+  async function addPage() {
+    if (!raw.trim()) return;
+    setMirrorBusy(true);setMessage('');
     try {
-      const parsed = parseSupplierList(raw, supplier.storeId);
-      const known = new Set(rows.map((row) => row.itemId));
-      const added = parsed.filter((item) => !known.has(item.itemId));
-      setRows((old) => [...old, ...added.map((item) => ({ ...item, selected: false, formatCode, materialCode }))]);
-      setMessage(`${added.length} produto(s) acrescentado(s). ${parsed.length - added.length} já constava(m) na lista.`);
+      const parsed = parseSupplierList(raw,supplier.storeId);
+      const response = await fetch('/api/admin/catalog/mirror',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'ingest_json',supplierId:supplier.id,raw})
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'Falha ao armazenar a lista.');
+      await refreshMirror();
+      setMessage(`${payload.saved} novo(s) candidato(s) guardado(s) no espelho; ${payload.inCatalog} já no catálogo; ${payload.alreadyKnown} já no espelho. Total no lote: ${parsed.length}. Nenhum modelo foi publicado.`);
       setRaw('');
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Não foi possível analisar a lista.'); }
+    } catch(error) { setMessage(error instanceof Error?error.message:'Falha ao guardar os candidatos.'); }
+    finally {setMirrorBusy(false);}
+  }
+
+  async function syncMirror() {
+    if (!mirrorConfigured) return setMessage('A API AliExpress DataHub ainda não está configurada. Use a importação por JSON.');
+    if (!confirm(`Buscar até ${syncPages} página(s) no AliExpress pela API RapidAPI? As consultas podem consumir créditos do provedor.`)) return;
+    setMirrorBusy(true);setMessage('');
+    let added=0,failed=0,page=syncPage;
+    try {
+      for(let i=0;i<syncPages;i++){
+        setListingProgress(`Sincronizando página ${page}…`);
+        const response=await fetch('/api/admin/catalog/mirror',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'sync_page',supplierId:supplier.id,page})});
+        const payload=await response.json().catch(() => ({}));
+        if(!response.ok) {failed++;setMessage(payload.message||'Falha na consulta à loja.');break;}
+        added+=payload.saved||0;page++;
+        if(!payload.sourceCount) break;
+      }
+      setSyncPage(page);await refreshMirror();
+      if(!failed)setMessage(`${added} novo(s) candidato(s) adicionados ao espelho. Todos aguardam classificação; nada publicado.`);
+    }catch(e){setMessage(e instanceof Error?e.message:'Falha na sincronização.')}
+    finally{setListingProgress('');setMirrorBusy(false);}
   }
 
   function updateRow(id: string, patch: Partial<Row>) {
@@ -105,6 +167,10 @@ export function SupplierProductSelection({ supplier, existing, onImported }: {
           if (response.ok) {
             imported++;
             updateRow(row.itemId, { state: 'imported', selected: false, productId: result.id, message: 'Em triagem' });
+            await fetch('/api/admin/catalog/mirror',{
+              method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({action:'mark_imported',supplierId:supplier.id,supplierItemId:row.itemId,productId:result.id})
+            }).catch(() => {});
           } else {
             failed++;
             updateRow(row.itemId, { state: 'error', message: result.message || 'Falha ao importar' });
@@ -121,10 +187,16 @@ export function SupplierProductSelection({ supplier, existing, onImported }: {
 
   return <section className="card" style={{ padding: 18, marginBottom: 20 }} aria-label={`Produtos da loja ${supplier.name}`}>
     <h2 style={{ marginTop: 0 }}>Produtos de {supplier.name}</h2>
-    <p className="helper">Store ID {supplier.storeId}. {automatic ? 'Lista da loja carregada pela API. Continue pelas páginas para conferir todos os produtos.' : 'Cole a resposta JSON da busca de produtos da loja (Store Item Search). Para ver a loja inteira, acrescente cada página da resposta.'} Os produtos entram em triagem; foto e preço aqui são apenas referências da listagem.</p>
+    <p className="helper">Store ID {supplier.storeId}. <strong>{mirrorTotal} anúncios no espelho persistente.</strong> {automatic ? 'Lista da loja consultada pela API.' : 'A API automática ainda não está configurada; cole a resposta JSON de Store Item Search.'} Os produtos não são publicados automaticamente. Foto e preço são referências do fornecedor, não estoque nem cotação garantidos.</p>
     <textarea rows={4} value={raw} disabled={busy} onChange={(event) => setRaw(event.target.value)} placeholder="Cole aqui o JSON de uma página da lista da loja" aria-label="JSON da lista de produtos da loja" style={{ width: '100%', fontFamily: 'monospace', fontSize: 12 }} />
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-      <button className="button secondary small" type="button" onClick={addPage} disabled={busy || !raw.trim()}>Acrescentar página</button>
+      <button className="button secondary small" type="button" onClick={() => void addPage()} disabled={busy || mirrorBusy || !raw.trim()}>{mirrorBusy ? 'Salvando espelho...' : 'Salvar página no espelho'}</button>
+      <button className="button secondary small" type="button" onClick={() => void refreshMirror().catch(e=>setMessage(e.message))} disabled={busy || mirrorBusy}>Atualizar espelho</button>
+      {mirrorConfigured && <><label style={{display:'inline-flex',gap:5,alignItems:'center'}}>Páginas da API
+        <input type="number" min={1} max={5} value={syncPages} onChange={e=>setSyncPages(Math.max(1,Math.min(5,Number(e.target.value)||1)))} style={{width:58}} />
+      </label><button className="button secondary small" type="button" onClick={() => void syncMirror()} disabled={busy || mirrorBusy}>
+        {mirrorBusy ? listingProgress || 'Sincronizando...' : 'Sincronizar via AliExpress'}
+      </button></>}
       {automatic && morePages && <button className="button secondary small" type="button" onClick={() => void loadNextPage(true)} disabled={busy || listingBusy}>{listingBusy ? listingProgress : 'Carregar toda a loja'}</button>}
       {rows.length > 0 && <button className="button secondary small" type="button" onClick={() => { setRows([]); setMessage('Lista limpa.'); }} disabled={busy}>Limpar lista</button>}
     </div>
@@ -150,6 +222,7 @@ export function SupplierProductSelection({ supplier, existing, onImported }: {
             <input type="checkbox" aria-label={`Selecionar ${row.title}`} disabled={busy || !!existingId} checked={!!row.selected && !existingId} onChange={(event) => updateRow(row.itemId, { selected: event.target.checked, formatCode: row.formatCode || formatCode, materialCode: row.materialCode || materialCode })} />
             {row.imageUrl ? <img src={row.imageUrl} alt="Uma cor do produto" loading="lazy" style={{ width: 60, height: 60, objectFit: 'contain', borderRadius: 6 }} /> : <span className="helper" style={{ width: 60 }}>Sem foto</span>}
             <div style={{ flex: '1 1 220px', minWidth: 180 }}><strong>{row.title}</strong><div className="helper">Product ID {row.itemId}{row.supplierSku ? ` · SKU ${row.supplierSku}` : ''} · {row.price ? `${row.currency ? `${row.currency} ` : ''}${row.price}` : 'Preço indisponível'}</div>{row.message && <small className="helper">{row.message}</small>}</div>
+            <a href={`https://www.aliexpress.com/item/${row.itemId}.html`} target="_blank" rel="noopener noreferrer" className="helper">Ver anúncio original ↗</a>
             {existingId ? <Link href={`/admin/catalogo/${existingId}`}>No catálogo →</Link> : <>
               <select aria-label={`Formato de ${row.title}`} disabled={busy} value={row.formatCode} onChange={(event) => updateRow(row.itemId, { formatCode: event.target.value })}><option value="">Formato</option>{FORMAT_OPTIONS.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}</select>
               <select aria-label={`Material de ${row.title}`} disabled={busy} value={row.materialCode} onChange={(event) => updateRow(row.itemId, { materialCode: event.target.value })}><option value="">Material</option>{MATERIAL_OPTIONS.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}</select>
