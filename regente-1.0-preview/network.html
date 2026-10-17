@@ -57,7 +57,7 @@ async function load(){
  $("status").textContent="Consultando catálogo e estado autorizado...";
  try{
   if(!token())throw Error("Entre primeiro com sua conta Master na página Missões.");
-  const [catalog,live,mlist]=await Promise.all([fetch("/network-catalog.json").then(r=>r.json()),req("GET","/api/network"),req("GET","/api/mission?action=list")]);
+  const [catalog,live,mlist]=await Promise.all([req("GET","/api/panel?view=catalog"),req("GET","/api/network"),req("GET","/api/mission?action=list")]);
   entries=catalog.nodes||[];checks=Object.fromEntries((live.checks||[]).map(v=>[v.node_id,v]));
   missions=mlist.missions||[];
   const select=$("missionSelect"),current=select.value;
