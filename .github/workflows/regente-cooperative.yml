@@ -1,0 +1,29 @@
+name: Regente cooperative foundation
+on:
+  pull_request:
+    paths:
+      - 'regente/lib/cooperative-*.ts'
+      - 'regente/app/api/orchestra/cooperative/**'
+      - 'regente/tests/cooperative-orchestra.test.mjs'
+      - 'regente/lib/resolution-library.ts'
+      - 'regente/lib/general-score.ts'
+      - 'regente/tests/resolution-library.test.mjs'
+      - 'regente/tests/general-score.test.mjs'
+      - 'regente/lib/cooperative-governance.ts'
+      - 'regente/tests/cooperative-governance.test.mjs'
+      - 'regente/docs/v0.8-*.md'
+      - '.github/workflows/regente-cooperative.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Cooperative DAG and coordination contracts
+        run: node --experimental-strip-types --test regente/tests/cooperative-orchestra.test.mjs regente/tests/resolution-library.test.mjs regente/tests/general-score.test.mjs regente/tests/cooperative-governance.test.mjs
