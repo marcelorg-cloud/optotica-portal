@@ -88,7 +88,7 @@ export default async function ProfessionalPatientsPage({ searchParams }: { searc
                 {openOrderId && (
                   <Link className="button primary" href={`/profissional/pacientes/${patient.client_id}/pedido/${openOrderId}`}>Continuar atendimento</Link>
                 )}
-                <Link className="button secondary" href={`/profissional/pacientes/${patient.client_id}/pedido/novo`}>Novo pedido</Link>
+                <Link className="button secondary" href={`/profissional/pacientes/${patient.client_id}/pedido/novo`}>Novo atendimento</Link>
               </div>
             </div>
           );
