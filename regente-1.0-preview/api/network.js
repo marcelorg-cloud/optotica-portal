@@ -1,4 +1,5 @@
 "use strict";
+const NETWORK_CATALOG=require("../network-catalog.json");
 const API=process.env.SUPABASE_URL||"https://xepkdqcbjrictowriccb.supabase.co";
 const KEY=process.env.SUPABASE_PUBLISHABLE_KEY||"sb_publishable_F-DN3Z4GZbX5j2IeXtq5cw_rJHP6mfw";
 const ok=(res,status,data)=>res.status(status).json(data);
@@ -49,7 +50,7 @@ module.exports=async(req,res)=>{
   const {token,uid}=await master(req);
   if(req.method==="GET"){
    const report=await db(token,"regente10_adapter_checks?select=node_id,operation,state,evidence,checked_at&owner_id=eq."+uid+"&order=checked_at.desc&limit=30");
-   return ok(res,200,{checks:report,roleStatus:{A1:"configured_text_only",A2:"configured_text_only",A3:"configured_text_only",A4:"configured_text_only",A5:"local",A6:"manual"},scope:"Regente 1.0; nenhum instrumento externo habilitado para escrita"});
+   return ok(res,200,{checks:report,catalog:NETWORK_CATALOG,roleStatus:{A1:"configured_text_only",A2:"configured_text_only",A3:"configured_text_only",A4:"configured_text_only",A5:"local",A6:"manual"},scope:"Regente 1.0; nenhum instrumento externo habilitado para escrita"});
   }
   const id=String(req.body?.node||"");
   if(!IDS.has(id))return ok(res,400,{error:"Instrumento inválido."});

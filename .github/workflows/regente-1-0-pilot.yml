@@ -38,6 +38,8 @@ jobs:
         run: node --test regente-1.0-preview/tests/pilot.test.cjs
       - name: Network executor and tool contract tests
         run: node --test regente-1.0-preview/tests/network.test.cjs
+      - name: Master-authenticated network catalog regression
+        run: node --test regente-1.0-preview/tests/network-catalog.test.cjs
       - name: Read-only hub bridge authorization tests
         run: node --test regente-1.0-preview/tests/bridges.test.cjs
       - name: S00 resource and governance policy tests
