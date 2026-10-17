@@ -1,0 +1,57 @@
+name: Regente 1.0 pilot syntax and guard checks
+
+on:
+  push:
+    branches: [feat/regente-1-0-standalone]
+  pull_request:
+    paths:
+      - 'regente-1.0-preview/**'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Check serverless Node syntax
+        run: |
+          node --check regente-1.0-preview/api/mission.js
+          node --check regente-1.0-preview/api/orientation.js
+          node --check regente-1.0-preview/api/network.js
+          node --check regente-1.0-preview/api/bridges.js
+          node --check regente-1.0-preview/api/agents.js
+      - name: Pilot authenticated route behavior (mocked network)
+        run: node --test regente-1.0-preview/tests/pilot.test.cjs
+      - name: Network executor and tool contract tests
+        run: node --test regente-1.0-preview/tests/network.test.cjs
+      - name: Read-only hub bridge authorization tests
+        run: node --test regente-1.0-preview/tests/bridges.test.cjs
+      - name: Check browser script syntax and architecture
+        run: |
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const vm=require('node:vm');
+          const assert=require('node:assert/strict');
+          const dir='regente-1.0-preview/';
+          const html=fs.readFileSync(dir+'index.html','utf8');
+          const js=html.match(/<script>([\s\S]*?)<\/script>/);
+          assert(js,'Inline browser script absent');
+          new vm.Script(js[1],{filename:'index.html:script'});
+          const network=fs.readFileSync(dir+'network.html','utf8');
+          const networkJs=network.match(/<script>([\s\S]*?)<\/script>/);
+          assert(networkJs,'Network admin script absent');
+          new vm.Script(networkJs[1],{filename:'network.html:script'});
+          const mission=fs.readFileSync(dir+'api/mission.js','utf8');
+          const orientation=fs.readFileSync(dir+'api/orientation.js','utf8');
+          assert(mission.includes('regente10_reserve_ai_call'),'Missing atomic reservation');
+          assert(mission.includes('stop_all') && mission.includes('resume_all'),'Missing emergency controls');
+          assert(orientation.includes('regente10_orientation_steps'),'Missing persisted orientation');
+          for(const role of ['C01','C03','C08']) assert(orientation.includes('role:"'+role+'"'),'Missing real role '+role);
+          assert(!orientation.includes('service_role'),'No bypass of RLS permitted');
+          assert(html.includes('id="stopAll"'),'Emergency button not accessible');
+          assert(html.includes('runOrientation'),'Client orientation flow missing');
+          console.log('Frontend syntax and pilot safety guards: PASS');
+          NODE

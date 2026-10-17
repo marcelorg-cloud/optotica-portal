@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#102b25"><title>Regente 1.0 — Missões Reais</title>
+<style>
+:root{--green:#174b3d;--deep:#102b25;--line:#dfe7e2;--muted:#64746a;--bg:#f4f6f4;--white:#fff;--shade:#e9f2ed;--red:#a94739;--amber:#a46b24}
+*{box-sizing:border-box}body{margin:0;color:#172921;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;background:var(--bg)}button,input,select,textarea{font:inherit}button{cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid #88c5a6;outline-offset:2px}
+button.primary{background:var(--green);border:1px solid var(--green);color:#fff;font-weight:650}button.light{background:#fff;color:var(--green);border:1px solid #c6d8cc}button.danger{color:var(--red);border:1px solid #edcfc8;background:#fff}
+button{border-radius:10px;padding:10px 14px}.small{font-size:12px}.muted{color:var(--muted)}strong{font-weight:700}.tag{background:var(--shade);color:var(--green);border-radius:15px;padding:4px 9px;font-size:11px;font-weight:700}
+.shell{min-height:100vh;display:flex}.side{width:265px;min-width:265px;background:var(--deep);color:#eaf4ee;padding:25px 16px;display:flex;flex-direction:column;gap:14px}.brand{font-weight:800;font-size:22px;letter-spacing:.09em;padding:3px 7px}.brand small{display:block;font-size:10px;letter-spacing:.08em;color:#b7cec0;font-weight:500;margin-top:5px}.side button{background:transparent;border:none;text-align:left;color:#cfdfd6;width:100%;padding:10px 12px;border-radius:9px}.side button.selected,.side button:hover{background:#234e40;color:#fff}.side .sec{font-size:11px;color:#8db09c;letter-spacing:.12em;text-transform:uppercase;padding:18px 10px 4px}.count{float:right;font-size:11px;opacity:.7}.main{width:100%;min-width:0}.top{height:76px;display:flex;align-items:center;justify-content:space-between;background:#fff;padding:0 34px;border-bottom:1px solid var(--line)}.top h1{font-size:20px;letter-spacing:-.035em;margin:0}.top .tright{display:flex;gap:10px;align-items:center}.content{padding:28px 34px;max-width:1270px;margin:auto}.cols{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:20px}.box{background:white;border:1px solid var(--line);border-radius:16px;padding:23px;margin-bottom:17px;box-shadow:0 8px 26px #163c2608}.box h2{font-size:19px;margin:0 0 13px}.box h3{font-size:15px;margin:0 0 9px}.box p{line-height:1.6}.label{font-size:12px;font-weight:700;display:block;margin:14px 0 6px}.field{border:1px solid #cdd9d1;border-radius:10px;padding:12px;background:#fff;width:100%;color:#1a2d24}.field:focus{border-color:#4a916f}.field.textarea{min-height:125px;resize:vertical}.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.spread{justify-content:space-between}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:15px 0}.steps button{background:#edf1ed;border:1px solid #dfe7df;font-size:13px;color:#4a5e51}.steps button.on{background:var(--deep);color:#fff}.note{border-left:3px solid #b6d7c3;background:#f3f8f5;padding:13px 15px;border-radius:5px;font-size:13px;line-height:1.55}.warning{border-color:#e2b778;background:#fff8e9}.list{display:flex;flex-direction:column;gap:8px}.mission{width:100%;border:1px solid var(--line);background:#fff;text-align:left;padding:12px;border-radius:9px}.mission.active{background:var(--shade);border-color:#b5cfbe}.mission b{display:block;font-size:13px;margin-bottom:4px}.mission small{color:var(--muted)}.result{border:1px solid var(--line);border-radius:12px;padding:18px;margin:12px 0}.result pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f8f5;padding:12px;border:1px solid var(--line);border-radius:8px;max-height:430px;overflow:auto;font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace}.statusLine{padding:11px 0;border-bottom:1px solid #edf0ed;font-size:13px}.rlabel{font-size:12px;color:var(--muted);display:block;margin:4px 0}h2.title{font-size:25px;letter-spacing:-.035em}#toast{position:fixed;bottom:20px;right:20px;max-width:500px;background:var(--deep);color:white;padding:12px 18px;border-radius:10px;z-index:20;display:none}#loginOverlay{position:fixed;inset:0;display:grid;place-items:center;background:#102b25f5;z-index:30;padding:20px}#loginOverlay .box{width:100%;max-width:440px}#loginOverlay h1{letter-spacing:.09em}a{color:var(--green);word-break:break-all}footer{font-size:11px;color:var(--muted);margin:22px 0}.hidden{display:none!important}@media(max-width:940px){.cols{grid-template-columns:1fr}.side{width:215px;min-width:215px}.content{padding:20px}.top{padding:0 20px}}@media(max-width:660px){.shell{display:block}.side{position:static;width:100%;height:auto;padding:10px;display:block}.side .brand{font-size:17px}.side .sec{display:none}.side #projectMenu{display:flex;gap:3px;overflow-x:auto}.side #projectMenu button{white-space:nowrap;font-size:12px;width:auto}.top{height:auto;min-height:60px;padding:12px;gap:8px}.top h1{font-size:16px}.content{padding:12px}.box{padding:16px}.steps{gap:4px}.steps button{padding:10px 5px;font-size:11px}}
+</style></head><body>
+<div id="loginOverlay">
+ <form id="loginForm" class="box"><h1>REGENTE</h1><p class="muted">1.0 · Acesso Master ao piloto operacional</p>
+ <p class="note">Use as credenciais Master do portal Optótica. As missões deste piloto são armazenadas separadamente do Regente antigo. Não inclua dados pessoais ou clínicos reais.</p>
+ <label class="label" for="email">E-mail</label><input id="email" class="field" type="email" required autocomplete="username">
+ <label class="label" for="password">Senha</label><input id="password" class="field" type="password" required autocomplete="current-password">
+ <div class="row" style="margin-top:16px"><button class="primary" type="submit">Entrar no Regente 1.0</button><span id="loginStatus" class="small muted"></span></div>
+ </form>
+</div>
+<div class="shell">
+ <aside class="side"><div class="brand">REGENTE<small>GOR AIEB INSTITUTO DA VISÃO · 1.0</small></div>
+ <div class="sec">Projetos</div><nav id="projectMenu">
+ <button data-project="optotica" class="selected">◎ Optótica</button>
+ <button data-project="ensavim">◌ ENSAVIM</button>
+ <button data-project="born-robot">◈ Regente / Born Robot</button></nav>
+ <div class="sec">Missões</div><div id="sideCount" class="small" style="padding:2px 12px;color:#aecabc">Carregando...</div><div style="flex:1"></div>
+ <button id="showNew">＋ Nova missão</button><button id="signOut">Sair da conta</button></aside>
+ <div class="main"><header class="top"><h1 id="pageTitle">Missões · Optótica</h1><div class="tright"><span id="serverStatus" class="tag">Verificando</span><button id="reload" class="light small">Atualizar</button></div></header>
+ <div class="content">
+ <div class="cols"><section>
+ <div class="box" id="newPanel"><div class="row spread"><h2>Criar missão</h2><span class="tag">Operacional</span></div>
+ <p class="muted">Escreva uma orientação inicial. O Afinamento por IA produz a partitura de execução e os resultados planejados.</p>
+ <form id="newForm"><label class="label" for="missionTitle">Título (opcional)</label><input class="field" id="missionTitle" maxlength="120" placeholder="Ex.: Planejar onboarding de profissionais">
+ <label class="label" for="missionText">Solicitação do Maestro</label><textarea class="field textarea" id="missionText" maxlength="4000" required minlength="8" placeholder="Descreva o que deseja obter. Não informe dados pessoais ou clínicos."></textarea>
+ <div class="row spread" style="margin-top:10px"><button type="button" class="light" id="dictate">🎙 Ditado (quando disponível)</button><span class="small muted">Confira a transcrição antes de enviar.</span></div>
+ <div class="row" style="margin-top:18px"><button class="primary" type="submit">Criar missão real</button><span id="saveStatus" class="small muted"></span></div>
+ </form></div>
+ <div id="missionPanel" class="hidden">
+ <div class="box"><div class="row spread"><div><h2 class="title" id="currentTitle"></h2><span id="currentStatus" class="tag"></span></div><button class="light" id="backToNew">Nova missão</button></div>
+ <div class="steps"><button class="on" data-phase="afinamento">1 · Afinamento</button><button data-phase="execucao">2 · Execução</button><button data-phase="resultados">3 · Resultados</button></div>
+ <div id="phaseBody"></div></div></div>
+ </section>
+ <aside>
+ <div class="box"><div class="row spread"><h3>Missões do projeto</h3><span id="missionCount" class="tag">0</span></div><div id="missionList" class="list"><p class="small muted">Entre para consultar.</p></div></div>
+ <div class="box"><h3>Estado do sistema</h3><div id="healthBox" class="small muted">Verificando a API...</div></div>
+ <div class="box"><h3>Limites deste piloto</h3>
+ <p class="small muted">Autenticação Master e armazenamento com RLS. Afinamento por uma chamada de IA seguindo responsabilidades C01–C08. Até 3 entregáveis textuais por missão, com aceite individual. Sem acesso a GitHub, Vercel, Canva, anúncios ou dados clínicos.</p>
+ <p class="note warning">A Orquestra multiagente e os instrumentos externos ainda não executam neste piloto. Não confunda relatórios produzidos pela IA com testes ou operações realizados.</p>
+ </div>
+ </aside></div><footer>Regente 1.0 · Piloto operacional isolado. Sem efeitos externos além de IA e registros de missão. Uso exclusivo do Master autorizado.</footer>
+ </div></div></div><div id="toast" role="status"></div>
+<script>
+const URL_SB="https://xepkdqcbjrictowriccb.supabase.co", PK="sb_publishable_F-DN3Z4GZbX5j2IeXtq5cw_rJHP6mfw";
+const projects={optotica:"Optótica",ensavim:"ENSAVIM","born-robot":"Regente / Born Robot"};
+const state={project:"optotica",token:sessionStorage.getItem("regente10_token")||"",refresh:sessionStorage.getItem("regente10_refresh")||"",current:null,items:[],phase:"afinamento",details:null,health:null};
+const $=id=>document.getElementById(id);
+const escape=s=>String(s??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+const notify=(text)=>{const t=$("toast");t.textContent=text;t.style.display="block";clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>t.style.display="none",6500)};
+const markBusy=(value)=>{document.querySelectorAll("button").forEach(b=>{if(b.id!=="signOut")b.disabled=value})};
+async function authFetch(path,opts={}){
+ const response=await fetch(URL_SB+path,{...opts,headers:{apikey:PK,"Content-Type":"application/json",...(opts.headers||{})}});
+ let v={};try{v=await response.json()}catch{}
+ if(!response.ok)throw Error(v.msg||v.error_description||v.message||"Falha de autenticação");return v;
+}
+async function login(email,password){const r=await authFetch("/auth/v1/token?grant_type=password",{method:"POST",body:JSON.stringify({email,password})});state.token=r.access_token;state.refresh=r.refresh_token;sessionStorage.setItem("regente10_token",state.token);sessionStorage.setItem("regente10_refresh",state.refresh);}
+async function refresh(){if(!state.refresh)throw Error("Sessão expirada.");const r=await authFetch("/auth/v1/token?grant_type=refresh_token",{method:"POST",body:JSON.stringify({refresh_token:state.refresh})});state.token=r.access_token;state.refresh=r.refresh_token;sessionStorage.setItem("regente10_token",state.token);sessionStorage.setItem("regente10_refresh",state.refresh);}
+async function api(action,payload=null,params={}) {
+ const url="/api/mission?action="+encodeURIComponent(action)+Object.entries(params).map(([k,v])=>"&"+encodeURIComponent(k)+"="+encodeURIComponent(v)).join("");
+ const opt={method:payload?"POST":"GET",headers:{"Content-Type":"application/json",...(state.token?{"Authorization":"Bearer "+state.token}:{})},...(payload?{body:JSON.stringify(payload)}:{})};
+ let r=await fetch(url,opt);if(r.status===401&&state.refresh&&action!=="health"){await refresh();opt.headers.Authorization="Bearer "+state.token;r=await fetch(url,opt);}
+ let v;try{v=await r.json()}catch{v={error:"Resposta inválida da API."}}
+ if(!r.ok)throw Error(v.error||"Erro "+r.status);return v;
+}
+async function boot(){
+ try{state.health=await api("health");$("healthBox").innerHTML='<div class="statusLine">Armazenamento isolado: <b>conectado</b></div><div class="statusLine">IA no projeto: <b>'+ (state.health.aiConfigured?"configurada":"não configurada")+'</b></div><div class="statusLine">Instrumentos externos: <b>desativados</b></div>';$("serverStatus").textContent=state.health.aiConfigured?"IA conectada":"IA pendente";}
+ catch(e){$("serverStatus").textContent="API indisponível";$("healthBox").textContent=e.message}
+ if(state.token){try{await list();$("loginOverlay").classList.add("hidden")}catch(e){$("loginOverlay").classList.remove("hidden");notify(e.message)}}
+}
+async function list(){
+ const r=await api("list");state.items=r.missions||[];$("loginOverlay").classList.add("hidden");
+ const current=state.items.filter(m=>m.project===state.project);$("missionCount").textContent=current.length;$("sideCount").textContent=state.items.length+" missões no Instituto";
+ $("missionList").innerHTML=current.length?current.map(m=>'<button class="mission '+(m.id===state.current?"active":"")+'" data-id="'+escape(m.id)+'"><b>'+escape(m.title)+'</b><small>'+escape(m.status.replaceAll("_"," "))+' · '+new Date(m.created_at).toLocaleDateString("pt-BR")+'</small></button>').join(""):'<p class="small muted">Nenhuma missão ainda neste projeto.</p>';
+}
+async function openMission(id){const r=await api("detail",null,{id});state.current=id;state.details=r;state.phase="afinamento";$("newPanel").classList.add("hidden");$("missionPanel").classList.remove("hidden");$("currentTitle").textContent=r.mission.title;$("currentStatus").textContent=r.mission.status.replaceAll("_"," ");renderPhase();await list()}
+function content(text){return '<pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:480px;overflow:auto;border:1px solid var(--line);border-radius:10px;background:#f6f8f6;padding:14px;font-size:13px;line-height:1.6">'+escape(text)+'</pre>'}
+function renderPhase(){
+ const m=state.details?.mission;if(!m)return;
+ document.querySelectorAll("[data-phase]").forEach(b=>b.classList.toggle("on",b.dataset.phase===state.phase));
+ $("currentStatus").textContent=m.status.replaceAll("_"," ");
+ const pan=$("phaseBody");
+ if(state.phase==="afinamento"){
+ const r=m.diagnostic||{};
+ pan.innerHTML='<h3>Prompt Afinado da missão</h3>'+(m.prompt_affinado?content(m.prompt_affinado):'<p class="muted">A missão foi salva no banco. Execute o Afinamento para gerar o plano de trabalho por IA.</p>')+
+ '<div class="note">As oito responsabilidades da Camada de Orientação são contempladas como checklist. Neste piloto, a síntese é feita por <b>uma chamada de IA</b>; não são oito agentes independentes.</div>'+
+ (m.prompt_affinado?'<h3 style="margin-top:20px">Diagnóstico crítico</h3>'+content(JSON.stringify(r,null,2))+'<h3>Entregáveis previstos</h3>'+ (m.result_plan||[]).map((x,i)=>'<div class="statusLine"><b>'+ (i+1)+'. '+escape(x.titulo)+'</b><div class="small muted">'+escape(x.criterio)+'</div></div>').join(""):'')+
+ '<div class="row" style="margin-top:17px">'+(!m.prompt_affinado?'<button class="primary" data-op="afinamento" '+(!state.health?.aiConfigured?"disabled":"")+'>Gerar Prompt Afinado por IA</button>':'')+(m.status==="aguardando_autorizacao"?'<button class="primary" data-op="authorize">Autorizar execução textual</button>':'')+'</div>';
+ }
+ if(state.phase==="execucao"){
+ pan.innerHTML='<h3>Execução autorizada</h3><p class="muted">Os resultados são gerados por IA individualmente. Uma falha não impede que os demais sejam produzidos. Não há execução de código, publicações ou alterações externas.</p>'+
+ (m.envelope_approved_at?'<div class="note">Autorização de geração textual registrada em '+new Date(m.envelope_approved_at).toLocaleString("pt-BR")+'.</div>':'<div class="note warning">Antes de gerar resultados, aprove o Prompt Afinado na primeira fase.</div>')+
+ (m.result_plan||[]).map((p,i)=>{const output=state.details.outputs.find(x=>x.slot===i),run=state.details.runs.find(x=>x.kind==="resultado"&&x.slot===i);return '<div class="result"><b>'+escape(p.titulo)+'</b><span class="rlabel">Critério: '+escape(p.criterio)+'</span><span class="rlabel">Situação: '+escape(output?.status||run?.status||"pendente")+'</span>'+(!output&&!run&&m.envelope_approved_at?'<button class="primary" data-op="generate" data-slot="'+i+'" '+(!state.health?.aiConfigured?"disabled":"")+'>Gerar este resultado</button>':output?'<button class="light" data-phase="resultados">Ver resultado</button>':"")+'</div>'}).join("");
+ }
+ if(state.phase==="resultados"){
+ const outputs=state.details.outputs||[],plan=m.result_plan||[];
+ pan.innerHTML='<h3>Central de Resultados</h3><p class="muted">Entregáveis reais persistidos, cada um com aceite próprio. Os resultados surgem enquanto outras tarefas continuam.</p>'+
+ (plan.length?plan.map((p,i)=>{const o=outputs.find(x=>x.slot===i);return '<div class="result"><div class="row spread"><h3>'+escape(p.titulo)+'</h3><span class="tag">'+escape(o?.status||"pendente")+'</span></div>'+(o?content(o.content)+'<div class="row"><button class="light" data-op="download" data-slot="'+i+'">Baixar .md</button>'+(o.status!=="aceito"?'<button class="primary" data-op="accept" data-slot="'+i+'">Aceitar resultado</button>':'')+'</div>':'<p class="small muted">Nenhum arquivo produzido ainda para este entregável.</p>')+'</div>'}).join(""):"<p>Aguarde o Afinamento definir os resultados.</p>")+
+ '<div class="row" style="margin-top:14px">'+(m.status!=="concluida"?'<button class="primary" data-op="conclude">Concluir missão</button>':'<span class="tag">Missão concluída</span>')+'</div>';
+ }
+}
+async function change(op,slot){
+ const m=state.details?.mission;if(!m)return;
+ if(op==="download"){const o=state.details.outputs.find(x=>x.slot===slot);if(!o)return;const file=new Blob([o.content],{type:"text/markdown;charset=utf-8"});const a=document.createElement("a");a.href=URL.createObjectURL(file);a.download="regente-resultado-"+(slot+1)+".md";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);return;}
+ if(op==="authorize"&&!confirm("Autorizar esta missão SOMENTE a gerar até três resultados textuais por IA? Não permite commits, banco, anúncios ou publicação."))return;
+ if(op==="conclude"&&!confirm("Concluir a missão depois do aceite de todos os entregáveis?"))return;
+ markBusy(true);
+ try{const req={id:m.id,...(slot!==undefined?{slot}:{})};const response=await api(op,req);notify(op==="afinamento"?"Prompt Afinado gerado.":op==="generate"?"Resultado persistido.":"Operação registrada.");await openMission(m.id);state.phase=op==="generate"||op==="accept"||op==="conclude"?"resultados":op==="authorize"?"execucao":"afinamento";renderPhase();}
+ catch(e){notify(e.message)}
+ finally{markBusy(false)}
+}
+$("loginForm").addEventListener("submit",async e=>{e.preventDefault();$("loginStatus").textContent="Autenticando...";try{await login($("email").value,$("password").value);$("password").value="";await list();$("loginStatus").textContent=""}catch(err){$("loginStatus").textContent=err.message}});
+$("newForm").addEventListener("submit",async e=>{e.preventDefault();$("saveStatus").textContent="Salvando no Supabase...";markBusy(true);try{const r=await api("create",{project:state.project,title:$("missionTitle").value,request:$("missionText").value});$("saveStatus").textContent="";$("missionText").value="";$("missionTitle").value="";await openMission(r.mission.id);notify("Missão criada e armazenada.")}catch(err){notify(err.message)}finally{markBusy(false)}});
+$("projectMenu").addEventListener("click",async e=>{const b=e.target.closest("[data-project]");if(!b)return;state.project=b.dataset.project;document.querySelectorAll("[data-project]").forEach(x=>x.classList.toggle("selected",x===b));$("pageTitle").textContent="Missões · "+projects[state.project];state.current=null;state.details=null;$("newPanel").classList.remove("hidden");$("missionPanel").classList.add("hidden");await list()});
+$("missionList").addEventListener("click",async e=>{const b=e.target.closest("[data-id]");if(!b)return;try{await openMission(b.dataset.id)}catch(err){notify(err.message)}});
+$("missionPanel").addEventListener("click",async e=>{const b=e.target.closest("[data-op],[data-phase]");if(!b)return;if(b.dataset.phase){state.phase=b.dataset.phase;renderPhase()}if(b.dataset.op)change(b.dataset.op,b.dataset.slot===undefined?undefined:Number(b.dataset.slot))});
+$("showNew").onclick=$("backToNew").onclick=()=>{$("newPanel").classList.remove("hidden");$("missionPanel").classList.add("hidden")};
+$("reload").onclick=async()=>{try{if(state.current)await openMission(state.current);else await list();notify("Dados atualizados do servidor.")}catch(e){notify(e.message)}};
+$("signOut").onclick=()=>{state.token="";state.refresh="";sessionStorage.removeItem("regente10_token");sessionStorage.removeItem("regente10_refresh");$("loginOverlay").classList.remove("hidden");notify("Sessão local encerrada.")};
+$("dictate").onclick=()=>{const Rec=window.SpeechRecognition||window.webkitSpeechRecognition;if(!Rec)return notify("Este navegador não oferece reconhecimento de voz. Utilize digitação.");if(!confirm("O fornecedor do navegador poderá processar seu áudio. Utilize somente informações não pessoais. Deseja iniciar?"))return;const rec=new Rec();rec.lang="pt-BR";rec.interimResults=false;rec.onresult=e=>{$("missionText").value=($("missionText").value+" "+e.results[0][0].transcript).trim();notify("Transcrição adicionada. Revise antes de criar a missão.")};rec.onerror=e=>notify("Ditado indisponível: "+e.error);rec.start()};
+boot();
+</script></body></html>

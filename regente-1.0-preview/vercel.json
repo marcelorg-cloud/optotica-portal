@@ -1,0 +1,35 @@
+{
+  "cleanUrls": true,
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
+    }
+  ],
+  "functions": {
+    "api/orientation.js": {
+      "maxDuration": 60
+    },
+    "api/mission.js": {
+      "maxDuration": 60
+    },
+    "api/agents.js": {
+      "maxDuration": 60
+    },
+    "api/network.js": {
+      "maxDuration": 20
+    },
+    "api/bridges.js": {
+      "maxDuration": 20
+    }
+  }
+}
