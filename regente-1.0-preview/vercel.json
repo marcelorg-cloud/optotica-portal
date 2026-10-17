@@ -28,7 +28,8 @@
       "maxDuration": 60
     },
     "api/network.js": {
-      "maxDuration": 20
+      "maxDuration": 20,
+      "includeFiles": "network-catalog.json"
     },
     "api/bridges.js": {
       "maxDuration": 20
