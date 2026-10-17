@@ -139,7 +139,7 @@ export default async function ProfessionalPage({ searchParams }: { searchParams:
   return (
     <div className="page-shell">
       <section className="dashboard-head">
-        <div><p className="eyebrow">Visão geral</p><h1>Olá, {profile.display_name.split(' ')[0]}.</h1><p className="muted">Acompanhe seus pedidos e retome os atendimentos.</p></div>
+        <div><p className="eyebrow">Visão geral</p><h1>Olá, {profile.display_name.split(' ')[0]}.</h1><p className="muted">Acompanhe seus atendimentos e retome os que estão em andamento.</p></div>
         <div className="workspace-actions">
           <Link className="button primary" href="/profissional/pacientes">Iniciar novo atendimento</Link>
           <Link className="button secondary" href="/profissional/pacientes/novo">Convidar paciente</Link>
@@ -152,7 +152,7 @@ export default async function ProfessionalPage({ searchParams }: { searchParams:
       </section>}
 
       <section className="card table-card orders-table">
-        <div className="workspace-section-title"><h2>Pedidos</h2><span>{loadFailed ? 'Carregamento indisponível' : `${orders.length} ${orders.length === 1 ? 'pedido listado' : 'pedidos listados'}${filtersActive ? ' com os filtros atuais' : ''}`}</span></div>
+        <div className="workspace-section-title"><h2>Atendimentos</h2><span>{loadFailed ? 'Carregamento indisponível' : `${orders.length} ${orders.length === 1 ? 'atendimento listado' : 'atendimentos listados'}${filtersActive ? ' com os filtros atuais' : ''}`}</span></div>
         <form className="filter-bar" method="get">
           <div className="field">
             <label htmlFor="f-paciente">Paciente</label>
@@ -185,7 +185,7 @@ export default async function ProfessionalPage({ searchParams }: { searchParams:
 
         {loadFailed && (
           <div className="setup-note" style={{ margin: 20 }}>
-            Não foi possível carregar a lista de pedidos agora. Tente novamente em instantes.
+            Não foi possível carregar a lista de atendimentos agora. Tente novamente em instantes.
           </div>
         )}
 
@@ -203,7 +203,7 @@ export default async function ProfessionalPage({ searchParams }: { searchParams:
 
         {!loadFailed && orders.length === 0 && (
           <div className="empty-state">
-            {filtersActive ? 'Nenhum pedido encontrado para os filtros selecionados.' : 'Nenhum pedido cadastrado ainda.'}
+            {filtersActive ? 'Nenhum atendimento encontrado para os filtros selecionados.' : 'Nenhum atendimento cadastrado ainda.'}
           </div>
         )}
       </section>
